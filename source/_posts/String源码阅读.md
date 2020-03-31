@@ -1,12 +1,12 @@
 ---
 title: String源码阅读
 date: 2020-03-30 20:51:45
-tags: java,java源代码,String
+tags: [java,java源代码,String]
 ---
 
 [TOC]
 
-
+<!-- toc -->
 
 jdk8
 
@@ -649,15 +649,72 @@ public String substring(int beginIndex, int endIndex) {
 
 ## replace
 
+ avoid getfield opcode：https://www.cnblogs.com/think-in-java/p/6130917.html
+
+* 首先找到第一个要替换的值的位置，然后再去new一个char[] 将其push进去
+* 这里极端情况下会遍历两次len，但是如果没有找到oldchar可以节约一个char[len]的空间
+
+```java
+/**
+ * Returns a string resulting from replacing all occurrences of
+ * {@code oldChar} in this string with {@code newChar}.
+ * <p>
+ * If the character {@code oldChar} does not occur in the
+ * character sequence represented by this {@code String} object,
+ * then a reference to this {@code String} object is returned.
+ * Otherwise, a {@code String} object is returned that
+ * represents a character sequence identical to the character sequence
+ * represented by this {@code String} object, except that every
+ * occurrence of {@code oldChar} is replaced by an occurrence
+ * of {@code newChar}.
+ * <p>
+ * Examples:
+ * <blockquote><pre>
+ * "mesquite in your cellar".replace('e', 'o')
+ *         returns "mosquito in your collar"
+ * "the war of baronets".replace('r', 'y')
+ *         returns "the way of bayonets"
+ * "sparring with a purple porpoise".replace('p', 't')
+ *         returns "starring with a turtle tortoise"
+ * "JonL".replace('q', 'x') returns "JonL" (no change)
+ * </pre></blockquote>
+ *
+ * @param   oldChar   the old character.
+ * @param   newChar   the new character.
+ * @return  a string derived from this string by replacing every
+ *          occurrence of {@code oldChar} with {@code newChar}.
+ */
+public String replace(char oldChar, char newChar) {
+    if (oldChar != newChar) {
+        int len = value.length;
+        int i = -1;
+        char[] val = value; /* avoid getfield opcode */
+
+        while (++i < len) {
+            if (val[i] == oldChar) {
+                break;
+            }
+        }
+        if (i < len) {
+            char buf[] = new char[len];
+            for (int j = 0; j < i; j++) {
+                buf[j] = val[j];
+            }
+            while (i < len) {
+                char c = val[i];
+                buf[i] = (c == oldChar) ? newChar : c;
+                i++;
+            }
+            return new String(buf, true);
+        }
+    }
+    return this;
+}
+```
 
 
-## split
 
-
-
-## join
-
-
+总感觉不满意，有没有优化空间呢？暂时想不到。  //todo
 
 ## trim
 
@@ -823,15 +880,45 @@ intern() 方法返回字符串对象的规范化表示形式。
 
 # 各个版本代码重大改变
 
+//todo
 
 
 
-
-# 面试常见问题
-
+# 常见问题
 
 
 
+1. JDK 6和JDK 7中substring的原理及区别
+
+http://hollischuang.gitee.io/tobetopjavaer/#/basics/java-basic/substring
+
+2. replaceFirst、replaceAll、replace区别
+
+https://www.cnblogs.com/zeze/p/5010022.html
+
+3. String对“+”的重载
+
+http://hollischuang.gitee.io/tobetopjavaer/#/basics/java-basic/string-append
+
+4. 字符串拼接的几种方式和区别
+
+http://hollischuang.gitee.io/tobetopjavaer/#/basics/java-basic/string-concat
+
+5. String.valueOf和Integer.toString的区别
+
+http://hollischuang.gitee.io/tobetopjavaer/#/basics/java-basic/value-of-vs-to-string
+
+6. switch对String的支持
+
+http://hollischuang.gitee.io/tobetopjavaer/#/basics/java-basic/switch-string
+
+7. 字符串池
+
+https://www.cnblogs.com/fangfuhai/p/5500065.html
+
+8. Java String 面试题以及答案
+
+https://www.cnblogs.com/rese-t/p/8024166.html
 
 # 参考文献
 
@@ -839,4 +926,12 @@ intern() 方法返回字符串对象的规范化表示形式。
 [2]: https://www.zhihu.com/question/42176549	"Java中字符的高代理highSurrogate和低代理lowSurrogate分别是什么？"
 [3]: http://hollischuang.gitee.io/tobetopjavaer/#/basics/java-basic/substring	"JDK 6和JDK 7中substring的原理及区别"
 [4]: https://blog.csdn.net/leeqihe/article/details/81006611	"string.trim()究竟去掉了什么？"
+
+[5]: https://www.cnblogs.com/think-in-java/p/6130917.html	"String源码中的&quot;avoid getfield opcode"
+[6]: https://www.cnblogs.com/zeze/p/5010022.html	"replaceFirst、replaceAll、replace区别"
+[7]: http://hollischuang.gitee.io/tobetopjavaer/#/basics/java-basic/string-concat	"字符串拼接的几种方式和区别"
+[8]: http://hollischuang.gitee.io/tobetopjavaer/#/basics/java-basic/value-of-vs-to-string	"String.valueOf和Integer.toString的区别"
+[9]: http://hollischuang.gitee.io/tobetopjavaer/#/basics/java-basic/switch-string	"switch对String的支持"
+[10]: https://www.cnblogs.com/fangfuhai/p/5500065.html	"字符串池"
+[11]: https://www.cnblogs.com/rese-t/p/8024166.html	"Java String 面试题以及答案"
 

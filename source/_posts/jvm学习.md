@@ -1,7 +1,7 @@
 ---
 title: jvm学习
 date: 2020-03-28 19:55:48
-tags: jvm, java
+tags: [jvm, java]
 ---
 
 学习视频：

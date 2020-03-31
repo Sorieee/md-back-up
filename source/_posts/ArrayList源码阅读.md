@@ -1,7 +1,7 @@
 ---
 title: ArrayList源代码解读
 date: 2020-03-28 13:05:07
-tags: java,java容器,List,ArrayList,java源代码
+tags: [java,java容器,List,ArrayList,java源代码]
 ---
 
 [TOC]

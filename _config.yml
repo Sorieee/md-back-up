@@ -8,7 +8,7 @@ subtitle: ''
 description: ''
 keywords:
 author: 宋梓立 sorie
-language: en
+language: zh-Hans
 timezone: ''
 
 # URL
@@ -93,7 +93,7 @@ ignore:
 # Extensions
 ## Plugins: https://hexo.io/plugins/
 ## Themes: https://hexo.io/themes/
-theme: yilia
+theme: next
 
 # Deployment
 ## Docs: https://hexo.io/docs/deployment.html
@@ -107,7 +107,4 @@ toc:
   class: toc
   slugify: transliteration
   decodeEntities: false
-  anchor:
-    position: after
-    symbol: '#'
-    style: header-anchor
+ 
