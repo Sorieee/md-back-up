@@ -1,7 +1,7 @@
 ---
 title: 编译Spring
 date: 2020-03-28 18:44:19
-tags:
+tags: spring
 ---
 
 有时候遇到少了某些类，不过缺哪个跑一下哪个的test就可以了。

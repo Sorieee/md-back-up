@@ -1,14 +1,10 @@
 ---
 title: ArrayList源代码解读
 date: 2020-03-28 13:05:07
-tags: java java容器 List ArrayList
+tags: java,java容器,List,ArrayList,java源代码
 ---
 
 [TOC]
-
-
-
-
 
 # ensureCapacity方法
 
@@ -73,7 +69,7 @@ tags: java java容器 List ArrayList
 1. 首先尝试扩容1.5倍，如果还是小于最小所需容量，则直接设置为最小所需容量(这里也可以判断溢出)
 
 2. 然后如果新的容量比最大容量(MAX_ARRAY_SIZE)还大，则设置为int的最大值，否则返回MAX_ARRAY_SIZE
-3. 最后一句就是说，最小容量通常和size的容量差不多，所以
+3. 最后一句就是说，最小容量通常和size的容量差不多，所以这样就ok
 
 ```java
  /**
