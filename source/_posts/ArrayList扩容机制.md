@@ -1,5 +1,5 @@
 ---
-title: ArrayList源代码解读
+title: ArrayList扩容机制
 date: 2020-03-28 13:05:07
 tags: [java,java容器,List,ArrayList,java源代码]
 ---
