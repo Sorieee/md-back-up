@@ -174,4 +174,410 @@ public ArrayList(Collection<? extends E> c) {
 }
 ```
 
-//todo 未完待续
+## 3.3 添加方法
+
+| 方法名                                                  | 描述                                                         |
+| ------------------------------------------------------- | ------------------------------------------------------------ |
+| public boolean add(E e)                                 | 将指定元素添加到此列表的末尾。                               |
+| public void add(int index, E element)                   | 在此列表中的制定位置插入制定的元素。                         |
+| public boolean addAll(Collection<? extends E> c)        | 按制定集合的Iterator返回的顺序将制定集合中的所有元素追加到此列表的末尾 |
+| public boolean AddAll(index, Collection<? extends E> c) | 将指定集合中的所有元素到此列表中，从制定位置开始             |
+
+### public boolean add(E e)
+
+* 扩容
+* 在末尾添加元素
+
+```java
+public boolean add(E e) {
+    ensureCapacityInternal(size + 1);  // Increments modCount!!
+    elementData[size++] = e;
+    return true;
+}
+```
+
+### public void add(int index, E element)
+
+* 首先进行越界检查
+* 扩容
+* 将要插入位置以及之后的元素往后挪动一位
+* 设置元素
+* 增加size
+
+```java
+public void add(int index, E element) {
+    rangeCheckForAdd(index);
+
+    ensureCapacityInternal(size + 1);  // Increments modCount!!
+    System.arraycopy(elementData, index, elementData, index + 1,
+            size - index);
+    elementData[index] = element;
+    size++;
+}
+```
+
+### public boolean addAll(Collection<? extends E> c)
+
+* 将集合转为数组
+* 扩容
+* 复制数组集合到elementData末尾
+* 改变size
+* 如果c长度为0返回false，否则返回true
+
+```java
+public boolean addAll(Collection<? extends E> c) {
+    Object[] a = c.toArray();
+    int numNew = a.length;
+    ensureCapacityInternal(size + numNew);  // Increments modCount
+    System.arraycopy(a, 0, elementData, size, numNew);
+    size += numNew;
+    return numNew != 0;
+}
+```
+
+
+
+### public boolean AddAll(index, Collection<? extends E> c)
+
+* 边界检查
+* 集合c转数组a
+* 校验扩容
+* 移动元素
+* 将a元素复制list中
+* 调整size
+
+```java
+public boolean addAll(int index, Collection<? extends E> c) {
+    rangeCheckForAdd(index);
+
+    Object[] a = c.toArray();
+    int numNew = a.length;
+    ensureCapacityInternal(size + numNew);  // Increments modCount
+
+    int numMoved = size - index;
+    if (numMoved > 0)
+        System.arraycopy(elementData, index, elementData, index + numNew,
+                         numMoved);
+
+    System.arraycopy(a, 0, elementData, index, numNew);
+    size += numNew;
+    return numNew != 0;
+}
+```
+
+## 3.4 修改方法
+
+* 越界检查
+* 取出当前index的值
+* 修改index位置的值
+* 返回之前index位置的值
+
+```java
+public E set(int index, E element) {
+    rangeCheck(index);
+
+    E oldValue = elementData(index);
+    elementData[index] = element;
+    return oldValue;
+}
+```
+
+## 3.5 获取方法
+
+* 越界检查
+* 获取数组中元素
+
+```java
+public E get(int index) {
+    rangeCheck(index);
+
+    return elementData(index);
+}
+```
+
+## 3.6 toString()方法
+
+该方法继承于AbstractCollection
+
+* 获取迭代器
+* 如果没有数据返回"[]"
+* 有数据则使用StringBuilder拼接,按逗号隔开
+* 如果某个元素是collection本身，显示则值是"(this Collection)" ,否则是元素的toString()
+
+```java
+public String toString() {
+    Iterator<E> it = iterator();
+    if (! it.hasNext())
+        return "[]";
+
+    StringBuilder sb = new StringBuilder();
+    sb.append('[');
+    for (;;) {
+        E e = it.next();
+        sb.append(e == this ? "(this Collection)" : e);
+        if (! it.hasNext())
+            return sb.append(']').toString();
+        sb.append(',').append(' ');
+    }
+}
+```
+
+## 3.7 迭代器
+
+```java
+public Iterator<E> iterator() {
+    //创建一个内部类的对象
+    return new Itr();
+}
+
+/**
+ * An optimized version of AbstractList.Itr
+ */
+private class Itr implements Iterator<E> {
+    int cursor;       // 光标，默认是0
+    int lastRet = -1; //  记录-1
+    int expectedModCount = modCount; //将集合实际修改次数赋值给预期修改次数
+
+   	//判断集合是否有元素
+    public boolean hasNext() {
+        // 光标不等于size
+        return cursor != size;
+    }
+
+    @SuppressWarnings("unchecked")
+    public E next() {
+        //校验预期修改次数和实际修改集合次数一样
+        checkForComodification();
+        //光标复制为i
+        int i = cursor;
+        //判断，如果大于集合size就说明没有元素
+        if (i >= size)
+            throw new NoSuchElementException();
+        //把集合存储数组地址赋值给局部变量
+        Object[] elementData = ArrayList.this.elementData;
+        //判断i是否大于集合容量
+        if (i >= elementData.length)
+            throw new ConcurrentModificationException();
+        //光标自增
+        cursor = i + 1;
+        return (E) elementData[lastRet = i];
+    }
+
+    public void remove() {
+        if (lastRet < 0)
+            throw new IllegalStateException();
+        checkForComodification();
+
+        try {
+            ArrayList.this.remove(lastRet);
+            cursor = lastRet;
+            lastRet = -1;
+            expectedModCount = modCount;
+        } catch (IndexOutOfBoundsException ex) {
+            throw new ConcurrentModificationException();
+        }
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public void forEachRemaining(Consumer<? super E> consumer) {
+        Objects.requireNonNull(consumer);
+        final int size = ArrayList.this.size;
+        int i = cursor;
+        if (i >= size) {
+            return;
+        }
+        final Object[] elementData = ArrayList.this.elementData;
+        if (i >= elementData.length) {
+            throw new ConcurrentModificationException();
+        }
+        while (i != size && modCount == expectedModCount) {
+            consumer.accept((E) elementData[i++]);
+        }
+        // update once at end of iteration to reduce heap write traffic
+        cursor = i;
+        lastRet = i - 1;
+        checkForComodification();
+    }
+
+    final void checkForComodification() {
+        if (modCount != expectedModCount)
+            throw new ConcurrentModificationException();
+    }
+}
+```
+
+### 并发修改异常产生原因分析
+
+以下代码抛出并发修改异常
+
+```java
+List<String> list = new ArrayList<>();
+list.add("A");
+list.add("B");
+list.add("C");
+Iterator<String> iterator = list.iterator();
+while (iterator.hasNext()) {//删除C之后，因为size发生改变，所以hasNext还是为true
+    String s = iterator.next(); // checkForComodification失败 然后报异常
+    if ("C".equals(s)) {
+        list.remove("C");
+    }
+}
+```
+
+### 并发修改异常产生的特殊情况
+
+以下代码不会产生并发修改异常
+
+因为移除C之后，size变成2，判断hasNext的时候，光标2和size一样。
+
+```java
+List<String> list = new ArrayList<>();
+list.add("A");
+list.add("C");
+list.add("B");
+Iterator<String> iterator = list.iterator();
+while (iterator.hasNext()) {
+    String s = iterator.next();
+    if ("C".equals(s)) {
+        list.remove("C");
+    }
+}
+```
+
+### 迭代器默认remove方法
+
+```java
+public void remove() {
+    if (lastRet < 0)
+        throw new IllegalStateException();
+    //校验是否并发修改异常
+    checkForComodification();
+
+    try {
+        //删除元素
+        ArrayList.this.remove(lastRet);
+        //光标异动到最后记录位置
+        cursor = lastRet;
+        //最后记录位置变成-1
+        lastRet = -1;
+        //预期修改次数更新
+        expectedModCount = modCount;
+    } catch (IndexOutOfBoundsException ex) {
+        throw new ConcurrentModificationException();
+    }
+}
+```
+
+## 3.8 clear方法
+
+* 修改次数自增
+* 清空元素
+* size设置为0
+
+```java
+public void clear() {
+    modCount++;
+
+    // clear to let GC do its work
+    for (int i = 0; i < size; i++)
+        elementData[i] = null;
+
+    size = 0;
+}
+```
+
+## 3.9 contains&indexOf方法
+
+contains直接调用indexOf
+
+indexOf方法:
+
+* 如果为null，就找到一个为null的返回
+* 否则用equals方法去查找相等的
+* 如果都找不到返回-1
+
+```java
+public boolean contains(Object o) {
+    return indexOf(o) >= 0;
+}
+
+public int indexOf(Object o) {
+    if (o == null) {
+        for (int i = 0; i < size; i++)
+            if (elementData[i]==null)
+                return i;
+    } else {
+        for (int i = 0; i < size; i++)
+            if (o.equals(elementData[i]))
+                return i;
+    }
+    return -1;
+}
+```
+
+
+
+## 3.10 isEmpty方法
+
+```java
+public boolean isEmpty() {
+    return size == 0;
+}
+```
+
+## 3.11 其他方法
+
+//todo 
+
+# 4.常见面试题
+
+## 4.1 ArrayList扩容机制
+
+第一次扩容10,以后每次都是原容量的1.5倍。
+
+## 4.2 如何解决扩容带来的性能问题
+
+设置初始化容量或者使用public void ensureCapacity(int minCapacity)直接进行扩容。
+
+## 4.3 ArrayList插入和删除元素一定比LinkedList慢么
+
+LinkedList移除时需要先查找到节点，再删除，所以不一定更快。
+
+## 4.4 ArrayList是线程安全的么？
+
+不是，如果需要线程安全，可以用Vector或者或者用Collections.synchronizedList方法变成一个安全的集合。
+
+```java
+public static <T> List<T> synchronizedList(List<T> list) {
+    return (list instanceof RandomAccess ?
+            new SynchronizedRandomAccessList<>(list) :
+            new SynchronizedList<>(list));
+}
+```
+
+## 4.5 如何复制某个ArrayList到另外一个ArrayList中去
+
+* clone
+* 构造方法
+* addAll
+
+## 4.6 多线程读写问题
+
+Q:已知成员变量集合存储N多用户名称，在多线程环境下，使用迭代器在读取数据集合的同事如何保证还可以正常的写入数据到集合。
+
+A: 用CopyOnWriteArrayList，它所有可变操作都是对底层数组的最新的副本实现
+
+## 4.7 ArrayList和LinkedList的区别
+
+* ArrayList
+  1. 基于动态数组的数据结构
+  2. 对于随机访问get和set，ArrayList要优于LinkedList
+  3. 对于随机操作的add和remove，ArrayList不一定比LinkedList慢（ArrayList底层优于是动态数组，因此并不是每次add和remove都需要创建新的数组)
+* LinkedList
+  1. 基于链表的数据结构
+  2. 对于顺序操作，LinkedList不一定比ArrayList慢
+  3. 对于随机操作，LinkedList效率明显较低
+
+
+
