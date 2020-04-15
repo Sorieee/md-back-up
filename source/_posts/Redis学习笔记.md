@@ -1,5 +1,5 @@
 ---
- title: Redis学习笔记
+title: Redis学习笔记
 date: 2020-03-29 00:08:27
 tags: redis
 ---
@@ -24,8 +24,6 @@ tags: redis
 
 * 降低磁盘IO次数，越低越好 —— 内存存储
 * 去除数据间关系，越简单越好 —— 不存储关系，仅存储数据
-
-
 
 # NoSql
 
@@ -501,8 +499,272 @@ Tips 7
 
 
 
+## set类型
+
+* 新的存储需求：存储大量数据，在查询方面提供更高的效率。
+* 需要的存储结构：能够保存大量数据，高效的内部存储机制，便于查询
+
+![image-20200411142137761](C:\Users\81929\AppData\Roaming\Typora\typora-user-images\image-20200411142137761.png)
+
+### 基本操作
+
+```
+# 添加数据
+sadd key member1 [member2]
+# 获取全部数据
+smembers key
+# 删除数据
+srem key member1 [member2]
+# 获取数据总量
+scard key
+# 判断集合中是否包含指定数据
+sismember key member
+```
+
+### 扩展操作
+
+**业务场景**
+
+每位用户首次使用今日头条会设置3项爱好，但是后期为了增加用户活跃度、兴趣点，必须让用户对其他信息类别逐渐产生兴趣，增加客户留存度。
+
+**业务分析**
+
+* 系统分析各个分类最新或者最热点信息条目并组织set集合
+* 随机挑选其中部分消息
+* 配合用户关注信息分类中的热点信息组织成展示的全信息集合
+
+**解决方案**
+
+```
+# 随机获取元素集合中制定数量的数据
+srandmember key [count]
+# 随机获取集合中的某个数据并将该数据移出集合
+spop key [count]
+```
+
+**业务场景**
+
+共同关注，共同好友
+
+```
+# 求2两个集合的交、并、差集
+sinter key1 [key2]
+sunion key1 [key2]
+sdiff key1 [key2]
+
+# 求两个集合的交、并、差集并存储到指定集合中
+sinterstore destination key1 [key2]
+sunionstore destination key1 [key2]
+sdiffstore destionation key1 [key2]
+
+# 将制定数据从原始集合异动到目标集合
+smove source destination member
+```
+
+### 注意事项
+
+* 数据不重复
+* set和hash结构相似，但是无法启用hash中存储值的空间
+
+### 应用场景
+
+* 权限判断
+* 网站访问统计
+* 黑白名单
+
+## sorted_set
+
+* 新的存储需求：数据排序有利于数据的有效展示，需要提供一种可以根据自身特征进行排序的方式
+* 需要的结存结构：新的存储模型，可以保存可排序的数据
+* sorted_set类型：在set的存储结构基础上添加可排序的字段
+
+![image-20200411144452744](C:\Users\81929\AppData\Roaming\Typora\typora-user-images\image-20200411144452744.png)
+
+### 基础操作
+
+```
+# 添加数据
+zadd key score1 member1 [score2 member2]
+# 获取全部数据
+zrange key start stop [withscores]
+zrevrange key start stop [withscores]
+# 删除数据
+zrem key member [member...]
+# 按条件获取数据
+zrangebyscore key min max [withscores] [limit]
+zrevrangebyscore key min max [withscores] [limit]
+# 条件删除数据
+zremrangebyrank ke start stop
+zremrangebyscore key min max
+
+# 获取集合数据量
+zcard key
+zcount key min max
+# 集合交并
+zinterstore destination numkeys key [key ..]
+zunionstore destination numkeys key [key ..]
+```
+
+### 扩展
+
+```
+# 获取数据对应的索引（排名）
+zrank key member
+zrevrank key member
+
+# score值的获取与修改
+zscore key member
+zincrby key increment member
+```
+
+### 注意事项
+
+* score保存的数据存储空间是64位，如果是整数范围是-9007199254740992~9007199254740992
+* score保存的数据也可以使一个双精度double值，基于双精度浮点数的特征，可能会丢失经度，使用时要慎重
+* sorted_set底层存储还是基于set结构的，因此数据不能重复，如果重复添加相同数据，score将被覆盖，保存最后一次修改的结果
+
+```
+# 当前系统时间
+time
+```
+
+# 数据类型实践案例
+
+## 业务背景
+
+按此结算的服务控制
+
+**解决方案**
+
+* 设计计数器，记录调用次数，用于控制业务执行次数。以用户id作为key，使用次数作为value
+* 在调用前获取次数，判断是否超过限定次数
+  * 不超过的情况下，每次调用技术+1
+  * 业务调用失败，计数-1
+* 为计数器设置生命周期，例如1秒/分钟，自动清空周期内使用次数
+
+**改良方案**
+
+* 取消最大值判定，利用incr操作超过最大值抛出异常的形式
+* 判断是否为nil
+  * 如果是，设置Max-次数
+  * 如果不是，计数+1
+  * 调用失败，计数-1
+
+* 遇到异常即+操作超过上限，视为使用达到上限。
+
+Tips 16：
+
+* redis应用于限时按次结算的服务控制
+
+## 业务背景
+
+微信接收消息顺序控制
+
+**解决方案**
+
+* 依赖list的数据具有顺序的特征对消息进行管理，将list作为栈使用
+
+* 对置顶与普通会话分别创建独立的list分别管理
+
+* 当某个list中接收到用户消息后，将消息发送方的id从list的一侧加入list（此处设定为左侧）
+
+* 多个相同id发出消息反复入栈会出现问题，在入栈之前无论是否具有当前id的消息，先删除id
+
+* 推送消息时，先推送置顶会话list，再推送普通会话list，推送完的list清除所有信息=69780-3245`1 12234780- 56=
+
+  消息的数量，也就是微信用户对话数量采用计数器的思想另行记录，伴随list操作同步更新
+
+![](https://raw.githubusercontent.com/Ewasong/picBed/master/20200414211346.png)
+
+# 通用命令
+
+## key基本操作
+
+* key是一个字符串，通过key获取redis中保存的数据
+
+```
+# 删除key
+del key
+# 获取key是否存在
+exists key
+# 获取key类型
+```
+
+## key的扩展-时效性
+
+```
+# 为指定key设置有效期
+expire key seconds
+pexpire key milliseconds
+expireat key timestamp
+pexpireat key milliseconds-timestamp
+# 获取key的有效时间
+ttl key
+pttl key
+# 切换key从时效性转换为永久性
+persist key
+```
+
+## key的扩展操作-查询
+
+```
+# 查询key
+key parttern
+```
+
+查询模式规则
+
+\* 匹配任意数量的字符      ？ 匹配任意一个字符    []匹配一个自定字符
+
+keys * 查询所有
+
+keys it* 查询所有以it开头
+
+keys *heima 查询所有以heima结尾
+
+keys ??heima 查询所有前面两个字符任意，后面以黑马结尾
+
+keys user:? 查询任何以user:开头，最后一个字符结尾
+
+keys u[st]er:1 查询所有以u开头，以er:1结尾，中间包含一个字符（s或t)
+
+## key的其他操作
+
+```
+# 改名
+rename key newkey  //会覆盖
+renamenx key newkey //不会改
+# 对所有key排序
+sort 
+# 其他key通用操作
+help @generic
+```
+
+## db基本操作
+
+key重复问题
+
+* key由程序员定义
+* redis在使用过程中，伴随着操作数据量的增加，会出现大量的数据以及对应的key
+* 数据不区分种类，类别混杂在一起，极易出现重复或冲突
+
+**解决方案**
+
+* redis为每个服务提供有16个数据库，编号从0到15
+* 每个数据库之间的数据相互独立
+
+```
+# 切换数据库
+select index
+# 其他操作
+quit
+ping
+echo message
+```
 
 
-  # Redis开发规范
+
+# Redis规范
 
 https://blog.csdn.net/glx490676405/article/details/79580748
+

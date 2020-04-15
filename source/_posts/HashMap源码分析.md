@@ -133,6 +133,41 @@ static final float DEFAULT_LOAD_FACTOR = 0.75f;
 static final int TREEIFY_THRESHOLD = 8;
 ```
 
+**转换红黑树的边界值为什么是8？**
+
+因为树节点内存大概是普通内存的2倍，所以只在链表上有足够节点（8）才转换为红黑树。当节点变得很小时(6)又转换成为链表。理想情况下，在随机哈希码下，链表中节点服从泊松分布。
+
+选择8是因为泊松分布，
+
+>```
+>* Because TreeNodes are about twice the size of regular nodes, we
+>* use them only when bins contain enough nodes to warrant use
+>* (see TREEIFY_THRESHOLD). And when they become too small (due to
+>* removal or resizing) they are converted back to plain bins.  In
+>* usages with well-distributed user hashCodes, tree bins are
+>* rarely used.  Ideally, under random hashCodes, the frequency of
+>* nodes in bins follows a Poisson distribution
+>* (http://en.wikipedia.org/wiki/Poisson_distribution) with a
+>* parameter of about 0.5 on average for the default resizing
+>* threshold of 0.75, although with a large variance because of
+>* resizing granularity. Ignoring variance, the expected
+>* occurrences of list size k are (exp(-0.5) * pow(0.5, k) /
+>* factorial(k)). The first values are:
+>*
+>* 0:    0.60653066
+>* 1:    0.30326533
+>* 2:    0.07581633
+>* 3:    0.01263606
+>* 4:    0.00157952
+>* 5:    0.00015795
+>* 6:    0.00001316
+>* 7:    0.00000094
+>* 8:    0.00000006
+>* more: less than 1 in ten million
+>```
+
+
+
 6.树退化为链表的阈值
 
 ```java
@@ -140,6 +175,8 @@ static final int UNTREEIFY_THRESHOLD = 6;
 ```
 
 7.最小树化的数组容量
+
+当Map中的数组容量超过这个值时， 表中的桶才会进行树化，否则桶元素太多时会进行扩容，而不是树化。为了避免扩容、树化的选择冲突，这个值不能小于4 * TREEIFY_THRESHOLD(8)
 
 ```java
 static final int MIN_TREEIFY_CAPACITY = 64;
@@ -180,6 +217,12 @@ int threshold;
 ```java
 final float loadFactor;
 ```
+
+说明：
+
+1. 加载因子是用来衡量HashMap满的程度，表示HashMap的疏密程度，影响hash操作到同一个数组位置的概率。计算HashMap的实时加载因子的方法为：size/capacity,而不是占用桶的数量去除以capacity。capacity是桶的数量，也就是table的长度length
+2. loadFactor太大导致查找元素效率低，太小导致数组的利用率低，存放的数据会很分散。loadFactor的默认值为0.75f是官方给的一个比较好的边界值。
+3. 当HashMap里面容纳的元素已经达到75%数组长度时，表示HashMap太挤了，需要扩容，而扩容这个过程涉及到rehash，复制数据等操作，非常消耗性能。所以开发中尽量减少扩容的次数，可以通过创建HashMap集合对象时初始容量时指定初始容量来尽量避免。
 
 # 5.构造器
 
@@ -237,6 +280,7 @@ public HashMap(int initialCapacity, float loadFactor) {
         throw new IllegalArgumentException("Illegal load factor: " +
                 loadFactor);
     this.loadFactor = loadFactor;
+ 	//这里不等于capacity*loadFactor
     this.threshold = tableSizeFor(initialCapacity);
 }
 
@@ -253,4 +297,267 @@ static final int tableSizeFor(int cap) {
     return (n < 0) ? 1 : (n >= MAXIMUM_CAPACITY) ? MAXIMUM_CAPACITY : n + 1;
 }
 ```
+
+## HashMap(Map<? extends K, ? extends V> m) 
+
+```java
+public HashMap(Map<? extends K, ? extends V> m) {
+    this.loadFactor = DEFAULT_LOAD_FACTOR;
+    putMapEntries(m, false);
+}
+final void putMapEntries(Map<? extends K, ? extends V> m, boolean evict) {
+    int s = m.size();
+    if (s > 0) {
+        //如果table没有数据，那么是初始化
+        if (table == null) { // pre-size
+            //计算容量 +1是为了减少扩容
+            float ft = ((float)s / loadFactor) + 1.0F;
+            int t = ((ft < (float)MAXIMUM_CAPACITY) ?
+                    (int)ft : MAXIMUM_CAPACITY);
+            //不为0就计算边界值
+            if (t > threshold)
+                threshold = tableSizeFor(t);
+        }
+        //如果有数据，并且大于边界值，就扩容
+        else if (s > threshold)
+            resize();
+        //然后把数据放进去
+        for (Map.Entry<? extends K, ? extends V> e : m.entrySet()) {
+            K key = e.getKey();
+            V value = e.getValue();
+            putVal(hash(key), key, value, false, evict);
+        }
+    }
+}
+```
+
+# 6. 增加方法
+
+putVal方法是比较复杂的
+
+1. 先通过hash值计算放到哪个桶中
+
+2. 如果桶上没有碰撞冲突，就直接插入
+
+3. 如果碰撞冲突了，则需要冲突冲突
+
+   a. 如果该桶使用红黑树处理冲突，则调用红黑树插入数据
+
+   b. 否则采用传统的链式方法插入，如果链的长度达到边界值，则把链转变为红黑树
+
+4. 如果同种存在重复键，则替换该键为新值value
+
+5. 如果size大于阈值threshold，则进行扩容。
+
+主要参数
+
+* hashKey的hash值
+* key 原始key
+* value 要存放的值
+* onlyIfAbsent 如果true代表不更改现有值
+* evict 如果为false表示table为创建状态
+
+```java
+public V put(K key, V value) {
+    return putVal(hash(key), key, value, false, true);
+}
+
+
+final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
+               boolean evict) {
+    HashMap.Node<K,V>[] tab; HashMap.Node<K,V> p; int n, i;
+    //table没有数据，就扩容
+    if ((tab = table) == null || (n = tab.length) == 0)
+        n = (tab = resize()).length;
+    //(n-1)&hash等于 n%hash
+    if ((p = tab[i = (n - 1) & hash]) == null)
+        //创建链表的第一个节点
+        tab[i] = newNode(hash, key, value, null);
+    else {
+       
+        HashMap.Node<K,V> e; K k;
+        //如果hash并且第一个key相等，直接替换
+        if (p.hash == hash &&
+                ((k = p.key) == key || (key != null && key.equals(k))))
+            e = p;
+        //判断是否是树节点
+        else if (p instanceof HashMap.TreeNode)
+            e = ((HashMap.TreeNode<K,V>)p).putTreeVal(this, tab, hash, key, value);
+        else {
+            //是链表，就逐个比对
+            for (int binCount = 0; ; ++binCount) {
+                if ((e = p.next) == null) {
+                    //如果找不到，就把数据添加到链表最后
+                    p.next = newNode(hash, key, value, null);
+                    //如果大于8就转换为树
+                    if (binCount >= TREEIFY_THRESHOLD - 1) // -1 for 1st
+                        treeifyBin(tab, hash);
+                    break;
+                }
+                if (e.hash == hash &&
+                        ((k = e.key) == key || (key != null && key.equals(k))))
+                    break;
+                p = e;
+            }
+        }
+        if (e != null) { // existing mapping for key
+            //存在就执行替换操作 
+            V oldValue = e.value;
+            if (!onlyIfAbsent || oldValue == null)
+                e.value = value;
+            afterNodeAccess(e);
+            return oldValue;
+        }
+    }
+    ++modCount;
+    if (++size > threshold)
+        resize();
+    afterNodeInsertion(evict);
+    return null;
+}
+```
+
+
+
+## hash方法分析
+
+* 搞16bit不变，低16bit和高16bit做了一个抑或
+
+为什么要这么操作？
+
+如果当n即数组长度很小，假设为16的话，那么n-1为--->1111,这样的值和hashCode()做按位与操作，实际上只使用了哈希值的后4位，如果当hash值的高位变化很大，低位变化很小，就容易造成hash冲突，所以这里把高低位都利用起来，从而解决这个问题。
+
+```java
+static final int hash(Object key) {
+   int h;
+   return (key == null) ? 0 : (h = key.hashCode()) ^ (h >>> 16);
+}
+```
+
+## treeifyBin(Node<K,V>[] tab, int hash)
+
+```java
+final void treeifyBin(Node<K,V>[] tab, int hash) {
+    int n, index; Node<K,V> e;
+    //当少于容量64，只是扩容
+    if (tab == null || (n = tab.length) < MIN_TREEIFY_CAPACITY)
+        resize();
+    else if ((e = tab[index = (n - 1) & hash]) != null) {
+        TreeNode<K,V> hd = null, tl = null;
+        do {
+            //遍历链表，然后转换为树节点
+            TreeNode<K,V> p = replacementTreeNode(e, null);
+            if (tl == null)
+                hd = p;
+            else {
+                p.prev = tl;
+                tl.next = p;
+            }
+            tl = p;
+        } while ((e = e.next) != null);
+        //构建红黑树
+        if ((tab[index] = hd) != null)
+            hd.treeify(tab);
+    }
+}
+```
+
+## 扩容方法 resize
+
+想了解HashMap的扩容机制要有这两个问题
+
+* 1.什么时候才需要扩容
+* 2.HashMap的扩容是什么
+
+1. 什么时候才需要扩容
+
+当HashMap中的元素个数超过数组大小（数组长度）* loadFactor时，就会进行数组扩容，loadFactor的默认值是0.75，这是一个这种的取值。也就是说，默认情况下，数组大小为16，那么HashMap中的个数超过16 * 0.75 = 12，就把数组的大小扩展为2 * 16， 即扩大一倍。 然后重新计算每个元素在数组中的位置，而这是一个非常小号性能的操作，所以如果我们已经预知HashMap中的元素个数，那么与预知个数能够有效提高HashMap的性能。
+
+补充：
+
+当HashMap中的一个链表对象个数达到9个，次数数组长度没有达到64，那么HashMap先会扩容处理，如果已经达到了64，那么这个链表会变成红黑树，阶段类型由Node变成TreeNode类型。当然，如果映射关系被移除后，下次执行resize方法判断树的节点个数低于6，也会再把树转换为链表。
+
+2. HashMap的扩容是什么？
+
+进行扩容，会伴随着一次重新hash分配，并且会遍历hash表中所有元素，是非常耗时的，在编写程序中，要尽量避免resize。
+
+HashMap在进行扩容时，使用的rehash方式非常巧妙，因为每次扩容都是翻倍，与元来计算(n-1)&hash的结果项目，只是多了一个bit位，所以节点要么就在原来的位置，要么就被分配到**原位置+旧容量**这个位置
+
+```java
+final Node<K,V>[] resize() {
+    Node<K,V>[] oldTab = table;
+    int oldCap = (oldTab == null) ? 0 : oldTab.length;
+    int oldThr = threshold;
+    int newCap, newThr = 0;
+    if (oldCap > 0) {
+        if (oldCap >= MAXIMUM_CAPACITY) {
+            threshold = Integer.MAX_VALUE;
+            return oldTab;
+        }
+        else if ((newCap = oldCap << 1) < MAXIMUM_CAPACITY &&
+                 oldCap >= DEFAULT_INITIAL_CAPACITY)
+            newThr = oldThr << 1; // double threshold
+    }
+    else if (oldThr > 0) // initial capacity was placed in threshold
+        newCap = oldThr;
+    else {               // zero initial threshold signifies using defaults
+        newCap = DEFAULT_INITIAL_CAPACITY;
+        newThr = (int)(DEFAULT_LOAD_FACTOR * DEFAULT_INITIAL_CAPACITY);
+    }
+    if (newThr == 0) {
+        float ft = (float)newCap * loadFactor;
+        newThr = (newCap < MAXIMUM_CAPACITY && ft < (float)MAXIMUM_CAPACITY ?
+                  (int)ft : Integer.MAX_VALUE);
+    }
+    threshold = newThr;
+    @SuppressWarnings({"rawtypes","unchecked"})
+        Node<K,V>[] newTab = (Node<K,V>[])new Node[newCap];
+    table = newTab;
+    if (oldTab != null) {
+        for (int j = 0; j < oldCap; ++j) {
+            Node<K,V> e;
+            if ((e = oldTab[j]) != null) {
+                oldTab[j] = null;
+                if (e.next == null)
+                    newTab[e.hash & (newCap - 1)] = e;
+                else if (e instanceof TreeNode)
+                    ((TreeNode<K,V>)e).split(this, newTab, j, oldCap);
+                else { // preserve order
+                    Node<K,V> loHead = null, loTail = null;
+                    Node<K,V> hiHead = null, hiTail = null;
+                    Node<K,V> next;
+                    do {
+                        next = e.next;
+                        if ((e.hash & oldCap) == 0) {
+                            if (loTail == null)
+                                loHead = e;
+                            else
+                                loTail.next = e;
+                            loTail = e;
+                        }
+                        else {
+                            if (hiTail == null)
+                                hiHead = e;
+                            else
+                                hiTail.next = e;
+                            hiTail = e;
+                        }
+                    } while ((e = next) != null);
+                    if (loTail != null) {
+                        loTail.next = null;
+                        newTab[j] = loHead;
+                    }
+                    if (hiTail != null) {
+                        hiTail.next = null;
+                        newTab[j + oldCap] = hiHead;
+                    }
+                }
+            }
+        }
+    }
+    return newTab;
+}
+```
+
+
 
