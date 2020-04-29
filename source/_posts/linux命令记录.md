@@ -34,3 +34,9 @@ nmcli c reload
 mv filenameA filenameB
 ```
 
+ip
+
+```
+ifconfig -a
+```
+

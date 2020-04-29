@@ -108,7 +108,7 @@ clientPort=2181
 
 修改数据目录到zookeeper安装目录的data文件夹，log文件夹指定到安装目录的newlog文件夹
 
-然后启动并验证
+然后**启动并验证**
 
 ```
 sh bin/zkServer.sh start
@@ -120,7 +120,11 @@ jps -l
 
 从官网下载，用lrzsz上传到/opt文件夹，并解压
 
-启动命令 bin/kafka-server-start.sh config/server.properties
+启动命令 
+
+```
+bin/kafka-server-start.sh config/server.properties
+```
 
 server.properties需要关注以下几个参数
 
@@ -429,3 +433,69 @@ public class ConsumerFastStart {
 
 创建后运行程序先运行消费者，再运行生产者，可以看到hello的输出
 
+# 3.生产者详解
+
+## 3.1消息发送
+
+### 3.1.1 Kafka Java客户端数据生产流程解析
+
+![](https://pic.imgdb.cn/item/5ea1a0a6c2a9a83be5338f3e.jpg)
+
+### 3.1.2 必要参数配置
+
+略
+
+### 3.1.3 发送类型
+
+**发送即忘记**
+
+producer.send(record);
+
+**同步发送**
+
+```java
+//通过send()发弄完一个消息后返回一个future对象，然后调用Future对象的get()等待kafka响应
+//如果kafka正常响应，返回一个recordMetadata对象，改对象存储消息的偏移量
+//如果kafka发送错误，无法正常响应，就会抛出异常，我们便可以进行异常处理
+producer.send(record).get()
+```
+
+**异步发送**
+
+```java
+producer.send(record, new Callback() {
+	public void onCompletion(RecordMetadata metadata, Exception exception) {
+		if(exception == null) {
+			//xxxxx
+		}
+	}
+})
+```
+
+### 3.1.4 序列化器
+
+消息要到网络上传输，必须进行序列化，而序列化器的作用就是如此。
+
+Kafka提供了默认的字符串序列化器（org.apche.kafka.common.serialization.StringSerializer)，还有整型(IntegerSerializer)和字节数组(BytesSerializer),这些序列化器都实现了接口(org.apache.kafka.common.serialization.Serializer)基本上能够满足大部分场景的需求
+
+### 3.1.5 分区器
+
+本身kafka有自己的分区策略，如果未指定，就会使用默认的分区策略。
+
+Kafka根据传递消息的key来进行分区的分配，即hash(key) % numPartitions。如果Key相同的话,那么就会分配到统一分区。
+
+org.apache.kafka.clients.producer.internals.DefaultPartitioner
+
+### 3.1.6拦截器
+
+Producer拦截器(Interceptor)是个相当新的功能，它和consumer端interceptor是在Kafka 0.10版本被引入的，主要用于实现clients端的定制化控制逻辑。
+
+生产者拦截器可以用在消息发送前做一些准备工作。
+
+**使用场景**
+
+1. 按照某个规则过滤掉不符合要求的信息
+2. 修改消息的内容
+3. 统计类需求
+
+自定义拦截器需要实现org.apache.kafka.clients.producer.ProducerInterceptor

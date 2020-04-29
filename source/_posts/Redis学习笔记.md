@@ -464,7 +464,7 @@ brpop key1 [key2] timeout
 如果取消点赞，移除对应好友信息。
 
 ```
-//移除制定数据
+//移除指定数据
 lrem key count value
 ```
 
@@ -760,6 +760,17 @@ select index
 quit
 ping
 echo message
+```
+
+## db其他操作
+
+```
+# 数据异动
+move key db
+# 数据清除
+dbsize
+flushab
+flushall
 ```
 
 
