@@ -40,3 +40,23 @@ ip
 ifconfig -a
 ```
 
+上传
+
+从官网下载，用lrzsz上传到/opt文件夹，并解压
+
+```
+sudo apt-get install lrzsz
+rz
+```
+
+防火墙
+
+```
+# 查看防火墙是否开启
+firewall-cmd --state
+systemctl stop firewalld.service
+```
+
+virtualBox扩容
+
+https://www.cnblogs.com/forbeat/p/5001240.html
