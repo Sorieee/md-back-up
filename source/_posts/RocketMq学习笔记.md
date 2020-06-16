@@ -648,6 +648,31 @@ tail -500f ~/logs/rocketmqlogs/broker.log
 
 中间遇到无法启动broker的情况，是因为使用了同一个storePath，改一下就好。
 
+## 3.4 mqadmin 管理工具
+
+### 使用方式
+
+进入mq安装位置，在bin目录下执行 ./mqadmin {command} {args}
+
+### 命令介绍
+
+略
+
+### 3.5 集群监控平台搭建
+
+### 概述
+
+我们需要自己对rocketmq-console进行编译打包运行。
+
+https://github.com/apache/rocketmq-externals
+
+
+
+
+
+
+
+
 
 
 
