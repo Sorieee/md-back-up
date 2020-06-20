@@ -666,14 +666,59 @@ tail -500f ~/logs/rocketmqlogs/broker.log
 
 https://github.com/apache/rocketmq-externals
 
+#### 3.5.2 下载并编译打包
 
+```
+git clone https://github.com/apache/rocketmq-externals
+cd rocketmq-console
+mvn clean package -Dmaven.test.skip=true
+```
 
+注意：打包前在rocket-console中配置namesrv集群地址：
 
+```
+rocketmq.config.namesrvAddr=192.168.1.6:9876;192.168.1.7:9876;
+```
 
+上传到linux服务器上，启动rocketmq-console：
 
+```
+java -jar rocketmq-console-ng-1.0.0.jar
+```
 
+启动成功，我们就可以通过浏览器http://localhost:8080进入控制台界面了。
 
+# 消息发送样例
 
+* 创建maven项目并导入客户端依赖
 
+  ```xml
+  <!-- https://mvnrepository.com/artifact/org.apache.rocketmq/rocketmq-client -->
+  <dependency>
+      <groupId>org.apache.rocketmq</groupId>
+      <artifactId>rocketmq-client</artifactId>
+      <version>4.7.0</version>
+  </dependency>
+  ```
 
+* 消息发送者步骤分析
+
+```tex
+1. 创建消息生产者producer,并指定生产者组名。
+2. 指定NameServer地址
+3. 启动producer
+4. 创建消息对象，指定主题Topic、Tag和消息体
+5. 发送消息
+6. 关闭生产者Producer
+```
+
+* 消息生产者步骤分析
+
+```tex
+1. 创建消费者Consumer，指定消费者组名
+2. 指定NameServer地址
+3. 订阅主题Topic和Tag
+4. 设置回调函数，处理消息
+5. 启动消费者Consumer
+```
 
