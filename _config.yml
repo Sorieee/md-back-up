@@ -98,10 +98,13 @@ theme: next
 # Deployment
 ## Docs: https://hexo.io/docs/deployment.html
 deploy:
+  # type: git
+  # repo: https://github.com/Ewasong/Ewasong.github.io
+  # branch: master
+  # github-token: 04b0df094830724b9f6c5bd43b51d25d9e650d3e
   type: git
-  repo: https://github.com/Ewasong/Ewasong.github.io
+  repo: root@49.234.123.162:/home/git/hexoBlog
   branch: master
-  github-token: 04b0df094830724b9f6c5bd43b51d25d9e650d3e
 toc:
   maxdepth: 3
   class: toc
