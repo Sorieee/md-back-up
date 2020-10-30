@@ -1309,6 +1309,7 @@ Redis是一种内存级数据库，所有数据均存放在内存中，内存中
 * 对某个expires[*]检测时，随机挑选W个key检测
   * key超时删除
   * 如果一轮中删除的key数量> w * 25%,循环该过程
+  * 否则检查下一个expires[*],0-15循环。
   * W取值=ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP属性值
 * 参数current_db用于记录activeExpireCycle()进入哪个expires[*]执行
 
