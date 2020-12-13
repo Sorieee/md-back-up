@@ -879,45 +879,29 @@ public class OneWayProducer {
 ### 4.1.2 消费消息
 
 ```java
-package cn.sorie.mq.rocketmq.base;
-
-import org.apache.rocketmq.client.producer.DefaultMQProducer;
-import org.apache.rocketmq.client.producer.SendCallback;
-import org.apache.rocketmq.client.producer.SendResult;
-import org.apache.rocketmq.client.producer.SendStatus;
-import org.apache.rocketmq.common.message.Message;
-import org.apache.rocketmq.remoting.common.RemotingHelper;
-
-import java.util.concurrent.TimeUnit;
-
-public class OneWayProducer {
-    public static void main(String[] args) throws Exception {
-        //实例化生产者producer
-        DefaultMQProducer producer = new DefaultMQProducer("group1");
-        // 设置NameServer的地址
-        producer.setNamesrvAddr("192.168.1.6:9876;192.168.1.7:9876");
-        //启动producer
-        producer.start();
-        try {
-            for (int i = 0; i < 10; i++) {
-                //创建消息 指定topic,Tag和消息体
-                Message msg = new Message("base",
-                        "Tag2", ("Hello MQ 单向消息" + i).getBytes(RemotingHelper.DEFAULT_CHARSET));
-                //发送消息到一个broker
-                producer.sendOneway(msg);
-
-
-                //发送消息是否成功送达
-                System.out.printf("发送状态：%n\n", i);
-                TimeUnit.SECONDS.sleep(5);
+public class Consumer {
+    public static void main(String[] args) throws MQClientException {
+        //1. 创建消费者Consumer，指定消费者组名
+        DefaultMQPushConsumer consumer = new DefaultMQPushConsumer("group1");
+        //2. 指定NameServer地址
+        consumer.setNamesrvAddr("192.168.1.6:9876;192.168.1.7:9876");
+        //3. 订阅主题Topic和Tag
+        consumer.subscribe("base", "Tag2");
+        //4. 设置回调函数，处理消息
+        consumer.registerMessageListener(new MessageListenerConcurrently() {
+            //接收消息内容
+            public ConsumeConcurrentlyStatus consumeMessage(List<MessageExt> list, ConsumeConcurrentlyContext consumeConcurrentlyContext) {
+                for (MessageExt per : list) {
+                    System.out.println(new String(per.getBody()));
+                }
+                return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
             }
-        } catch (Exception e) {
-            e.printStackTrace();
-        } finally {
-            producer.shutdown();
-        }
+        });
+        //5. 启动消费者Consumer
+        consumer.start();
     }
 }
+
 ```
 
 #### 1） 负载均衡模式
