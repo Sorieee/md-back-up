@@ -157,5 +157,156 @@ bin/zkServer.sh start
 bin/zkServer.sh start-foreground
 ```
 
+​	在另一个shell进入项目根目录，运行以下命令
+
+```sh
+bin/zkCli.sh
+```
+
+1. 客户 端 启动 程序 来 建立 一个 会话。 
+2. 客户 端 尝试 连接 到 localhost/ 127. 0. 0. 1： 2181。
+3. 客户 端 连接 成功， 服务器 开始 初始化 这个 新 会话。
+4. 会话 初始化 成功 完成。 
+5.  服务器 向 客户 端 发送 一个 SyncConnected 事件。
+
+
+
+​	我们列出根节点下所有的znode,然后创建一个znode。首先要确认znode树为空。处理/zookeeper之外，该节点标记了ZookKeeper服务所需的元数据树。
+
+```sh
+$ ls /
+[zookeeper]
+$ create /workers ""
+create / workers ""
+$ ls / 
+[workers, zookeeper]
+```
+
+​	创建`/workers`节点后，指定了一个空字符串，说明我们此刻不希望在这个znode中保存数据。
+
+​	删除znode然后退出。
+
+```SH
+$ delete /workers
+$ ls /
+$ quit
+$ bin/zkServer.sh stop
+```
+
+### 会话状态和生命周期
+
+![](https://pic.imgdb.cn/item/5fded5423ffa7d37b34088e0.jpg)
+
+​	一个会话从NOT_CONNECTED开始，客户端初始化完成后就会转换到CONNECTING状态。
+
+​	成功连接，就会到CONNECTED。
+
+​	断开连接或者无法接收到服务器响应时，就会转换会CONNECTING状态，并尝试发现其他ZooKeeper服务器。如果可以发现另外一个服务器或者重连到原来服务器，确认会话有效之后又会转回到CONNECTED状态，否则将会声明会话过期，转换到CLOSED状态。也可以显式关闭会话。
+
+**注意： 发生 网络 分区 时 等待 CONNECTING**
+
+​	如果 一个 客户 端 与 服务器 因 超时 而 断开 连接， 客户 端 仍然 保持 CONNECTING 状态。 如果 因 网络 分区 问题 导致 客户 端 与 ZooKeeper 集合 被 隔离 而 发生 连接 断开， 那么 其 状态 将会 一直 保持， 直到 显 式 地 关闭 这个 会话， 或者 分区 问题 修复 后， 客户 端 能够 获悉 ZooKeeper 服务器 发送 的 会话 已经 过期。 发生 这种 行为 是因为 ZooKeeper 集合 对 声明 会话 超时 负责， 而 不是 客户 端 负责。 直到 客户 端 获悉 ZooKeeper 会话 过期， 否则 客户 端 不能 声明 自己的 会话 过期。 然而， 客户 端 可以 选择 关闭 会话。
+
+**注意： 客户 端 会 尝试 连接 哪一个 服务器？**
+
+​	在 仲裁 模式 下， 客户 端 有 多个 服务器 可以 连接， 而在 独立 模式 下， 客户 端 只能 尝试 重新 连接 单个 服务器。 在 仲裁 模式 中， 应用 需要 传递 可用 的 服务器 列表 给 客户 端， 告知 客户 端 可以 连接 的 服务器 信息 并 选择 一个 进行 连接。
+
+​	当 尝试 连接 到 一个 不同 的 服务器 时， 非常 重要的 是， 这个 服务器 的 ZooKeeper 状态 要与 最后 连接 的 服务器 的 ZooKeeper 状态 保持 最新。 客户 端 不能 连接 到 这样 的 服务器： 它 未发现 更新 而 客户 端 却已 经 发现 的 更新。 ZooKeeper 通过 在 服务 中 排序 更新 操作 来 决定 状态 是否 最新。 ZooKeeper 确保 每一个 变化 相对于 所有 其他 已 执行 的 更新 是 完全 有序 的。 因此， 如果 一个 客户 端 在 位置 i 观察 到 一个 更新， 它 就不能 连 接到 只 观察 到 i'< i 的 服务器 上。
+
+![](https://pic.imgdb.cn/item/5fdeda543ffa7d37b344dad8.jpg)
+
+### ZooKeeper与仲裁模式
+
+​	处于可靠性，我们需要运行多个服务器。幸运的是，我们仅仅需要做的便是配置一个更复杂的配置文件。
+
+```properties
+# 1
+initLimit=10
+syncLimit=5
+dataDir=/usr/local/zk/zk1/data
+dataLogDir=/usr/local/zk/zk1/log
+clientPort=2183
+server.1=127.0.0.1:2222:2223
+server.2=127.0.0.1:3333:3334
+server.3=127.0.0.1:4444:4445
+# 2
+initLimit=10
+syncLimit=5
+dataDir=/usr/local/zk/zk2/data
+dataLogDir=/usr/local/zk/zk2/log
+clientPort=2183
+server.1=127.0.0.1:2222:2223
+server.2=127.0.0.1:3333:3334
+server.3=127.0.0.1:4444:4445
+# 3
+initLimit=10
+syncLimit=5
+dataDir=./data
+dataLogDir=./log
+clientPort=2183
+server.1=127.0.0.1:2222:2223
+server.2=127.0.0.1:3333:3334
+server.3=127.0.0.1:4444:4445
+```
+
+​	每一个server.n指定了编号为n的ZooKeeper服务器使用的地址和端口号。第一部分是IP/主机名，第二部分和第三部分为TCP端口号，分别用于仲裁通信和群首选举。
+
+​	还需要分别设置data目录。
+
+```sh
+mkdir z1 
+mkdir z1/data 
+mkdir z2
+mkdir z2/data
+mkdir z2/logs
+mkdir z3 
+mkdir z3/data
+mkdir z3/logs
+```
+
+​	当启动一个服务器时，我们需要知道启动的是哪个服务器。一个服务器通过读取data目录下一个名为myid的文件来获取服务器ID信息。
+
+```sh
+echo 1 > z1/data/myid 
+echo 2 > z2/data/myid 
+echo 3 > z3/data/myid
+```
+
+​	服务器启动时，服务器通过配置文件中的dataDir参数来查找data目录配置。然后启动服务器。
+
+```sh
+cd z1 
+{PATH_TO_ZK}/bin/zkServer.sh start ./z1.cfg
+cd z2 
+{PATH_TO_ZK}/bin/zkServer.sh start ./z2.cfg
+cd z3
+{PATH_TO_ZK}/bin/zkServer.sh start ./z3.cfg
+```
+
+​	使用zkCli.sh来访问集群
+
+```sh
+bin/zkCli.sh -server 127.0.0.1:2181,127.0.0.1:2182,127.0.0.1:2183
+```
+
+使用检查
+
+```sh
+bin/zkServer.sh status z1/z1.cfg 
+bin/zkServer.sh status z2/z2.cfg 
+bin/zkServer.sh status z3/z3.cfg 
+```
+
+**注意事项**
+
+1. 每项配置后不要添加空格。
+2. server.n中n好像只能为数字。
+
+### 实现一个原语：通过ZooKeeper实现锁
+
+
+
+
+
 
 

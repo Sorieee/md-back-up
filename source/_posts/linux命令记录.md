@@ -60,3 +60,20 @@ systemctl stop firewalld.service
 virtualBox扩容
 
 https://www.cnblogs.com/forbeat/p/5001240.html
+
+# 重启网络
+
+```
+# 重载所有ifcfg或route到connection（不会立即生效）
+nmcli c reload ifcfg-xxx
+# 重载指定ifcfg或route到connection（不会立即生效）
+nmcli c load /etc/sysconfig/network-scripts/ifcfg-ethX
+nmcli c load /etc/sysconfig/network-scripts/route-ethX
+# 立即生效connection，有3种方法
+nmcli c up ethX
+nmcli d reapply ethX
+nmcli d connect ethX
+
+
+```
+
