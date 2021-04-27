@@ -23,6 +23,7 @@
     "hexo-renderer-marked": "^2.0.0",
     "hexo-renderer-stylus": "^1.1.0",
     "hexo-server": "^1.0.0",
-    "hexo-toc": "^1.1.0"
+    "hexo-toc": "^1.1.0",
+    "markdown-it-named-headings": "^1.1.0"
   }
 }
