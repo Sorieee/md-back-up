@@ -1,8 +1,6 @@
----
 title: Spring-study
 date: 2021-03-28 09:32:16
 tags:
----
 
 https://www.bilibili.com/video/BV1WZ4y1H7du?p=39&spm_id_from=pageDriver
 
@@ -321,7 +319,7 @@ public class MyAspect {
 }
 ```
 
-# 注解
+## 注解
 
 ```java
 //即使用jdk默认代理模式，AspectJ代理模式是CGLIB代理模式
@@ -360,6 +358,10 @@ public class AopAspectConfiguration {
     }
 }
 ```
+
+## 获取参数
+
+https://blog.csdn.net/qq_40244614/article/details/79694971
 
 # Spring JdbcTemplate
 
@@ -723,7 +725,6 @@ public class ContextLoaderListener implements ServletContextListener {
 我们只需要
 
 * 在web.xml配置监听器(配置spring-web 的maven)
-* 
 
 ```xml
 <dependency>
@@ -5935,7 +5936,7 @@ eureka:
 
 ​	`eureka.server.evication-interval-timer-in-ms`对其进行i修改，单位是毫秒。
 
-**自我**欧虎
+**自我保护**
 
 ​	关停服务会看到一条警告。
 
@@ -7368,4 +7369,2192 @@ cnpm install style-loader css-loader --save-dev
 # ES6(todo)
 
 todo
+
+# Docker
+
+## 概述
+
+​	三套环境: 开发环境、测试环境以及生产环境。
+
+![](https://pic.imgdb.cn/item/6087ad19d1a9ae528fc1d2ef.jpg)
+
+​	异常情况：
+
+* 环境存在不一致。
+
+
+
+​	Docker是一种容器技术，把环境和代码都装到容器里，解决软件跨环境迁移问题。
+
+**概念**
+
+* 开源的应用容器引擎。
+* 诞生于2013年初，基于Go语言实现，dotCloud公司出品。
+* Docker可以让开发者打爆他们的应用以及依赖包到一个轻量级、可移植的容器中，然后发布到任何流程的linux服务器上。
+* 容器是完成使用沙箱机制，相互隔离。
+* 容器性能开销极低。
+* 从17.03版本后分为社区版CE和企业版EE。
+
+## 安装
+
+```sh
+yum update
+# yum-util 提供yum-config-manager功能，另外两个是devicemapper驱动依赖的。
+yum install -y yum-utils device-mapper-persistent-data lvm2
+# 设置yum源
+yum-config-manager --add-rep https://download.docker.com/linux/centos/docker-ce.repo
+# 安装dokcer, 出现的界面都按y
+yum install -y docker-ce --allowerasing
+docker -v
+```
+
+## 架构
+
+![](https://pic.imgdb.cn/item/6087b34ed1a9ae528f00231c.jpg)
+
+* **镜像(Image）** ： Docker镜像，就相当于是一个root文件系统，比如官方进行ubuntu:16.04就包含了完成的一套Ubuntu16.04最小的root文件系统。
+* **容器(Container)**: 镜像和容器的关系，就像是面对对象程序设计中类和对象的关系一样，镜像是静态的定义，容器是镜像运行时的实体。容器可以被创建、启动、停止、删除、暂停等。
+
+## Docker命令
+
+* 服务命令。
+* 镜像命令。
+* 容器命令(重要)。
+
+**服务命令**
+
+```sh
+# 启动dokcer
+systemctl start docker
+systemctl status docker
+systemctl restart docker
+systemctl stop docker
+# 开机自启动
+systemctl enable docker
+```
+
+**镜像命令**
+
+```sh
+# 查看镜像
+docker images [-q]
+# 搜索镜像
+docker search redis
+# 拉取镜像
+docker pull redis
+# 删除镜像
+docker rmi {id}
+docker rmi redis:lastest
+dokcer rmi `docker images -q`
+```
+
+**找镜像**
+
+https://hub.docker.com
+
+**容器相关命令**
+
+* 查看容器。
+* 创建容器。
+* 进入容器。
+* 启动容器。
+* 停止容器。
+* 删除容器。
+* 查看容器相关信息。
+
+```sh
+# -i 代表一致运行，-t代表有伪终端
+# 创建、启动、进入伪终端
+docker run -it --name=c1 centos:7 /bin/bash
+# 退出 -it退出后会停止运行
+exit
+# 查看正在运行的容器
+docker ps
+# 查看所有容器(包括历史容器)
+docker ps -a
+# 另一种形式 -d 后台进入容器
+docker run -id --name=c1 centos:7 /bin/bash
+# 进入容器
+docker exec -it c2 /bin/bash
+# 关闭容器
+docker stop c2
+# 启动
+docker start c2
+# 删除容器 开启的容器不能被删除
+docker rm c1
+# 查看容器信息
+docker inspect c2
+```
+
+![](https://pic.imgdb.cn/item/6087bc2fd1a9ae528f4e2780.jpg)
+
+## 数据卷
+
+* Docker容器删除后，在容器中产生的数据还有么？
+* Docker和外部机器可以直接交换文件吗？
+* 容器之间想要数据交互？
+
+**数据卷**
+
+* 是宿主机中的一个目录或文件。
+* 当容器目录和数据卷目录绑定后，对方的修改会立即同步。
+* 一个数据卷可以被多个容器同时挂载。
+
+![](https://pic.imgdb.cn/item/6087c0d8d1a9ae528f7f7bd4.jpg)
+
+
+
+**数据卷的作用**
+
+* 容器数据持久化。
+* 外部机器和容器间接通信。
+* 容器之间的数据交换。
+
+### 配置数据卷
+
+```sh
+docker run ... -v 宿主机目录(文件):容器内目录(文件)...
+```
+
+**注意事项**
+
+1. 容器目录必须是绝对路径。
+2. 如果目录不存在，就会自动创建。
+3. 可以挂载多个数据卷。
+
+![](https://pic.imgdb.cn/item/6087f14ad1a9ae528feddec9.jpg)
+
+**多个数据挂载同一个数据卷**
+
+### 数据卷容器 
+
+多容器进行数据交换
+
+* 多个容器挂载同一个数据卷。
+* 数据卷容器。
+
+![](https://pic.imgdb.cn/item/6087f27bd1a9ae528ff7e696.jpg)
+
+```sh
+# 创建c3数据卷容器，使用-v参数设置数据卷 只有容器目录，会自动分配一个宿主机目录
+docker run -it --name=c3 -v /volume centos:7 /bin/bash
+# 创建启动c1 c2容器，使用--volumes-from 参数设置数据卷
+docker run -it --name=c2 --volumes-from c3 centos:7 /bin/bash
+docker run -it --name=c1 --volumes-from c3 centos:7 /bin/bash
+```
+
+![](https://pic.imgdb.cn/item/6087f3c0d1a9ae528f0260ae.jpg)
+
+![](https://pic.imgdb.cn/item/6087f3cbd1a9ae528f02b3be.jpg)
+
+## 应用部署
+
+### MySQL部署
+
+​	在Docker容器中部署MySQL，并通过外部mysql客户端操作MySQLServer。
+
+* 搜索mysql镜像。
+* 拉取mysql镜像。
+* 创建容器。
+* 操作容器中的mysql。
+
+
+
+
+
+* 容器内的网络服务和网布机器不能直接通信。
+* 外部机器和宿主机可以直接通信。
+
+![](https://pic.imgdb.cn/item/6087f6f0d1a9ae528f1b38ed.jpg)
+
+如何解决：
+
+​	**端口映射**
+
+* 当容器中网络服务需要被外部机器访问时，可以将容器中提供服务的端口映射到宿主机的端口上。外部机器访问宿主机的改端口，从而间接访问容器的服务。
+
+```sh
+docker search mysql
+docker pull mysql:5.5
+# 创建容器 设置端口映射、目录映射
+mkdir ~/mysql
+cd mysql
+docker run -id \
+-p 3307:3306
+--name=c_mysql \
+-v $PWD/conf:/etc/mysql/conf.d
+-v $PWD/logs:/logs \
+-v $PWD/data:/var/lib/mysql
+-e MYSQL_ROOT_PASSWORD=123456 \
+mysql:5.6
+```
+
+![](https://pic.imgdb.cn/item/6087f998d1a9ae528f31eb17.jpg)
+
+### Tomcat
+
+```sh
+docker search tomcat
+docker pull tomcat
+mkdir ~/tomcat
+cd tomcat
+docker run -id --name=c_tomcat\
+-p 8080:8080
+-v $PWD:/user/local/tomcat/webapps\
+tomcat
+```
+
+### Nginx部署
+
+```sh
+docker search nginx
+docker pull nginx
+mkdir ~/nginx
+cd nginx
+mkdir conf
+# 在~/nginx/conf/下创建nginx.conf文件，配置粘贴到里面
+vim nginx.conf
+
+xxx
+
+docker run -id --name=c_nginx \
+-p 80:80
+-v $PWD/conf/nginx.conf:/etc/nginx/nginx.conf \
+-v $PWD/logs:/var/log/nginx \
+-v $PWD/html:/usr/share/nginx/html \
+nginx
+```
+
+
+
+![](https://pic.imgdb.cn/item/60880021d1a9ae528f6940ad.jpg)
+
+![](https://pic.imgdb.cn/item/60880014d1a9ae528f68d3b5.jpg)
+
+### Redis部署
+
+```sh
+docker search redis
+docker pull redis:5.0
+mkdir ~/redis
+cd redis
+docker run --id --name=c_redis -p 6379:6379 redis:5.0
+```
+
+## Dockerfile
+
+### 镜像原理
+
+* docker镜像本质是什么？
+  * 是一个分层的文件系统。
+* Docker中一个centos镜像为什么只有200MB， 而一个centos操作系统的iso文件要几个G。
+  * Centos的iso镜像文件包含bootfs和rootfs，而Docker的centos镜像复用操作系统的bootfs，只有rootfs和其他镜像层。
+* Docker中一个tomcat的镜像为什么有500MB，而一个tomcat安装包只有70MB。
+  * 由于Docker中镜像是分层的，tomcat虽然只有70MB，但是需要依赖父镜像和基础镜像，所有整个对外暴露的镜像大小500多MB。
+
+![](https://pic.imgdb.cn/item/608802b1d1a9ae528f7f8a44.jpg)
+
+* bootfs: 包含bootloader(引导加载程序)和kernel(内核)。
+* rootfs: root文件系统，包含的就是典型的Linux系统的/dev, /proc, /bin, /etc等标准目录和文件。
+* 不同linux发行版，bootfs基本一样，而rootfs不同，如ubuntu、centos等。
+
+**Docker镜像原理**
+
+* Docker镜像是由特殊的文件系统叠加而成。
+* 最底端是bootfs，并使用宿主机的bootfs。
+* 第二层是root文件系统，rootfs，称为base image。
+* 再往上可以叠加其他的镜像文件。
+
+* 统一文件系统(Union File System)技术能够将不同的层整合成一个文件系统，为这些层提供了一个统一的视角，这样就隐藏了多层的存在，在用户的角度来看，只存在一个文件系统。
+* 一个镜像可以放在另外一个镜像上面。位于下层的镜像称为父镜像，最底部的镜像称为基础镜像。
+* 当从一个镜像启动容器时，Docker会在最顶层加载一个读写文件系统作为容器。
+
+![](https://pic.imgdb.cn/item/6088046dd1a9ae528f8efeb4.jpg)
+
+```sh
+docker insepct tomcat:5.0
+```
+
+### 镜像制作
+
+* 容器转为镜像。
+
+```sh
+docker commit 容器id 镜像名称:版本号
+docker save -o 压缩文件名称 镜像名称:版本号
+# 挂载的目录不会写入镜像
+docker load -i 压缩文件名称
+```
+
+![](https://pic.imgdb.cn/item/60881b94d1a9ae528f8c503f.jpg)
+
+* dockerfile
+
+### 概念
+
+```sh
+# dockerfile构建镜像
+docker build -f dockerfilename -t sorie_centos:1 .
+```
+
+
+
+* Dockerfile是一个文本文件。
+* 包含了一条条指令。
+* 每一条指令构建一层，基于基础镜像，最终构建出一个新的对象。
+* 对于开发人员: 可以为开发团队提供一个完全一致的开发环境。
+* 对于测试人员: 可以直接拿开发锁构建的镜像或通过dockerfile文件构建一个新的镜像开始工作。
+* 对于运维人员: 在部署时，可以实现应用无缝移植。
+
+![](https://pic.imgdb.cn/item/6088ac2bd1a9ae528f11d995.jpg)
+
+FROM centos:7
+
+​	基于centos 7。
+
+MAINTAINER sorie
+
+​	作者信息。
+
+RUN yum install -y vim
+
+​	安装/创建时，执行一些指令。
+
+CMD ["/bin/bash"]
+
+​	启动时，默认执行linux的命令。
+
+
+
+​	可以学习别人如何编写的。
+
+
+
+**CentOs 7**
+
+```dockerfile
+FROM scratch
+ADD centos-7-x86_64-docker.tar.xz /
+
+LABEL \
+    org.label-schema.schema-version="1.0" \
+    org.label-schema.name="CentOS Base Image" \
+    org.label-schema.vendor="CentOS" \
+    org.label-schema.license="GPLv2" \
+    org.label-schema.build-date="20201113" \
+    org.opencontainers.image.title="CentOS Base Image" \
+    org.opencontainers.image.vendor="CentOS" \
+    org.opencontainers.image.licenses="GPL-2.0-only" \
+    org.opencontainers.image.created="2020-11-13 00:00:00+00:00"
+
+CMD ["/bin/bash"]
+```
+
+
+
+FROM scratch
+
+​	基于空镜像
+
+ADD centos-7-x86_64-docker.tar.xz /
+
+​	把centos的压缩包，添加到根目录。
+
+LABEL \
+    org.label-schema.schema-version="1.0" \
+    org.label-schema.name="CentOS Base Image" \
+    org.label-schema.vendor="CentOS" \
+    org.label-schema.license="GPLv2" \
+    org.label-schema.build-date="20201113" \
+    org.opencontainers.image.title="CentOS Base Image" \
+    org.opencontainers.image.vendor="CentOS" \
+    org.opencontainers.image.licenses="GPL-2.0-only" \
+    org.opencontainers.image.created="2020-11-13 00:00:00+00:00"
+
+​	说明性的信息。
+
+```
+ENV NGINX_VERSION   1.19.10
+ENV NJS_VERSION     0.5.3
+ENV PKG_RELEASE     1~buster
+```
+
+设置环境变量
+
+```
+EXPOSE 80
+```
+
+​	对外暴露80端口。
+
+```
+STOPSIGNAL SIGTERM
+```
+
+| 关键字      | 作用                   | 备注                                                         |
+| ----------- | ---------------------- | ------------------------------------------------------------ |
+| FROM        | 指定父镜像             |                                                              |
+| MAINTAINER  | 作者信息               |                                                              |
+| LABEL       | 标签                   |                                                              |
+| RUN         | 指令命令               |                                                              |
+| CMD         | 容器启动命令           |                                                              |
+| ENTRYPOINT  | 入口                   | 一般在制作一些执行就关闭的容器中会使用                       |
+| COPY        | 复制文件               | build的时候复制文件到image中                                 |
+| ADD         | 添加文件               | build的时候添加文件到image中，不仅仅局限于当前build上下文，可以来源于远程服务。 |
+| ENV         | 环境变量               | 指定build的环节换了，可以启动的时候，通过-e覆盖。            |
+| ARG         | 构建参数               | 如果有相同的ENV，ENV的相同名字值始终覆盖ARG参数。            |
+| VOLUME      | 定义外部可挂载的数据卷 | 指定build的image哪些布姆可以狗仔到文件系统中，启动容器的时候使用-v 绑定。 |
+| EXPOSE      | 暴露端口               | EXPOSE 80 或 EXPOSE 80/udp                                   |
+| WORKDIR     | 工作目录               | 指定容器内部的工作目录，没有则自动创建，如果指定/ 使用的是绝对路径，否则是上一条workdir路径的相对路径。进入容器在哪个目录 |
+| USER        | 指定执行用户           | 指定build或启动的时候，用户在RUN CMD ENTRYPOINT执行时候的用户 |
+| HEALTHCHECK | 健康检查               | 指定检测当前容器的健康监测命令，基本没用，很多时候，应用本身有健康监测机制 |
+| ONBUILD     | 触发器                 | 当存在ONBUILD关键字的镜像作为当前基础镜像时，当执行FROM完成之后会执行 ONBUILD的命令，但是不影响当前镜像，没什么用 |
+| STOPSIGNAL  | 发送信号量到宿主机     | 该STOPSIGNAL指令设置将发送到容器的系统调用信号以退出。       |
+| SHELL       | 执行指定的脚本         | 指定RUN CMD ENTRYPOINT 执行命令的时候 使用的 shell           |
+
+### 发布SpringBoot项目
+
+* 传到linux主机到docker-files目录。
+
+![](https://pic.imgdb.cn/item/6088b4c3d1a9ae528f5087c5.jpg)
+
+![](https://pic.imgdb.cn/item/6088b4fed1a9ae528f523881.jpg)
+
+## 服务编排-Docker Compose
+
+​	微服务架构的应用系统中一般包含若干个微服务，每个微服务一般会部署多个实例，如果每个微服务都要手动启停，维护的工作量会很大。
+
+* 从Dockerfile build image或去dockerhub拉取image。
+* 要创建多个container。
+* 要管理这些container(启动停止删除)
+
+
+
+**服务编排**: 按照一定的业务规则批量管理容器。
+
+​	docker compose是一个编排多容器的分布式部署的工具，提供指令集管理容器化应用的完整开发周期，包括服务构建，启动和停止。使用步骤:
+
+* 利用Dockerfile定义运行环境镜像。
+* 使用docker-compose.yml定义组成应用的各服务。
+* 运行docker-compose up启动应用。
+
+![](https://pic.imgdb.cn/item/6088b857d1a9ae528f6a2c55.jpg)
+
+### 安装
+
+```sh
+# Compose 目前已经完全支持Linux、Mac OS和Windows， 在我们安装Compose之前，需要先安装Docker。下面我们以编译好的二进制安装到我们的系统中。
+curl -L https://github.com/docker/compose/releases/download/1.22.0/docker-compose-`uname -s`-`uname -m` -o /usr/local/bin/docker-compose
+# 设置文件权限
+chmod +x /usr/local/bin/docker-compose
+# 查看版本信息
+docker-compose -version
+```
+
+### 卸载
+
+```sh
+# 删除二进制文件即可
+rm /usr/local/bin/docker-compose
+```
+
+### 使用docker compose编排nginx+spring boot项目
+
+ yml
+
+![](https://pic.imgdb.cn/item/6088b9c7d1a9ae528f73db91.jpg)
+
+​	links代表可以访问到app这个容器/项目
+
+
+
+3. 创建nginx/cond.d
+
+![](https://pic.imgdb.cn/item/6088ba7ed1a9ae528f785704.jpg)
+
+## 私有仓库
+
+### 搭建
+
+```sh
+# 拉取私有仓库镜像
+docker pull registry
+# 启动私有仓库容器
+docker run -id --name=registry -p 5000:5000 registry
+# 打开浏览器 输入地址http://私有仓库服务器ip:5000/v2/_catalog, 看到{"repository":[]}表示私有仓库搭建成功
+# 修改daemon.json
+vim /etc/docker/daemon.json
+# 在上述文件中添加一个key，保存退出。此步用于让docker信任私有仓库地址，注意将私有仓库服务器ip修改为自己私有仓库服务器真实ip
+{"insecure-registories" : ["私有仓库服务器ip:5000"]}
+# 重启docker服务
+systemctl restart docker
+docker start registry
+```
+
+### 上传
+
+```sh
+# 标记镜像为私有仓库的镜像
+docker tag centos:7 私有服务器ip:5000/centos:7
+# 上传标记的镜像
+docker push 私有仓库服务器:5000/centos:7
+```
+
+### 拉取
+
+```sh
+docker pull 私有服务器ip:5000/centos:7
+```
+
+## 和虚拟机比较
+
+​	容器就是将软件打包称为标准化单元，以用于开发、交付和部署。
+
+* 容器镜像是轻量的、可执行的独立软件包，包含软件运行所需的所有内容：代码、运行时环境、系统工具、系统库和设置。
+* 容器化软件在任何环境中都能始终如一地运行。
+* 容器赋予了软件独立性，使其免受外在环境差异的影响，从而有助于减少团队间在相同基础设置上允许不同软件的冲突。
+
+![](https://pic.imgdb.cn/item/6088d0eed1a9ae528f1a94fb.jpg)
+
+![](https://pic.imgdb.cn/item/6088d152d1a9ae528f1d5425.jpg)
+
+**相同**
+
+* 容器和虚拟机具有相似的资源隔离和分配优势。
+
+**不同**
+
+* 重启虚拟化的是操作系统，虚拟机虚拟的是硬件。
+* 传统虚拟机可以运行不同的操作系统，容器只能运行同一类操作系统。
+
+![](https://pic.imgdb.cn/item/6088d1d8d1a9ae528f20db76.jpg)
+
+# JVM
+
+## 为什么要做JVM优化
+
+* 运行的应用"卡住了", 日志不输出，程序没有反应。
+* 服务器的CPU负载突然升高。
+* 在多线程应用下，如何分配线程的数量？
+
+## JVM运行参数
+
+​	在jvm中有很多的参数可以进行所设置，可以让jvm在各种环境中都能高效的运行。绝大部分的参数保持默认即可。
+
+### 三种参数类型
+
+* 标准参数
+  * -help
+  * -version
+* -X参数(非标准参数)
+  * -Xint
+  * -Xcomp
+* -XX参数(使用率较高)
+  * -XX:newSize
+  * -XX:+UseSerialGC
+
+### 标准参数
+
+​	可以使用java -help检索出所有的标准参数。
+
+```cmd
+java -help
+用法: java [-options] class [args...]
+           (执行类)
+   或  java [-options] -jar jarfile [args...]
+           (执行 jar 文件)
+其中选项包括:
+    -d32          使用 32 位数据模型 (如果可用)
+    -d64          使用 64 位数据模型 (如果可用)
+    -server       选择 "server" VM
+                  默认 VM 是 server.
+
+    -cp <目录和 zip/jar 文件的类搜索路径>
+    -classpath <目录和 zip/jar 文件的类搜索路径>
+                  用 ; 分隔的目录, JAR 档案
+                  和 ZIP 档案列表, 用于搜索类文件。
+    -D<名称>=<值>
+                  设置系统属性
+    -verbose:[class|gc|jni]
+                  启用详细输出
+    -version      输出产品版本并退出
+    -version:<值>
+                  警告: 此功能已过时, 将在
+                  未来发行版中删除。
+                  需要指定的版本才能运行
+    -showversion  输出产品版本并继续
+    -jre-restrict-search | -no-jre-restrict-search
+                  警告: 此功能已过时, 将在
+                  未来发行版中删除。
+                  在版本搜索中包括/排除用户专用 JRE
+    -? -help      输出此帮助消息
+    -X            输出非标准选项的帮助
+    -ea[:<packagename>...|:<classname>]
+    -enableassertions[:<packagename>...|:<classname>]
+                  按指定的粒度启用断言
+    -da[:<packagename>...|:<classname>]
+    -disableassertions[:<packagename>...|:<classname>]
+                  禁用具有指定粒度的断言
+    -esa | -enablesystemassertions
+                  启用系统断言
+    -dsa | -disablesystemassertions
+                  禁用系统断言
+    -agentlib:<libname>[=<选项>]
+                  加载本机代理库 <libname>, 例如 -agentlib:hprof
+                  另请参阅 -agentlib:jdwp=help 和 -agentlib:hprof=help
+    -agentpath:<pathname>[=<选项>]
+                  按完整路径名加载本机代理库
+    -javaagent:<jarpath>[=<选项>]
+                  加载 Java 编程语言代理, 请参阅 java.lang.instrument
+    -splash:<imagepath>
+                  使用指定的图像显示启动屏幕
+```
+
+**实战**
+
+```sh
+java -version
+java version "1.8.0_102"
+Java(TM) SE Runtime Environment (build 1.8.0_102-b14)
+Java HotSpot(TM) 64-Bit Server VM (build 25.102-b14, mixed mode)
+```
+
+```java
+# java -Dstr=hello TestJVM
+String str = System.getProperty("str"); // 获取-D参数
+```
+
+#### -server和-client参数
+
+​	可以通过-server或-client设置JVM的运行参数。
+
+* 它们的却别是Server VM的初始堆空间会大一点，默认使用的是并行垃圾处理器，启动慢，运行块。
+* Client VM相对来讲会保守一些，初始堆会小一些，使用串行的垃圾回收器，它的目标是让JVM的启动速度更快，但运行速度会比Serverm模式慢些。
+* JVM在启动的时候回根据硬件和操作系统自动选择使用Server还是Client类型的JVM。
+* 32位操作系统
+  * 如果是Windows系统，不论硬件配置，默认Client。
+  * 其他操作系统，机器配置有2GB以上的内存并且有2个以上的CPU会默认使用server模式，否则使用client模式。
+* 64位操作系统
+  * 只有server类型，不支持client类型(设置无效)。
+
+测试:
+
+```sh
+java -client -showversion TestJVM
+java -server -showversion TestJVM
+```
+
+### -X参数
+
+```cmd
+PS C:\Users\81929> java -X
+    -Xmixed           混合模式执行 (默认)
+    -Xint             仅解释模式执行
+    -Xbootclasspath:<用 ; 分隔的目录和 zip/jar 文件>
+                      设置搜索路径以引导类和资源
+    -Xbootclasspath/a:<用 ; 分隔的目录和 zip/jar 文件>
+                      附加在引导类路径末尾
+    -Xbootclasspath/p:<用 ; 分隔的目录和 zip/jar 文件>
+                      置于引导类路径之前
+    -Xdiag            显示附加诊断消息
+    -Xnoclassgc       禁用类垃圾收集
+    -Xincgc           启用增量垃圾收集
+    -Xloggc:<file>    将 GC 状态记录在文件中 (带时间戳)
+    -Xbatch           禁用后台编译
+    -Xms<size>        设置初始 Java 堆大小
+    -Xmx<size>        设置最大 Java 堆大小
+    -Xss<size>        设置 Java 线程堆栈大小
+    -Xprof            输出 cpu 配置文件数据
+    -Xfuture          启用最严格的检查, 预期将来的默认值
+    -Xrs              减少 Java/VM 对操作系统信号的使用 (请参阅文档)
+    -Xcheck:jni       对 JNI 函数执行其他检查
+    -Xshare:off       不尝试使用共享类数据
+    -Xshare:auto      在可能的情况下使用共享类数据 (默认)
+    -Xshare:on        要求使用共享类数据, 否则将失败。
+    -XshowSettings    显示所有设置并继续
+    -XshowSettings:all
+                      显示所有设置并继续
+    -XshowSettings:vm 显示所有与 vm 相关的设置并继续
+    -XshowSettings:properties
+                      显示所有属性设置并继续
+    -XshowSettings:locale
+                      显示所有与区域设置相关的设置并继续
+
+-X 选项是非标准选项, 如有更改, 恕不另行通知。
+```
+
+#### -Xint, -Xcomp，-Xmixed
+
+* 在解释模式(interpreted mode)下，-Xint标记会强制JVM执行所有的字节码，当然这回降低运行速度，通常低10倍会更多。
+* -Xcomp与它相反，JVM会在第一次使用时会把所有字节码编译成本地代码，从而带来最大的程序优化。
+  * 然而，很多应用在使用-Xcomp也会有一些性能存世，当然比使用-Xint损失肖，原因是-Xcomp没有让JVM启用JIT的全部功能。JIT编译器可以对是否需要编译做判断，如果所有代码都进行编译的话，对那些只执行一次的代码就没有意义了。
+* -Xmixed 混合模式，将解释模式和编译模式混合使用。由jvm自己决定，这是JVM默认的模式，也是推荐使用的模式。
+
+```sh
+java -Xint -showversion TestJVM
+```
+
+### -XX参数
+
+​	非标准参数，主要是用于jvm调优和debug操作。
+
+​	有两种类型，一种是boolean类型，一种是非boolean类型:
+
+* boolean类型
+  * 格式: `-XX:[+-]<name>`表示启用或禁用name的属性。
+  * 如: `-XX:+DisableExplicitC`表示禁用手动调用gc，也就是System.gc()无效
+* 非boolean类型
+  * 格式:`-XX:<name>=<value>` 表示`name`的属性值为`value`。
+  * 如: `-XX:newRatio=1`表示新生代和老年代的比值。
+
+```sh
+java -XX:+DisableExplicitGC -showversion TestJVM
+```
+
+## -Xms与-Xmx参数
+
+​	分别是设置堆内存的初始大小值和最大值。
+
+* `-Xmx2048m`: 等价于`-XX:MaxHeapSize=2048m`，最大堆内存是2048M。
+* `-Xms512m`: 等价于`-XX:InitialHeapSize=512m`, 设置JVM初始堆内存为512M。
+
+   ```sh
+java -Xms64m -Xmx128m -showversion TestJVM
+   ```
+
+## 查看jvm的运行参数
+
+​	两种情况
+
+* 运行java命令时打印出运行参数;
+* 查看正在运行的java进程的参数。
+
+### 运行java命令时打印参数
+
+`-XX:+PrintFlagFinal`
+
+```sh
+java -XX:+PrintFlagFinal TestJVM
+```
+
+![](https://pic.imgdb.cn/item/6088dd6ad1a9ae528f6ef106.jpg)
+
+= 代表默认值
+
+:= 代表已经被修改过
+
+### 查看正在运行的参数
+
+```sh
+jps
+jps -l
+jinfo -flags 6219
+jinfo -flag MaxHeapSize 6219
+```
+
+## JVM 内存模型
+
+​	1.7和1.8有较大区别。主要学习1.8，但是也要对1.7的内存模型有所了解。
+
+### jdk1.7的内存模型
+
+![](https://pic.imgdb.cn/item/6088eda6d1a9ae528ffbe1ea.jpg)
+
+* Young区(新生代)
+
+  Eden区和两个相同大小的Survivor区。
+
+* Tenured 老年代
+
+  主要保存声明周期长的对象，一般是一些老、或打的对象。
+
+* Perm 永久代
+
+  主要保存class,method,filed对象。一般不会溢出，除非一次性加载了很多类。有时候热部署的应用服务器会遇到溢出OutOfMemeoryError: PermGen space错误。可能是重新部署，之前的类没有卸载掉，重启应用即可。
+
+* Virtual区
+
+  * 最大内存和初始内存的差值，就是Virtual区
+
+### jdk1.8的堆内存模型
+
+![](https://pic.imgdb.cn/item/6088ef1fd1a9ae528f0d2903.jpg)
+
+
+
+​	新生代+老年代。
+
+* 新生代: Eden+ 2 * Survivor。
+* 老年代: Olden
+
+
+
+​	变化最大的是Perm区，用Metaspace(元数据空间)进行了替换。
+
+​	Metaspace占用内存不再虚拟机内部，而是在本地内存空间中。
+
+![](https://pic.imgdb.cn/item/6088ef97d1a9ae528f13082b.jpg)
+
+### 为什么要废弃1.7中的永久代？
+
+​	http://openjdk.java.net/jeps/122
+
+​	移除永久代是为了融合Hotspot和JRockit而作出的努力，因为JRockit没有永久代，不需要配置永久代。
+
+​	现实使用中，由于永久代内存经常不够用或发生内存泄露，爆出异常java.lang.OutOfMemoryError: PermGen。基于此，将永久代废弃，而改用元空间，改为了使用本地内存空间。 
+
+## 通过jstat命令查看堆内存使用情况
+
+​	jstat命令可以查看堆内存的各部分的使用量，以及加载类的数量。命令的格式如下:
+
+```sh
+jstat [-命令选项] [vmid] [间隔时间/毫秒] [查询次数]
+jstat -help|-options
+jstat -<option> [-t] [-h<lines>] <vmid> [<interval> [<count>]]
+```
+
+### 查看类信息
+
+```sh
+jps
+jstat -class 5584
+Loaded  Bytes  Unloaded  Bytes     Time
+ 12602 22166.6        0     0.0      13.11
+```
+
+* Loaded: 已加载class。
+* Bytes: 所占用空间大小。
+* Unloaded: 未加载数量
+* Bytes: 未加载占用空间
+* Time: 时间
+
+### 查看编译统计
+
+```sh
+jstat -compiler 5584
+Compiled Failed Invalid   Time   FailedType FailedMethod
+    5097      1       0     1.41          1 sun/misc/ProxyGenerator generateClassFile
+```
+
+* Compiled: 编译数量。
+* Failed: 失败数量
+* Invalid: 不可用数量
+* Time: 时间
+* FailedType: 失败类型。
+* FailedMethod: 失败的方法。
+
+### gc统计
+
+```sh
+jstat -gc 5584
+ S0C    S1C    S0U    S1U      EC       EU        OC         OU       MC     MU    CCSC   CCSU   YGC     YGCT    FGC    FGCT     GCT
+20480.0 25088.0  0.0    0.0   369664.0 96474.5   479232.0   30670.0   59160.0 55679.7 8448.0 7776.3      6    0.068   3      0.262    0.330
+```
+
+![](https://pic.imgdb.cn/item/6088f7a8d1a9ae528f613a4d.jpg)
+
+## jmap的使用以及内存溢出分析
+
+​	通过jstat可以对jvm的堆进行统计分析，而jmap可以获取到更加详细的信内容。如：内存使用情况的汇总、对内存溢出的定位于分析。
+
+### 查看内存使用情况
+
+```sh
+jmap -heap 5584
+Attaching to process ID 5584, please wait...
+Debugger attached successfully.
+Server compiler detected.
+JVM version is 25.102-b14
+
+using thread-local object allocation.
+Parallel GC with 8 thread(s)
+
+Heap Configuration:
+   MinHeapFreeRatio         = 0
+   MaxHeapFreeRatio         = 100
+   MaxHeapSize              = 10708058112 (10212.0MB)
+   NewSize                  = 223346688 (213.0MB)
+   MaxNewSize               = 3569352704 (3404.0MB)
+   OldSize                  = 447741952 (427.0MB)
+   NewRatio                 = 2
+   SurvivorRatio            = 8
+   MetaspaceSize            = 21807104 (20.796875MB)
+   CompressedClassSpaceSize = 1073741824 (1024.0MB)
+   MaxMetaspaceSize         = 17592186044415 MB
+   G1HeapRegionSize         = 0 (0.0MB)
+
+Heap Usage:
+PS Young Generation
+Eden Space:
+   capacity = 378535936 (361.0MB)
+   used     = 109430400 (104.3609619140625MB)
+   free     = 269105536 (256.6390380859375MB)
+   28.908853715806785% used
+From Space:
+   capacity = 20971520 (20.0MB)
+   used     = 0 (0.0MB)
+   free     = 20971520 (20.0MB)
+   0.0% used
+To Space:
+   capacity = 25690112 (24.5MB)
+   used     = 0 (0.0MB)
+   free     = 25690112 (24.5MB)
+   0.0% used
+PS Old Generation
+   capacity = 490733568 (468.0MB)
+   used     = 31406104 (29.951194763183594MB)
+   free     = 459327464 (438.0488052368164MB)
+   6.399827940851195% used
+
+25858 interned Strings occupying 2443840 bytes.
+```
+
+### 查看内存中对象数量及大小
+
+```sh
+jmap -histo <pid> | more
+# 查看活跃对象
+jmap -histo:live <pid> | more
+```
+
+![](https://pic.imgdb.cn/item/6088febfd1a9ae528fa0400b.jpg)
+
+**对象说明**
+
+B byte
+
+C char
+
+D double
+
+F float
+
+I int
+
+J long
+
+Z boolean
+
+[ 数组
+
+[L+类名 其他对象
+
+### 将内存使用情况dump到文件中
+
+```sh
+# 用法:
+jmap -dump:formt=b,file=dumpFileName <pid>
+```
+
+### 通过jhat对dump文件进行分析
+
+```sh
+jhat -port <port> <file>
+# 示例
+jhat -port 9999 dump.dat
+Reading from dump.dat...
+Dump file created Wed Apr 28 14:28:39 CST 2021
+Snapshot read, resolving...
+Resolving 2030189 objects...
+Chasing references, expect 406 dots......................................................................................................................................................................................................................................................................................................................................................................................................................
+Eliminating duplicate references......................................................................................................................................................................................................................................................................................................................................................................................................................
+Snapshot resolved.
+Started HTTP server on port 9999
+Server is ready.
+```
+
+http://localhost:9999/
+
+![](https://pic.imgdb.cn/item/60890210d1a9ae528fc5a6ea.jpg)
+
+拉到最后可以通过OQL进行查询。
+
+![](https://pic.imgdb.cn/item/6089034bd1a9ae528fd36b21.jpg)
+
+### 通过MAT工具对dumnp文件进行分析
+
+**介绍**
+
+​	MAT(Memory Analyzer Tool), 一个基于Eclipse的内存分析工具，是一个快速、功能丰富的Java heap分析工具。帮我们查找内存泄露和减少内存消耗。使用内存分析工具从众多对象中进行分析，快速计算出内存中对象占用大小，看看是谁阻止了垃圾收集器的回收工作，并且可以通过报表只管的查看到可能造成这种结果的对象。
+
+官网地址: https://www.eclipse.org/mat
+
+**类实例列表**
+
+![](https://pic.imgdb.cn/item/60890a8bd1a9ae528f1aaf77.jpg)
+
+![](https://pic.imgdb.cn/item/60890afdd1a9ae528f1eae0a.jpg)
+
+**对象依赖树**
+
+![](https://pic.imgdb.cn/item/60890c4ad1a9ae528f2a8d29.jpg)
+
+## 实战: 内存溢出的定位与分析
+
+​	内存溢出在实际生产环境中经常会遇到，比如，不断将数据写入到一个集合中，出现了死循环，读取超大文件等等，都有可能造成内存溢出。
+
+​	出现了内存溢出，首先要定位发生内存溢出的环节，然后分析，是正常还是非正常的情况。正常的情况，应该考虑加大内存的设置，如果是非正常的需求，就要对代码进行修改。
+
+### 模拟内存溢出
+
+​	编写代码，向List集合中添加100万个字符串，每个字符串由1000个UUID组成。如果程序能够正常执行，最后打印ok。
+
+```java
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+public class Test2 {
+    public static void main(String[] args) {
+        List<String> list = new ArrayList<>();
+        for (int i = 0; i < 100000; i++) {
+            String str = "";
+            for (int j = 0; j < 1000; j++) {
+                str += UUID.randomUUID().toString();
+            }
+            list.add("str");
+        }
+        System.out.println("ok");
+    }
+}
+```
+
+运行参数
+
+```
+-Xms8m -Xmx8m -XX:+HeapDumpOnOutOfMemoryError
+```
+
+```log
+Connected to the target VM, address: '127.0.0.1:60231', transport: 'socket'
+java.lang.OutOfMemoryError: Java heap space
+Dumping heap to java_pid19168.hprof ...
+Heap dump file created [8074728 bytes in 0.039 secs]
+Exception in thread "main" java.lang.OutOfMemoryError: Java heap space
+	at java.util.Arrays.copyOf(Arrays.java:3332)
+	at java.lang.AbstractStringBuilder.ensureCapacityInternal(AbstractStringBuilder.java:124)
+	at java.lang.AbstractStringBuilder.append(AbstractStringBuilder.java:448)
+	at java.lang.StringBuilder.append(StringBuilder.java:136)
+	at other.Test2.main(Test2.java:13)
+```
+
+用mat打开。
+
+![](https://pic.imgdb.cn/item/608a30c3d1a9ae528f3d0494.jpg)
+
+![](https://pic.imgdb.cn/item/608a3138d1a9ae528f411cd2.jpg)
+
+## jstack的使用
+
+​	有时候需要看下jvm中线程的执行情况，比如，发现服务器的CPU的负载突然增高了，出现了死锁、死循环等。我们该如何分析呢？
+
+​	由于程序时正常运行的，没有任何输出，从日志方面也看不出什么问题，所以就需要看下jvm的内部线程的执行情况，然后再进行分析找出原因。
+
+​	这时候，就需要借助于jstack命令，jstack的作用是将正在运行的jvm线程进行快照，并且打印出来:
+
+```sh
+# 用法: jsatck <pid>
+```
+
+### 线程的状态
+
+![](https://pic.imgdb.cn/item/608a36a9d1a9ae528f6d27e7.jpg)
+
+线程状态一共被分为6种:
+
+* 初始态(NEW)
+  * 创建一个Thread对象，但还未调用start()启动线程，线程处于初始状态。
+* 运行台(RUNNABLE), 在Java中，运行态包括就绪态和运行态。
+  * 就绪态
+    * 该状态下的线程已经获得执行所需的所有资源，只要CPU分配执行权就能运行。
+    * 所有就绪态的线程存放在就绪队列中。
+  * 运行态
+    * 获得CPU执行权，正在执行的线程。
+    * 由于一个CPU同一时刻只能执行一条线程，因此每个CPU每个时刻只有一条运行态的线程。
+* 阻塞态(BLOCKED)
+  * 当一条正在执行的线程请求某一资源失败时，就会进入阻塞态。
+  * 而在Java中，阻塞态专指请求锁失败时进入的状态。
+  * 由一个阻塞队列存放的所有阻塞态的线程。
+  * 处于阻塞态的线程会不断请求资源，一旦请求成功，就会进入就绪队列，等待执行。
+* 等待态(WAITING)
+  * 当前线程中调用wait、join、park函数时，当前线程就会进入等待态。
+  * 也有一个等待对垒存放所有等待态的线程。
+  * 线程处于等待态表示它需要等待其他线程的指示才能继续运行。
+  * 进入等待态的线程会释放CPU的执行权，并释放资源(如: 锁)。
+* 超时等待态(TIMED_WAITING)
+  * 等运行中的线程调用sleep(time), wait, join, parkNanos, parkUntil时，就会进入该状态。
+  * 它和等待态一样，并不是因为请求不到资源，而是主动进入，并且进入后需要其他线程唤醒。
+  * 进入该状态后释放CPU执行权和占有的资源。
+  * 与等待态区别: 到了超时时间后自动进入阻塞队列，开始竞争锁。
+* 终止态(TERMINATED)
+  * 线程执行结束后的状态。
+
+### 实战: 死锁问题
+
+#### 构造死锁
+
+​	启动两个线程，Thead1拿到obj1锁，准备去拿obj2锁时obj2已经被Thead2锁定
+
+```java
+public class Test2 {
+    public static Object obj1 = new Object();
+    public static Object obj2= new Object();
+
+    public static void main(String[] args) {
+        new Thread(new Thread1()).start();
+        new Thread(new Thread2()).start();
+    }
+    private static class Thread1 implements Runnable {
+        @Override
+        public void run() {
+            synchronized (obj1) {
+                System.out.println("thread1 获取到obj1锁");
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                synchronized (obj2) {
+                    System.out.println("thread1 获取到obj2锁");
+                }
+            }
+        }
+    }
+
+    private static class Thread2 implements Runnable {
+        @Override
+        public void run() {
+            synchronized (obj2) {
+                System.out.println("thread2 获取到obj2锁");
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                synchronized (obj1) {
+                    System.out.println("thread2 获取到obj1锁");
+                }
+            }
+        }
+    }
+}
+```
+
+
+
+```
+Found one Java-level deadlock:
+=============================
+"Thread-1":
+  waiting to lock monitor 0x0000000013023608 (object 0x00000000ffdf82a8, a java.lang.Object),
+  which is held by "Thread-0"
+"Thread-0":
+  waiting to lock monitor 0x000000001301f568 (object 0x00000000ffdf82b8, a java.lang.Object),
+  which is held by "Thread-1"
+
+Java stack information for the threads listed above:
+===================================================
+"Thread-1":
+        at other.Test2$Thread2.run(Test2.java:43)
+        - waiting to lock <0x00000000ffdf82a8> (a java.lang.Object)
+        - locked <0x00000000ffdf82b8> (a java.lang.Object)
+        at java.lang.Thread.run(Thread.java:745)
+"Thread-0":
+        at other.Test2$Thread1.run(Test2.java:26)
+        - waiting to lock <0x00000000ffdf82b8> (a java.lang.Object)
+        - locked <0x00000000ffdf82a8> (a java.lang.Object)
+        at java.lang.Thread.run(Thread.java:745)
+
+Found 1 deadlock.
+```
+
+## VisualVM工具的使用
+
+​	VisualVM，能够监控线程，内存情况，查看方法的CPU时间和内存中的对象，已被GC的对象，反向查看分配的堆栈(如100个String对象分别由哪几个对象分配出来的)。
+
+​	VisualVM使用简单，几乎0配置，功能还是比较丰富的，几乎囊括了其他JDK自带的命令的所有功能。
+
+* 内存信息。
+* 线程信息。
+* Dump堆(本地进程)。
+* Dump线程(本地进程)。
+* 打开堆Dump。堆Dump可用jmap来生成。
+* 打开线程Dump。
+* 生成应用快照(包含内存信息、线程信息等等)。
+* 性能分析。CPU分析(各个方法的调用时间, 检查哪些方法耗时多)，内存分析(各类对象占用的内存没检查哪些类占用内存多)。
+
+### 启动
+
+​	jdk安装目录下，找到jvisualvm.exe, 双击打开。
+
+## 监控远程jvm
+
+### 什么是jmx
+
+​	JMX(Java Management Extensions, 即java管理扩展)是一个为应用程序、设备、系统等植入管理功能的框架。JXM可以跨越一系列异构操作系统平台、系统体系结构和网络服传输协议， 灵活的开发无缝集成的系统、网络和服务管理应用。
+
+### 监控远程的tomcat
+
+```sh
+# 在tomcat的bin目录下，修改catalina.sh，添加如下参数
+JAVA_OPTS="-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=9999 -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false"
+# 这几个参数的意思是
+# -Dcom.sun.management.jmxremote 允许使用JMX远程管理
+# -Dcom.sum.management.jmxremote.port=9999 JMX远程连接端口
+# -Dcom.sum.management.jmxremote.authenticate=false 不进行身份认证，任何用户都可以连接
+# -Dcom.sum.management.jmxremote.ssl=false 不使用ssl
+```
+
+​	保存退出，重启tomcat。
+
+```sh
+./shutdown.sh
+./startup.sh && tail -f ../logs/catalina.out
+```
+
+### 连接远程tomcat
+
+* 添加远程主机。
+* 添加JMX连接。
+
+## 什么是垃圾回收？
+
+​	程序运行必然需要申请内存资源，无效的对象资源如果不及时处理就会一直占用内存资源，最终导致内存溢出，所以对内存资源的管理是非常重要的。
+
+### C/C++语言的垃圾回收
+
+​	没有自动垃圾回收机制，手动申请内存和释放内存。
+
+### Java语言的垃圾回收
+
+​	Java语言有自动的垃圾回收机制，有了垃圾回收机制，程序要只需要关心内存的申请即可，内存的释放由系统自动识别完成。
+
+​	换句话说，自动的垃圾回收的算法就会变得非常重要，如果因为算法的不合理，导致内存资源一直没有释放，同时也可能导致内存溢出的。
+
+### 常见垃圾回收算法
+
+#### 引用计数法
+
+优点:
+
+* 实时性较高，无需等待到内存不够，才开始回收，运行时根据对象的计数器是否为0，就可以直接回收。
+* 在垃圾回收过程中，应用无需挂起，如果申请内存时，内存不足，则立刻报outofMemory错误。
+* 区域性，更新对象的计数器，只会影响到该对象，不会扫描全部对象。
+
+缺点：
+
+* 每次对象被引用时，都需要去更新计数器，有一点时间开销。
+* 浪费CPU资源，即使内存够用，仍然在运行时进行计数器的统计。
+* 无法解决循环引用问题。(最大的缺点)。
+
+#### 标记清除法
+
+![](https://pic.imgdb.cn/item/608a6926d1a9ae528f5e70a9.jpg)
+
+​	这张图是程序运行期间所有对象的状态，它们的标记位全是0，假设这回有效内存空间耗尽了，jvm将会停止应用程序的运行并开启GC线程，然后开始进行标记工作，按照根搜索算法，标记完以后，对象的状态如下图:
+
+![](https://pic.imgdb.cn/item/608a69dfd1a9ae528f64c573.jpg)
+
+​	根据根搜索算法，所有从root对象可达的对象就被标记为了存活对象，此时已经完成了第一阶段的标记。接下来，就要执行第二节点的清除了，那么清除完以后，是剩下的对象以及对象的状态如图所示:
+
+![](https://pic.imgdb.cn/item/608a6a50d1a9ae528f689993.jpg)
+
+**优缺点**
+
+优点：
+
+* 解决了循环引用问题。
+
+缺点：
+
+* 效率较低，标记和清除两个动作都需要遍历所有的对象，并且在GC时，需要停止程序，对于交互性要求比较高的应用而言，这个体验非常差。
+* 通过标记清除算法清理出来的内存，碎片化较为严重，因为被回收的对象可能存在于内存的各个角落，所以清理出来的内存是不连续的。
+
+**为什么要暂停**
+
+​	因为要遍历所有对象，对象引用关系会变化就会导致标记不准确。
+
+#### 标记压缩算法
+
+​	标记阶段一样，清除节点不是简单清理未标记对象，而是将存活的对象压缩到内存的一端，然后清理边界以外的垃圾，从而解决了碎片化的问题。
+
+![](https://pic.imgdb.cn/item/608a6befd1a9ae528f75edfc.jpg)
+
+**优缺点**
+
+优点：
+
+* 解决了垃圾碎片问题。
+
+缺点：
+
+* 比标记清除更多一步，效率更低。
+
+## 复制算法
+
+​	复制算法的核心就是，将原有的内存空间一分为二，每次只用其中的一块，在垃圾回收时，将正在使用的对象复制到另一个内存空间中，然后将该内存空间清空，交换两个内存的角色，完成垃圾回收。
+
+​	如果内存中垃圾对象较多，需要复制的对象就较少，这种情况下使用该方式效率比较高。反之，则不适合。
+
+![](https://pic.imgdb.cn/item/608a6cc1d1a9ae528f7c2f4a.jpg)
+
+### JVM中的新生代的内存空间
+
+![](https://pic.imgdb.cn/item/608a6d7cd1a9ae528f81cff8.jpg)
+
+1. 在GC开始的时候，对象只会存在于Eden区和名为"From"的Survivor区，Survivor区的"To"是空的。
+2. 紧接着进行GC，Eden区中所有存活对象都会被复制到"To"区，而在"From"区中，仍然粗活的对象会根据他们的年龄值来决定去向。年龄达到一定值(年龄阈值，可以通过-XX:MaxTenuringThreshold来设置)的对象会被移动到老年代中，没有达到阈值的会被复制到"To"区域。
+3. 经过这次GC后，Eden去和From区都已经被清空。这个时候，From和To会交换角色。保证名为To的Survivor区是空的。
+4. GC会一直重复这样的过程，直到"To"区被填满, "To"区被填满之后，会将所有对象移动到老年代中。
+
+### 优缺点
+
+优点：
+
+* 在垃圾对象多的情况下，效率较高。
+* 清理后，内存无碎片。
+
+缺点：
+
+* 在垃圾对象少的情况下，不适用，如: 老年代。
+* 分配的两块内存空间，在同一个时刻，只能使用一般，内存使用率较低。
+
+### 分代算法
+
+​	分代算法根据回收对象的特点进行选择，在jvm中，新生代适合使用复制算法，老年代适合使用标记清除或标记压缩算法。
+
+## 垃圾收集器以及内存分配
+
+### 串行垃圾收集器
+
+​	单线程进行垃圾回收，垃圾回收时，只有一个线程在工作，并且java应用中所有线程都要暂停，等待垃圾回收完成。这种现象叫做STW(Stop-The-World)。
+
+​	对于交互性较强的应用，这种垃圾收集器是不能够接收的。
+
+​	一般在javaweb应用中不会采用该收集器。
+
+#### 编写测试代码
+
+```java
+public class TestGc {
+    public static void main(String[] args) throws Exception{
+        List<Object> list = new ArrayList<>();
+        while(true) {
+            int sleep = new Random().nextInt(100);
+            if (System.currentTimeMillis() % 2 == 0) {
+                list.clear();
+            } else {
+                for (int i = 0; i < 10000; i++) {
+                    Properties p = new Properties();
+                    p.put("key" + i, "value" + i);
+                    list.add(p);
+                }
+            }
+            Thread.sleep(sleep);
+        }
+    }
+}
+```
+
+#### 设置垃圾回收为串行收集器
+
+```sh
+# 指定新生代和老年代都用串行垃圾回收器， 打印垃圾回收的详细信息
+-XX:+UseSerialGC -XX:+PrintGCDetails
+```
+
+```log
+[GC (Allocation Failure) [DefNew: 174784K->5296K(196608K), 0.0116826 secs] 174784K->5296K(633536K), 0.0118010 secs] [Times: user=0.00 sys=0.00, real=0.01 secs] 
+[GC (Allocation Failure) [DefNew: 180080K->21823K(196608K), 0.0410587 secs] 180080K->22010K(633536K), 0.0410834 secs] [Times: user=0.05 sys=0.00, real=0.04 secs] 
+```
+
+![](https://pic.imgdb.cn/item/608a79a2d1a9ae528fdee507.jpg)
+
+GC日志解读：
+
+* DefNew
+  * 表示使用的是串行垃圾收集器。
+* 174784K->5296K(196608K)
+  * 表示新生代GC前，有174784K内存，GC后，占用5296K内存，总大小196608K。
+* 0.0118010 secs
+  * GC所用的时间，单位为毫秒
+* 174784K->5296K(633536K)
+  * 表示，GC前，堆内存占用174784K，GC后，占有5296K，总大小633536K。
+* Full GC
+  * 内存空间全部进行GC。
+
+### 并行垃圾收集器
+
+#### ParNew垃圾收集器
+
+​	是工作在新生代上的，只是将串行的垃圾收集器改为了并行。
+
+​	通过`-XX:+UseParNewGC`参数设置新生代使用ParNew回收器，老年代使用的依然是串行收集器。
+
+```sh
+-XX:+UseParNewGC -XX:+PrintGCDetails -Xms16m -Xmx16m
+```
+
+```sh
+[GC (Allocation Failure) [ParNew: 4928K->4928K(4928K), 0.0000177 secs][Tenured: 7531K->8171K(10944K), 0.0191096 secs] 12459K->8171K(15872K), [Metaspace: 3141K->3141K(1056768K)], 0.0191802 secs] [Times: user=0.02 sys=0.00, real=0.02 secs]
+
+[GC (Allocation Failure) [ParNew: 4416K->4416K(4928K), 0.0000149 secs][Tenured: 8171K->10944K(10944K), 0.0205250 secs] 12587K->12585K(15872K), [Metaspace: 3141K->3141K(1056768K)], 0.0206098 secs] [Times: user=0.02 sys=0.00, real=0.02 secs]
+
+[Full GC (Allocation Failure) [Tenured: 10944K->2834K(10944K), 0.0082399 secs] 15871K->2834K(15872K), [Metaspace: 3141K->3141K(1056768K)], 0.0082888 secs] [Times: user=0.00 sys=0.00, real=0.01 secs] 
+```
+
+#### ParallelGC垃圾收集器
+
+​	ParalleGC收集器工作机制和ParNewGC收集器一样，只是在此基础之上，新增了两个和系统吞吐量相关的参数，使得其使用更加的灵活高效。
+
+`-XX:+UseParallelGC`
+
+* 新生代使用ParallelGC垃圾收集器，老年代使用串行收集器。
+
+`-XX:+UseParallelOldGC`
+
+* 新生代使用ParallelGC垃圾收集器，老年代使用ParallelOldGC收集器。
+
+`-XX:MaxGCPauseMillis`
+
+* 设置最大的垃圾收集的停顿时间，单位为毫秒。
+* 需要注意的是，ParallelGC为了达到设置的停顿时间，可能会调整堆大小或其他参数，如果堆大小设置的比较小，就会导致GC工作很频繁，反而会影响到性能。
+* 该参数使用需谨慎。
+
+`-XX:GCTimeRatio`
+
+* 设置垃圾回收时间占程序运行时间的百分比，公式为1/(1+n)。
+* 它的值为0~100之间的数字，默认为99，也就是垃圾回收时间不能超过1%。
+
+`-XX:UseAdaptiveSizePolicy`
+
+* 自适应GC模式，垃圾收集器将自动调整新生代、老年代等参数，达到吞吐量、堆大小和停顿时间之间的平衡。
+* 一般用于，手动调整参数比较困难的场景。让收集器自动进行调整。
+
+测试
+
+```sh
+-XX:+UseParallelGC
+-XX:+UseParallelOldGC
+-XX:MaxGCPauseMillis=100
+-XX:+PrintGCDetails 
+-Xms16m 
+-Xmx16m
+```
+
+```
+[GC (Allocation Failure) [PSYoungGen: 3584K->1529K(3584K)] 11175K->10480K(14848K), 0.0017106 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[Full GC (Ergonomics) [PSYoungGen: 1529K->0K(3584K)] [ParOldGen: 8951K->10095K(11264K)] 10480K->10095K(14848K), [Metaspace: 3141K->3141K(1056768K)], 0.0917094 secs] [Times: user=0.31 sys=0.00, real=0.09 secs] 
+```
+
+### CMS垃圾收集器
+
+![](https://pic.imgdb.cn/item/608a81d1d1a9ae528f19e167.jpg)
+
+* 初始化标记(CMS-initial-mark)： 标记root， 会导致stw。
+* 并发标记(CMS-concurrent-mark): 与用户线程同时运行。
+* 预清理(CMS-concurrent-preclean): 与用户线程同时运行。
+* 重新标记(CMS-remark): 会导致stw。
+* 并发清除(CMS-concurrent-sweep), 与用户线程同时运行。
+* 调整堆大小，设置CMS在清理之后进行内存压缩，目的是清理内存中的碎片。
+* 并发重置状态等待下次CMS的触发(CMS-concurrent-reset)，与用户线程同时运行。
+
+
+
+**测试**
+
+```sh
+# 启动参数
+-XX:+UseConcMarkSweepGC 
+-XX:+PrintGCDetails 
+-Xms16m 
+-Xmx16m
+
+# 运行日志
+[GC (Allocation Failure) [ParNew: 4928K->512K(4928K), 0.0046008 secs] 9669K->8078K(15872K), 0.0046609 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+# 初始标记
+[GC (CMS Initial Mark) [1 CMS-initial-mark: 7566K(10944K)] 8166K(15872K), 0.0002612 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+# 并发标记
+[CMS-concurrent-mark-start]
+[CMS-concurrent-mark: 0.004/0.004 secs] [Times: user=0.00 sys=0.00, real=0.01 secs] 
+# 预处理
+[CMS-concurrent-preclean-start]
+[CMS-concurrent-preclean: 0.000/0.000 secs] [Times: user=0.00 sys=0.00, real=0.00 secs]
+# 重新标记
+[GC (CMS Final Remark) [YG occupancy: 2086 K (4928 K)][Rescan (parallel) , 0.0008513 secs][weak refs processing, 0.0001479 secs][class unloading, 0.0008767 secs][scrub symbol table, 0.0015791 secs][scrub string table, 0.0002906 secs][1 CMS-remark: 6573K(10944K)] 8660K(15872K), 0.0040221 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+# 并发清理
+[CMS-concurrent-sweep-start]
+[CMS-concurrent-sweep: 0.002/0.002 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+# 重置
+[CMS-concurrent-reset-start]
+[CMS-concurrent-reset: 0.000/0.000 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+```
+
+### G1垃圾收集器(重点)
+
+​	G1垃圾收集器是在jdk1.7中正式使用的全新的垃圾收集器，oracle官方计划jdk9将G1变为默认的垃圾收集器，以替代CMS。
+
+​	G1的设计原则就是简化JVM性能调优，开发人员只需要简单的三步即可完成调优。
+
+* 开启G1垃圾收集器。
+* 设置堆的最大内存。
+* 设置最大的停顿时间。
+
+
+
+​	G1中提供了三种垃圾回收模式，Young GC、 Mixed GC和Full GC，在不同条件下被触发。
+
+#### 原理
+
+​	G1垃圾收集器相对比其他收集器而言，最大的区别是取消了新生代、老年代的物理划分，取而代之的是将堆划分为若干个区域(Region), 这些区域中包含了有逻辑上的新生代、老年代。
+
+​	这样就不用单独的空间对每个代进行设置，也不用担心每个代区域的内存是否足够。
+
+​	~~Eden~~
+
+​	~~Survivor~~
+
+​	~~Tenured~~
+
+![](https://pic.imgdb.cn/item/608a8721d1a9ae528f3c0603.jpg)
+
+![](https://pic.imgdb.cn/item/608a88d1d1a9ae528f46550f.jpg)
+
+​	在G1划分的区域中，年轻代的垃圾收集依然采用暂停所有的应用线程的方式，将存活的对象拷贝到老年代或Survivor空间，G1收集器通过将对象从一个区域复制到另一个区域，完成了清理工作。
+
+​	这就意味着，在正常的处理过程中，G1完成了堆的压缩(至少是部分堆的压缩), 这样就不会有cms内存碎片的问题存在了。
+
+​	在G1中，有一种特殊的区域，叫Humongous区域。
+
+* 如果一个对象超过了分区容量50%，G1收集器就认为这是一个巨型对象。
+* 这些巨型对象，默认直接会被分配在老年代，但是如果它是一个短期存在的巨型对象，就会对垃圾收集器造成负面影响。
+* 为了解决这个问题，G1划分了一个Humongous区，它用来专门存放巨型对象。如果一个H区装不下一个巨型对象，那么G1会寻找连续的H区来存储。为了找到连续的H区，有时候不得不启动Full gc。
+
+#### Young GC
+
+​	主要是对Eden区进行GC，在Eden空间耗尽时会被触发。
+
+* Eden空间的数据移动到Survivor区，如果Survivor区的空间不够，Eden空间部分数据会直接晋升到老年代空间。
+* Survivor去的数据移动到新的Survivor区中，也有部分数据晋升到老年代空间中。
+* 最终Eden区空间数据为空，GC停止工作，应用线程继续执行。
+
+![](https://pic.imgdb.cn/item/608ab05cd1a9ae528f9ad6e3.jpg)
+
+![](https://pic.imgdb.cn/item/608ab096d1a9ae528f9d25ed.jpg)
+
+**Remember Set**
+
+​	在GC新生代的对象时，何如找到新生代中对象的根对象呢？
+​	根对象可能是在新生代中，也可能在老年代中，那么老年代中的所有对象都是根么？
+
+​	如果全量扫描老年代，那么这样扫描下来会耗费大量的时间。
+
+​	于是，G1引进了Rset的概念，全称 Remember Set， 作用是跟踪指向某个堆的对象引用。
+
+![](https://pic.imgdb.cn/item/608ab181d1a9ae528fa6f2d3.jpg)
+
+​	每个Region初始化时，会初始化一个RSet。该集合用来记录并跟踪其他Region指向该Region中的对象的引用，每个Region默认按照512Kb划分成多个Card，所以RSet需要记录的东西应该是 xxRegion的xx Card。
+
+#### **Mixed GC**
+
+​	当越来越多的对象晋升到老年代old region时，为了避免堆内存被耗尽，虚拟机会触发一个混合的垃圾收集器，即 Mixed GC，并不是一个Old GC，除了回收整个Young Region，还会回收一部分的Old Region， 这里需要注意: 是一部分老年代，而不是全部老年代， 可以选择哪些old region进行回收，从而可以对垃圾回收的耗时时间进行控制。也要注意Mixed GC并不是Full GC。
+
+​	Mixed GC什么时候出发？ 由参数`-XX:InitiatingHeapOccupancyPercent=n`决定。默认45%，该参数的意思是：当老年代大小沾整个堆大小百分比达到该阈值时触发。
+
+​	GC分为两步：
+
+	1. 全局并发标记(global concurrent marking)。
+ 	2. 拷贝存活对象(evacuation)。
+
+**全局并发标记**
+
+​	分为5个步骤：
+
+* 初始标记(Initial mark, STW)
+  * 标记从根节点直接可达的对象，这个阶段会执行一次新生代GC，会产生全局停顿。
+* 根区域扫描(root region scan)
+  * G1 GC在初始标记的存货区扫描对老年代的引用，并标记被引用的对象。
+  * 该阶段与应用程序(非STW)同时运行，并且只有完成该阶段后，才能开始下一次STW年轻代垃圾的回收。
+* 并发标记(concurrent marking)
+  * G1 GC在整个堆中查找可访问的(存活的)对象。该阶段与应用程序同时运行，可以被STW新生代垃圾回收中断。
+* 重新标记(Remark STW)
+  * 该阶段是STW回收，因为程序在运行，针对上一次的标记进行修正。
+* 清理垃圾(Cleanup, STW)
+  * 清点和重置标记状态，该阶段会STW，这个阶段并不会实际上去做垃圾的收集，需要evacuation阶段来回收。
+
+**拷贝存活对象**
+
+​	Evacuation阶段是全暂停的。该阶段会把一部分Region里的活对象拷贝到另一部分Region中，从而实现垃圾的回收清理。
+
+#### G1收集器相关参数
+
+* `-XX:+UseG1GC`
+  * 使用G1垃圾收集器。
+* `-XX:MaxGCPauseMillis`
+  * 设置期望达到的最大GC停顿时间的指标(JVM会尽力实现，但不保证达到)，默认值是200毫秒。
+* `-XX:G1HeapRegionSize=n`
+  * 设置G1区域的大小，值是2的幂，范围是1MB到32MB之间。目标是根据最小的Java堆划分出约2048个区域。
+  * 默认是堆内存的1/2000。
+* `-XX：ParallelGCThreads=n`
+  * 设置STW工作线程数的值。将n的值设置为逻辑处理器的数量。n的值域逻辑处理器的数量相同，最多为8。
+* `-XX：ConcGCThreads=n`
+  * 设置并行标记的线程数。将n设置为并行垃圾回收线程数(ParallelGCThreads)的1/4左右
+* `-XX:InitiatingHeapOccupancyPercent=n`
+  * 设置触发标记周期的java堆占用阈值。默认是占用整个Java堆的45%。
+
+
+
+**测试**
+
+```sh
+-XX:+UseG1GC -XX:MaxGCPauseMillis=100 -XX:+PrintGCDetails -Xmx256m
+```
+
+```sh
+# 日志
+[GC pause (G1 Evacuation Pause) (young), 0.0043929 secs]
+   [Parallel Time: 3.8 ms, GC Workers: 8]
+      [GC Worker Start (ms): Min: 284.9, Avg: 285.9, Max: 287.5, Diff: 2.6]
+      # 扫描根节点
+      [Ext Root Scanning (ms): Min: 0.0, Avg: 0.1, Max: 0.3, Diff: 0.3, Sum: 0.8]
+      # 更新RS区域锁消耗的时间
+      [Update RS (ms): Min: 0.0, Avg: 0.0, Max: 0.0, Diff: 0.0, Sum: 0.0]
+         [Processed Buffers: Min: 0, Avg: 0.0, Max: 0, Diff: 0, Sum: 0]
+      [Scan RS (ms): Min: 0.0, Avg: 0.0, Max: 0.0, Diff: 0.0, Sum: 0.0]
+      [Code Root Scanning (ms): Min: 0.0, Avg: 0.0, Max: 0.0, Diff: 0.0, Sum: 0.0]
+      # 对象拷贝
+      [Object Copy (ms): Min: 1.1, Avg: 2.6, Max: 3.4, Diff: 2.4, Sum: 20.7]
+      [Termination (ms): Min: 0.0, Avg: 0.1, Max: 0.1, Diff: 0.1, Sum: 0.5]
+         [Termination Attempts: Min: 1, Avg: 1.0, Max: 1, Diff: 0, Sum: 8]
+      [GC Worker Other (ms): Min: 0.0, Avg: 0.0, Max: 0.0, Diff: 0.0, Sum: 0.3]
+      [GC Worker Total (ms): Min: 1.1, Avg: 2.8, Max: 3.8, Diff: 2.6, Sum: 22.4]
+      [GC Worker End (ms): Min: 288.7, Avg: 288.7, Max: 288.7, Diff: 0.0]
+   [Code Root Fixup: 0.0 ms]
+   [Code Root Purge: 0.0 ms]
+   [Clear CT: 0.1 ms] # 清空卡表
+   [Other: 0.4 ms]
+      [Choose CSet: 0.0 ms] # 选取CSet
+      [Ref Proc: 0.2 ms] # 软引用、弱引用处理耗时
+      [Ref Enq: 0.0 ms] # 弱引用、软引用入队耗时
+      [Redirty Cards: 0.1 ms]
+      [Humongous Register: 0.0 ms] # 大对象区域注册耗时
+      [Humongous Reclaim: 0.0 ms] # 大对象区域回收耗时
+      [Free CSet: 0.0 ms]
+   [Eden: 9216.0K(9216.0K)->0.0B(4096.0K) Survivors: 0.0B->2048.0K Heap: 9216.0K(16.0M)->5117.0K(16.0M)] # 新生代大小统计
+ [Times: user=0.00 sys=0.00, real=0.00 secs] 
+```
+
+#### **G1优化建议**
+
+* 新生代大小
+
+  * 避免使用-Xmn选项或-XX:NewRatio等相关选项显示设置新生代大小。
+  * 固定新生代大小会覆盖暂停时间目标。
+
+* 暂停时间目标不要太严苛
+
+  * G1 GC的吞吐量目标是90的应用时间和10%的垃圾回收时间。
+  * 评估G1 GC的吞吐量时，暂停时间不要太严苛。目标太严苛表示愿意接受更多的垃圾回收开销，进而影响到吞吐量。
+
+  
+
+## 可视化GC日志分析工具
+
+​	涉及日志打印输出的参数如下:
+
+```sh
+-XX:+PrintGC # 输出GC日志
+-XX:+PrintGCDetail # 输出GC详细日志
+-XX:+PrintGCTimeStamps # 输出GC的时间戳(以基准时间的形式)
+-XX:+PrintGCDateStamps # 输出GC的时间戳(以日期的形式，如 2020-04-05T21:53:59.245+0800)
+-XX:+PrintHeapAtGC # 在进行GC的前后打印出堆的信息
+-Xloggc:../logs/gc.log # 日志的输出路径
+```
+
+测试
+
+```sh
+-XX:+UseG1GC -XX:MaxGCPauseMillis=100 -Xmx256m -XX:+PrintGCDetails
+-XX:+PrintGCTimeStamps -XX:+PrintGCDateStamps -XX:+PrintHeapAtGC
+-Xloggc:F://Temp/gc/gc.log
+```
+
+```sh
+Java HotSpot(TM) 64-Bit Server VM (25.102-b14) for windows-amd64 JRE (1.8.0_102-b14), built on Jun 22 2016 13:15:21 by "java_re" with MS VC++ 10.0 (VS2010)
+Memory: 4k page, physical 41825224k(33993556k free), swap 44446664k(35239472k free)
+CommandLine flags: -XX:InitialHeapSize=268435456 -XX:MaxGCPauseMillis=100 -XX:MaxHeapSize=268435456 -XX:+PrintGC -XX:+PrintGCDateStamps -XX:+PrintGCDetails -XX:+PrintGCTimeStamps -XX:+PrintHeapAtGC -XX:+UseCompressedClassPointers -XX:+UseCompressedOops -XX:+UseG1GC -XX:-UseLargePagesIndividualAllocation 
+{Heap before GC invocations=0 (full 0):
+ garbage-first heap   total 262144K, used 12288K [0x00000000f0000000, 0x00000000f0100800, 0x0000000100000000)
+  region size 1024K, 12 young (12288K), 0 survivors (0K)
+ Metaspace       used 3135K, capacity 4556K, committed 4864K, reserved 1056768K
+  class space    used 333K, capacity 392K, committed 512K, reserved 1048576K
+2021-04-29T22:13:08.829+0800: 0.360: [GC pause (G1 Evacuation Pause) (young), 0.0060868 secs]
+   [Parallel Time: 5.2 ms, GC Workers: 8]
+      [GC Worker Start (ms): Min: 359.7, Avg: 359.8, Max: 359.8, Diff: 0.1]
+      [Ext Root Scanning (ms): Min: 0.2, Avg: 0.3, Max: 0.7, Diff: 0.4, Sum: 2.7]
+      [Update RS (ms): Min: 0.0, Avg: 0.0, Max: 0.0, Diff: 0.0, Sum: 0.0]
+         [Processed Buffers: Min: 0, Avg: 0.0, Max: 0, Diff: 0, Sum: 0]
+      [Scan RS (ms): Min: 0.0, Avg: 0.0, Max: 0.0, Diff: 0.0, Sum: 0.0]
+      [Code Root Scanning (ms): Min: 0.0, Avg: 0.0, Max: 0.1, Diff: 0.1, Sum: 0.1]
+      [Object Copy (ms): Min: 4.3, Avg: 4.6, Max: 4.7, Diff: 0.4, Sum: 36.7]
+      [Termination (ms): Min: 0.0, Avg: 0.0, Max: 0.1, Diff: 0.1, Sum: 0.4]
+         [Termination Attempts: Min: 1, Avg: 5.0, Max: 10, Diff: 9, Sum: 40]
+      [GC Worker Other (ms): Min: 0.0, Avg: 0.0, Max: 0.1, Diff: 0.0, Sum: 0.3]
+      [GC Worker Total (ms): Min: 5.0, Avg: 5.0, Max: 5.1, Diff: 0.1, Sum: 40.3]
+      [GC Worker End (ms): Min: 364.8, Avg: 364.8, Max: 364.8, Diff: 0.0]
+   [Code Root Fixup: 0.0 ms]
+   [Code Root Purge: 0.0 ms]
+   [Clear CT: 0.1 ms]
+   [Other: 0.7 ms]
+      [Choose CSet: 0.0 ms]
+      [Ref Proc: 0.4 ms]
+      [Ref Enq: 0.0 ms]
+      [Redirty Cards: 0.1 ms]
+      [Humongous Register: 0.0 ms]
+      [Humongous Reclaim: 0.0 ms]
+      [Free CSet: 0.0 ms]
+   [Eden: 12.0M(12.0M)->0.0B(10.0M) Survivors: 0.0B->2048.0K Heap: 12.0M(256.0M)->7024.5K(256.0M)]
+Heap after GC invocations=1 (full 0):
+ garbage-first heap   total 262144K, used 7024K [0x00000000f0000000, 0x00000000f0100800, 0x0000000100000000)
+  region size 1024K, 2 young (2048K), 2 survivors (2048K)
+ Metaspace       used 3135K, capacity 4556K, committed 4864K, reserved 1056768K
+  class space    used 333K, capacity 392K, committed 512K, reserved 1048576K
+}
+ [Times: user=0.01 sys=0.00, real=0.01 secs] 
+{Heap before GC invocations=1 (full 0):
+ garbage-first heap   total 262144K, used 17264K [0x00000000f0000000, 0x00000000f0100800, 0x0000000100000000)
+  region size 1024K, 12 young (12288K), 2 survivors (2048K)
+ Metaspace       used 3136K, capacity 4556K, committed 4864K, reserved 1056768K
+  class space    used 333K, capacity 392K, committed 512K, reserved 1048576K
+```
+
+### GC Easy可视化工具
+
+​	是一款在线的可视化工具，易用，功能强大,  网站:
+
+​	http://gceasy.io
+
+## Tomcat8 优化
+
+```sh
+# 修改配置文件， 配置tomcat的管理用户
+cd conf
+vim tomcat-users.xml
+# 写入如下内容:
+<role rolename="manager"/>
+<role rolename="manager-gui"/>
+<role rolename="admin"/>
+<role rolename="admin-gui"/>
+<user username="tomcat" password="tomcat" roles="admin-gui,admin,manager-gui,manager"/>
+# 如果是tomcat7，配置了tomcat用户就可以登录系统了，但是tomcat8不行，还需要修改另一个配置文件，否则访问不了，提示403
+vim weapps/manager/META-INF/context.xml
+
+# 将<Value的内容注释掉
+
+<Context antiResourceLocking="false" privileged="true" >
+  <CookieProcessor className="org.apache.tomcat.util.http.Rfc6265CookieProcessor"
+                   sameSiteCookies="strict" />
+           <!--  <Valve className="org.apache.catalina.valves.RemoteAddrValve"
+                   allow="127\.\d+\.\d+\.\d+|::1|0:0:0:0:0:0:0:1" /> -->
+  <Manager sessionAttributeValueClassNameFilter="java\.lang\.(?:Boolean|Integer|Long|Number|String)|org\.apache\.catalina\.filters\.CsrfPreventionFilter\$LruCache(?:\$1)?|java\.util\.(?:Linked)?HashMap"/>
+</Context>
+
+# 保存退出即可
+
+# 启动tomcat
+cd bin
+./startup.sh && tail -f ../logs/catalina.out
+
+# 打开浏览器访问
+http://192.168.40.133:8080
+```
+
+![](https://pic.imgdb.cn/item/608addb1d1a9ae528f1ef821.jpg)
+
+点击右上角server status，登录。
+
+![](https://pic.imgdb.cn/item/608addf2d1a9ae528f226a61.jpg)
+
+
+
+### 禁用AJP服务
+
+​	在服务状态页面中可以看到，默认状态下会启用AJP服务，并且占用8009端口。
+
+![](https://pic.imgdb.cn/item/608ae20ed1a9ae528f5a5c8c.jpg)
+
+​	什么是AJP呢？
+
+​	AJP(Apache JServer Protocol)
+
+​	AJPv13协议是面向包的。Web服务器和Servlet容器通过TCP来交互; 为了节省Socket创建的昂贵代价，Web服务器会尝试维护一个永久TCP链接到servlet，并且在多个请求和响应周期过程会重用连接。
+
+<img src="https://pic.imgdb.cn/item/608ae0e5d1a9ae528f49fc35.jpg" style="zoom:150%;" />
+
+​	一般是使用Nginx+tomcat的架构，所以用不着AJP协议，所以把AJP连接器禁用。
+
+​	修改conf下的server.xml文件，将AJP服务禁用掉即可。
+
+```xml
+<Connector protocol="AJP/1.3"
+               address="::1"
+               port="8009"
+               redirectPort="8443" />
+```
+
+### 执行器(线程池)
+
+​	在tomcat中每一个用户请求都是一个线程，所以可以使用线程池提高性能。
+
+​	修改server.xml文件。
+
+```xml
+<!-- 注释打开-->
+<Executor name="tomcatThreadPool" namePrefix="catalina-exec-"
+        maxThreads="500" minSpareThreads="50" prestartminSpareThreads="true"
+        maxQueueSize="100"/>
+<!--
+参数说明:
+	maxThreads: 最大并发数，默认200，一般建议在500~1000，根据硬件设施和业务来判断
+	minSpareThreads: Tomcat 初始化时创建的线程数，默认25
+	prestartminSpareThreads: 在Tomcat初始化的时候就初始化 minSpareThreads的参数值，如果不等于true， minSpareThreads就没啥效果了
+	maxQueueSize: 最大的等待队列数，超过则拒绝请求
+-->
+
+<!--在Connector中设置executor属性指向上面的执行器 注意把之前的Connector注释掉-->
+<Connector executor="tomcatThreadPool"
+               port="8080" protocol="HTTP/1.1"
+               connectionTimeout="20000"
+               redirectPort="8443" />
+
+```
+
+​	保存退出，重启Tomcat，查看效果。
+
+​	在页面上看可能是-1，如果配置了Executor，该属性的任何值集将被正确记录，但是将被显示成-1
+
+![](https://pic.imgdb.cn/item/608b6012d1a9ae528fe0cbae.jpg)
+
+### 三种运行模式
+
+**bio**
+
+​	默认模式，性能非常低下，没有经过任何优化处理和支持。
+
+**nio**
+
+​	nio(new I/O)，是Java SE 1.4及后续版本提供的一种新的I/O方式，即(java.nio包及其子包)。是一个基于缓冲区，并能提供非阻塞I/O操作的Java API，因此也被看成是non-blocking I/O的缩写。拥有比传统I/O(bio)更高的并发运行性能。
+
+**apr**
+
+​	安装起来最困难，但是从操作系统级别来解决异步IO问题，大幅度提升性能。
+
+
+
+​	推荐使用nio，不过，在tomcat8中有最新的nio2，速度更快，监视使用nio2.
+
+​	设置nio2
+
+```xml
+<Connector executor="tomcatThreadPool"
+               port="8080" protocol="org.apache.coyote.http11.Http11Nio2Protocol"
+               connectionTimeout="20000"
+               redirectPort="8443" />
+
+```
+
+### 工程以及JMeter
+
+工程略
+
+### 调整JVM参数
+
+```sh
+# 在tomcat的bin目录下，修改catalina.sh，添加如下参数
+JAVA_OPTS="-XX:+UseParallelGC
+-XX:+UseParallelOldGC
+-XX:MaxGCPauseMillis=100
+-XX:+PrintGCDetails 
+-XX:+PrintGCTimeStamps
+-XX:+PrintGCDateStamps
+-XX:+PrintHeapAtGC
+-Xloggc:../logs/gc.log
+-Xms64m 
+-Xmx512m"
+```
+
+查看GC日志，如果系统所消耗的时间大于用户时间，反映出服务器的性能存在瓶颈，调度CPU等资源所消耗的时间长一些。
+
+![](https://pic.imgdb.cn/item/608b670bd1a9ae528f185bff.jpg)
+
+
+
+​	新生代内存不足导致了很多gc。
+
+**调整新生代大小**
+
+```sh
+# 在tomcat的bin目录下，修改catalina.sh，添加如下参数
+JAVA_OPTS="-XX:+UseParallelGC
+-XX:+UseParallelOldGC
+-XX:MaxGCPauseMillis=100
+-XX:+PrintGCDetails 
+-XX:+PrintGCTimeStamps
+-XX:+PrintGCDateStamps
+-XX:+PrintHeapAtGC
+-Xloggc:../logs/gc.log
+-Xms128m 
+-Xmx1024m
+-XX:NewSize=64m
+-XX:MaxNewSize=256m"
+```
+
+#### **设置G1垃圾收集器**
+
+```sh
+# 在tomcat的bin目录下，修改catalina.sh，添加如下参数
+JAVA_OPTS="-XX:+UseG1GC
+-XX:MaxGCPauseMillis=100
+-XX:+PrintGCDetails 
+-XX:+PrintGCTimeStamps
+-XX:+PrintGCDateStamps
+-XX:+PrintHeapAtGC
+-Xloggc:../logs/gc.log
+-Xms128m 
+-Xmx1024m
+```
+
+## jvm字节码
+
+​	从可以查看编译好的class文件中的字节码，去检查程序的效率是否高。
+
+### 通过javap命令查看class文件的字节码
+
+```java
+package top.sorie.test;
+
+public class JavapTest {
+    public static void main(String[] args) {
+        int a = 2;
+        int b = 5;
+        int c = b - a;
+        System.out.println(c);
+    }
+}
+```
+
+通过javap命令查看class文件中的字节码内容:
+
+```sh
+javap -v JavapTest.class > Test1.txt
+
+用法: javap <options> <classes>
+其中, 可能的选项包括:
+  -help  --help  -?        输出此用法消息
+  -version                 版本信息
+  -v  -verbose             输出附加信息
+  -l                       输出行号和本地变量表
+  -public                  仅显示公共类和成员
+  -protected               显示受保护的/公共类和成员
+  -package                 显示程序包/受保护的/公共类
+                           和成员 (默认)
+  -p  -private             显示所有类和成员
+  -c                       对代码进行反汇编
+  -s                       输出内部类型签名
+  -sysinfo                 显示正在处理的类的
+                           系统信息 (路径, 大小, 日期, MD5 散列)
+  -constants               显示最终常量
+  -classpath <path>        指定查找用户类文件的位置
+  -cp <path>               指定查找用户类文件的位置
+  -bootclasspath <path>    覆盖引导类文件的位置
+```
+
+```java
+Classfile /root/src/javaDemo/JavapTest.class
+  Last modified Apr 29, 2021; size 423 bytes
+  MD5 checksum eb1358bdae0421cbcdf8519dc5be5f7d
+  Compiled from "JavapTest.java"
+public class top.sorie.test.JavapTest
+  minor version: 0
+  major version: 52
+  flags: ACC_PUBLIC, ACC_SUPER
+Constant pool:
+// 常量池
+   #1 = Methodref          #5.#14         // java/lang/Object."<init>":()V
+   #2 = Fieldref           #15.#16        // java/lang/System.out:Ljava/io/PrintStream;
+   #3 = Methodref          #17.#18        // java/io/PrintStream.println:(I)V
+   #4 = Class              #19            // top/sorie/test/JavapTest
+   #5 = Class              #20            // java/lang/Object
+   #6 = Utf8               <init>
+   #7 = Utf8               ()V
+   #8 = Utf8               Code
+   #9 = Utf8               LineNumberTable
+  #10 = Utf8               main
+  #11 = Utf8               ([Ljava/lang/String;)V
+  #12 = Utf8               SourceFile
+  #13 = Utf8               JavapTest.java
+  #14 = NameAndType        #6:#7          // "<init>":()V
+  #15 = Class              #21            // java/lang/System
+  #16 = NameAndType        #22:#23        // out:Ljava/io/PrintStream;
+  #17 = Class              #24            // java/io/PrintStream
+  #18 = NameAndType        #25:#26        // println:(I)V
+  #19 = Utf8               top/sorie/test/JavapTest
+  #20 = Utf8               java/lang/Object
+  #21 = Utf8               java/lang/System
+  #22 = Utf8               out
+  #23 = Utf8               Ljava/io/PrintStream;
+  #24 = Utf8               java/io/PrintStream
+  #25 = Utf8               println
+  #26 = Utf8               (I)V
+{
+  public top.sorie.test.JavapTest();
+  	// 无参构造器
+    descriptor: ()V
+    flags: ACC_PUBLIC
+    Code:
+      stack=1, locals=1, args_size=1
+         0: aload_0
+         1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+         4: return
+      LineNumberTable:
+        line 3: 0
+
+  public static void main(java.lang.String[]);
+    descriptor: ([Ljava/lang/String;)V // 方法描述，V代表返回值是viod
+    flags: ACC_PUBLIC, ACC_STATIC // 方法修饰符 public, static的
+    Code:
+      // stack=2:操作栈大小为2。local=4:本地变量表大小4,args_size=1:参数的个数
+      stack=2, locals=4, args_size=1 
+         0: iconst_2 // 将数字2压入操作栈中
+         1: istore_1 // 从操作栈中弹出一个元素，放入本地变量表，位于小标为1的位置(下标0是this)
+         2: iconst_5 // 将数字5压入操作栈
+         3: istore_2 // 从操作栈中弹出一个元素，放入本地变量表，位于小标为2的位置
+         4: iload_2 // 加载本地变量表中下标为2位置的元素压入操作栈 5
+         5: iload_1 // 加载本地变量表中下标为1位置的元素压入操作栈 2
+         6: isub // 操作栈中的两个数字相减
+         7: istore_3 // 将相减的数字存入本地变量表
+         // 通过#2找到对应的常量，即可找到对应的引用
+         8: getstatic     #2                  // Field java/lang/System.out:Ljava/io/PrintStream;
+        11: iload_3 // 加载本地变量表中下标为3位置的元素压入操作栈 3
+        // 通过#3找到对应的常量，即可找到对应的引用，进行方法调用
+        12: invokevirtual #3                  // Method java/io/PrintStream.println:(I)V
+        15: return // 返回
+      LineNumberTable: // 行号的列表
+        line 5: 0
+        line 6: 2
+        line 7: 4
+        line 8: 8
+        line 9: 15
+}
+SourceFile: "JavapTest.java"
+```
+
+![](https://pic.imgdb.cn/item/608b6e53d1a9ae528f5ad87c.jpg)
+
+![](https://pic.imgdb.cn/item/608b6bb0d1a9ae528f441912.jpg)
+
+**描述符**
+
+字段描述符
+
+![](https://pic.imgdb.cn/item/608b6bffd1a9ae528f46de31.jpg)
+
+方法描述符
+
+```java
+Object m(int i, double d, Thread t) {
+    ...
+}
+is:
+(IDLjava/lang/Thread;)Ljava/lang/Object;
+```
+
+**图解**
+
+![](https://pic.imgdb.cn/item/608b6ea5d1a9ae528f5d92d7.jpg)
+
+### 研究i++和++i的不同
+
+i++
+
+![](https://pic.imgdb.cn/item/608b6ee7d1a9ae528f5fc464.jpg)
+
+++i
+
+![](https://pic.imgdb.cn/item/608b6f3dd1a9ae528f62a18b.jpg)
+
+区别:
+
+* i++
+  * 只是在本地变量中对数字做了相加，没有将数据压入操作栈。
+  * 将前面拿到的数字1，再从操作栈拿到，压入本地变量中。
+* ++i
+  * 在本地变量中对数字做了相加，并且将数据压入操作栈。
+  * 将操作栈中的数据再次压入到本地变量中
+
+
+
+​	小结: 可以通过查看字节码的方式对代码的底层做研究，探究其原理。
+
+## 代码优化
+
+**尽可能使用局部变量**
+
+​	调用方法时，传递的参数以及再调用中创建的临时变量都保存在栈中，速度较快。
+
+**尽量减少对变量的重复计算**
+
+​	对方法的调用，即使方法中只有一句语句，也是由消耗的。
+
+**尽量采用懒加载的策略, 需要的时候才创建**
+
+​	...
+
+**异常不应该用来控制程序流程**
+
+​	异常对性能不利，抛出异常要创建一个新的对象，Throwable调用fillInStackTrace的本地同步方法，它检查堆栈，收集调用跟踪信息。只要有异常被抛出，虚拟机就必须调用堆栈，因为在处理过程中创建了一个新的对象。异常只能用于错误处理，不应该用来控制程序流程。
+
+**不要创建一些不使用的对象，不要导入一些不使用的类**
+
+​	...
+
+**程序运行过程中避免使用反射**
+
+​	效率不高, 尽量避免频繁使用，特别是Method的invoke方法。
+
+**使用数据库连接池和线程池**
+
+​	...
+
+**容器初始化时尽可能指定长度**
+
+​	避免容器长度不足。
+
+**ArrayList随机遍历块，LinkedList添加删除快**
+
+​	略
+
+**使用Entry遍历map**
+
+​	避免使用KeySet遍历。
+
+**不要手动调用System.gc()**
+
+​	略
+
+**String 尽量少用正则表达式**
+
+​	replace不支持正则。
+
+​	replaceAll支持。
+
+​	仅仅字符替换，建议使用replace。
+
+**日志的输出要注意级别**
+
+​	略
+
+**对资源的close()分开操作**	
+
+![](https://pic.imgdb.cn/item/608b7364d1a9ae528f861399.jpg)
 

@@ -1357,7 +1357,7 @@ There are two methods for reading and writing channel I/O.
 
 ```java
 // Defaults to READ
-try (SeekableByteChannel sbc = Files.newByteChannel(file)) {
+    try (SeekableByteChannel sbc = Files.newByteChannel(file)) {
     ByteBuffer buf = ByteBuffer.allocate(10);
 
     // Read the bytes with the proper encoding for this platform.  If
@@ -1595,7 +1595,7 @@ try (DirectoryStream<Path> stream =
 
 ```java
 DirectoryStream.Filter<Path> filter =
-    newDirectoryStream.Filter<Path>() {
+    new DirectoryStream.Filter<Path>() {
     public boolean accept(Path file) throws IOException {
         try {
             return (Files.isDirectory(path));
@@ -1612,9 +1612,9 @@ DirectoryStream.Filter<Path> filter =
 Path dir = ...;
 try (DirectoryStream<Path>
                        stream = Files.newDirectoryStream(dir, filter)) {
-    for (Path entry: stream) {
-        System.out.println(entry.getFileName());
-    }
+        for (Path entry: stream) {
+            System.out.println(entry.getFileName());
+        }
 } catch (IOException x) {
     System.err.println(x);
 }
