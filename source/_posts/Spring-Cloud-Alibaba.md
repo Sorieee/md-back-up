@@ -1493,3 +1493,450 @@ Sentinel Dashboard的安装步骤如下。
 ​	Sentinel还可以使用＠SentinelResource支持注解的方式来定义资源，具体实现方式如下：
 
 ![](https://pic.imgdb.cn/item/60c8b140844ef46bb295bac0.jpg)
+
+### Sentinel资源保护规则
+
+​	Sentinel支持多种保护规则：流量控制规则、熔断降级规则、系统保护规则、来源访问控制规则、热点参数规则。
+
+​	限流规则在前面的案例中简单使用过，先通过FlowRule来定义限流规则，然后通过FlowRuleManager.loadRules来加载规则列表。完整的限流规则设置代码如下：
+
+![](https://pic.imgdb.cn/item/60c9ef81844ef46bb24f0f59.jpg)
+
+其中，FlowRule部分属性的含义说明如下。
+
+* limitApp：是否需要针对调用来源进行限流，默认是default，即不区分调用来源。
+* strategy：调用关系限流策略——直接、链路、关联。
+* controlBehavior：流控行为，包括直接拒绝、排队等待、慢启动模式，默认是直接拒绝。
+* clusterMode：是否是集群限流，默认为否。
+
+#### 基于并发数和QPS的流量控制
+
+​	Sentinel流量控制统计有两种类型，通过grade属性来控制：
+
+* 并发线程数（FLOW_GRADE_THREAD）。
+* QPS(FLOW_GRADE_QPS).
+
+**并发线程数**
+
+​	并发线程数限流用来保护业务线程不被耗尽。Sentinel并发线程数限流就是统计当前请求的上下文线程数量，如果超出阈值，新的请求就会被拒绝。
+
+**QPS**
+
+​	QPS（Queries Per Second）表示每秒的查询数，也就是一台服务器每秒能够响应的查询次数。当QPS达到限流的阈值时，就会触发限流策略。
+
+#### QPS流量控制行为
+
+​	当QPS超过阈值时，就会触发流量控制行为，这种行为是通过controlBehavior来设置的，它包含：
+
+* 直接拒绝（RuleConstant.CONTROL_BEHAVIOR_DEFAULT）；
+* Warm Up（RuleConstant.CONTROL_BEHAVIOR_WARM_UP），冷启动（预热）；
+* 匀速排队（RuleConstant.CONTROL_BEHAVIOR_RATE_LIMITER）；
+* 冷启动+匀速排队（RuleConstant.CONTROL_BEHAVIOR_WARM_UP_RATE_LIMITER）。
+
+**直接拒绝**
+
+​	直接拒绝是默认的流量控制方式，也就是请求流量超出阈值时，直接抛出一个FlowException。
+
+**Warm Up**
+
+​	Warm Up是一种冷启动（预热）方式。当流量突然增大时，也就意味着系统从空闲状态突然切换到繁忙状态，有可能会瞬间把系统压垮。当我们希望请求处理的数量逐步递增，并在一个预期时间之后达到允许处理请求的最大值时，Warm Up就可以达到这个目的。
+​	如图7-10所示，当前系统所能够处理的最大并发数是480，首先，在最下面标记的位置，系统一直处于空闲状态，接着请求量突然直线升高。这个时候系统并不是直接将QPS拉到最大值，而是在一定时间内逐步增加阈值，而中间这段时间就是一个系统逐步预热的过程。
+
+**匀速排队**
+
+​	![](https://pic.imgdb.cn/item/60c9f0a0844ef46bb25bc871.jpg)
+
+#### 调用关系流量策略
+
+​	调用关系包括调用方和被调用方，一个方法又可能会调用其他方法，形成一个调用链。所谓的调用关系流量策略，就是根据不同的调用维度来触发流量控制。
+
+* 根据调用方限流。
+* 根据调用链路入口限流。
+* 具有关系的资源流量控制（关联流量控制）。
+
+**调用方限流**
+
+​	所谓调用方限流，就是根据请求来源进行流量控制，我们需要设置limitApp属性来设置来源信息，它有三个选项。
+
+* default：表示不区分调用者，也就是任何访问调用者的请求都会进行限流统计。
+* {some_origin_name}：设置特定的调用者，只有来自这个调用者的请求才会进行流量统计和控制。
+* other：表示针对除{some_origin_name}外的其他调用者进行流量控制。
+
+
+
+​	由于同一个资源可以配置多条规则，如果多个规则设置的limitApp不一样，那么规则的生效顺序为：{some_origin_name}→other→default。
+
+**根据调用链路入口限流**
+
+​	一个被限流保护的方法，可能来自不同的调用链路。比如针对资源nodeA，入口Entrance1和入口Entrance2都调用了资源nodeA，那么Sentinel允许只根据某个入口来进行流量统计。比如我们针对nodeA资源，设置针对Entrance1入口的调用才会统计请求次数。它在一定程度上有点类似于调用方限流。
+
+![](https://pic.imgdb.cn/item/60c9f121844ef46bb261cfd3.jpg)
+
+**关联流量控制**
+
+​	当两个资源之间存在依赖关系或者资源争抢时，我们就说这两个资源存在关联。这两个存在依赖关系的资源在执行时可能会因为某一个资源执行操作过于频繁而影响另外一个资源的执行效率，所以关联流量控制（流控）就是限制其中一个资源的执行流量。
+
+### Sentinel实现服务熔断
+
+​	Sentinel实现服务熔断操作的配置和限流类似，不同之处在于限流采用的是FlowRule，而熔断中采用的是DegradeRule，配置代码如下：
+
+![](https://pic.imgdb.cn/item/60c9f177844ef46bb265d633.jpg)
+
+其中，有几个属性说明如下。
+
+* grade：熔断策略，支持秒级RT、秒级异常比例、分钟级异常数。默认是秒级RT。
+* timeWindow：熔断降级的时间窗口，单位为s。也就是触发熔断降级之后多长时间内自动熔断。
+* rtSlowRequestAmount：在RT模式下，1s内持续多少个请求的平均RT超出阈值后触发熔断，默认值是5。
+* minRequestAmount：触发的异常熔断最小请求数，请求数小于该值时即使异常比例超出阈值也不会触发熔断，默认值是5。
+
+
+
+​	Sentinel提供三种熔断策略，对于不同策略，参数的含义也不相同。
+
+* 平均响应时间（RuleConstant.DEGRADE_GRADE_RT）：如果1s内持续进入5个请求，对应的平均响应时间都超过了阈值（count，单位为ms），那么在接下来的时间窗口（timeWindow，单位为s）内，对这个方法的调用都会自动熔断，抛出DegradeException。
+  * Sentinel默认统计的RT上限是4900ms，如果超出此阈值都会算作4900ms，如果需要修改，则通过启动参数-Dcsp.sentinel.statistic.max.rt=xxx来配置。
+* 异常比例（RuleConstant.DEGRADE_GRADE_EXCEPTION_RATIO）：如果每秒资源数≥minRequestAmount（默认值为5），并且每秒的异常总数占总通过量的比例超过阈值count （count的取值范围是[0.0，1.0]，代表0%～100%），则资源将进入降级状态。同样，在接下来的timeWindow之内，对这个方法的调用都会自动触发熔断。
+* 异常数（RuleConstant.DEGRADE_GRADE_EXCEPTION_COUNT）：当资源最近一分钟的异常数目超过阈值之后，会触发熔断。需要注意的是，如果timeWindow小于60s，则结束熔断状态后仍然可能再进入熔断状态。
+
+## Spring Cloud集成Sentinel实践
+
+​	Spring Cloud Alibaba默认为Sentinel整合了Servlet、RestTemplate、FeignClient和Spring WebFlux。它不仅补全了Hystrix在Servlet和RestTemplate这一块的空白，而且还完全兼容了Hystrix在FeignClient中限流降级的用法，并支持灵活配置和调整流控规则。
+
+### Sentinel接入Spring Cloud
+
+* 创建一个基于Spring Boot的项目，并集成Greenwich.SR2版本的Spring Cloud依赖。
+* 添加Sentinel依赖包。
+
+​	![](https://pic.imgdb.cn/item/60c9f281844ef46bb272090a.jpg)
+
+* 创建一个REST接口，并通过＠SentinelResource配置限流保护资源。
+
+![](https://pic.imgdb.cn/item/60c9f29d844ef46bb27355d4.jpg)
+
+在上述代码中，配置限流资源有几种情况：
+
+* Sentinel starter在默认情况下会为所有的HTTP服务提供限流埋点，所以如果只想对HTTP服务进行限流，那么只需要添加依赖即可，不需要修改任何代码。
+* 如果想要对特定的方法进行限流或者降级，则需要通过＠SentinalResouce注解来实现限流资源的定义。
+* 可以通过SphU.entry（）方法来配置资源。
+* 手动配置流控规则，可以借助Sentinel的InitFunc SPI扩展接口来实现，只需要实现自己的InitFunc接口，并在init方法中编写规则加载的逻辑即可。
+
+![](https://pic.imgdb.cn/item/60c9f2e7844ef46bb276be3f.jpg)
+
+​	SPI是扩展点机制，如果需要被Sentinel加载，那么还要在resource目录下创建META-INF/services/com.alibaba.csp.sentinel.init.InitFunc文件，文件内容就是自定义扩展点的全路径。
+
+![](https://pic.imgdb.cn/item/60c9f308844ef46bb2784252.jpg)
+
+​	按照上述配置好之后，在初次访问任意资源的时候，Sentinel就会自动加载hello资源的流控规则。
+
+* 启动服务后，访问http://localhost:8080/say方法，当访问频率超过设定阈值时，就会触发限流。
+
+### 基于Sentinel Dashboard来实现流控配置
+
+​	基于Sentinel Dashboard来配置流控规则，可以实现流控规则的动态配置，执行步骤如下。
+
+* 启动Sentinel Dashboard。
+* 在application.yml中增加如下配置。
+
+![](https://pic.imgdb.cn/item/60c9f342844ef46bb27aea1c.jpg)
+
+​	spring.cloud.sentinel.transport.dashboard指向的是Sentinel Dashboard的服务器地址，可以实现流控数据的监控和流控规则的分发。
+
+* 提供一个REST接口，代码如下。
+
+![](https://pic.imgdb.cn/item/60c9f367844ef46bb27c91db.jpg)
+
+​	此处不需要添加任何资源埋点，在默认情况下Sentinel Starter会对所有HTTP请求进行限流。
+
+* 启动服务后，此时访问http://localhost:8080/dash，由于没有配置流控规则，所以不存在限流行为。
+
+至此，Spring Cloud集成Sentinel就配置完成了，接下来，进入Sentinel Dashboard来实现流控规则的配置。
+
+* 访问http://192.168.216.128：7777/进入Sentinel Dashboard。
+*  进入spring.application.name对应的菜单，访问“簇点链路”，如图7-12所示，在该列表下可以看到/dash这个REST接口的资源名称。
+* 针对/dash这个资源名称，可以在图7-12中最右边的操作栏单击“流控”按钮设置流控规则，如图7-13所示。
+
+![](https://pic.imgdb.cn/item/60c9f39c844ef46bb27efb9e.jpg)
+
+​	新增规则中的所有配置信息，实际就是FlowRule中对应的属性配置，为了演示示效果，把单机阈值设置为1。
+
+* 新增完成之后，再次访问http://localhost:8080/dash接口，当QPS超过1时，就可以看到限流的效果，并获得如下输出：
+
+![](https://pic.imgdb.cn/item/60c9f427844ef46bb2854cd6.jpg)
+
+### 自定义URL限流异常
+
+​	在默认情况下，URL触发限流后会直接返回。
+
+​	在实际应用中，大都采用JSON格式的数据，所以如果希望修改触发限流之后的返回结果形式，则可以通过自定义限流异常来处理，实现UrlBlockHandler并且重写blocked方法：
+
+![](https://pic.imgdb.cn/item/60c9f47c844ef46bb2894666.jpg)
+
+### URL资源清洗
+
+​	Sentinel中HTTP服务的限流默认由Sentinel-Web-Servlet包中的CommonFilter来实现，从代码中可以看到，这个Filter会把每个不同的URL都作为不同的资源来处理。
+
+​	在下面这段代码中，提供了一个携带{id}参数的REST风格API，对于每一个不同的{id}，URL也都不一样，所以在默认情况下Sentinel会把所有的URL当作资源来进行流控。
+
+![](https://pic.imgdb.cn/item/60c9f4db844ef46bb28dd06f.jpg)
+
+这会导致两个问题：
+
+* 限流统计不准确，实际需求是控制clean方法总的QPS，结果统计的是每个URL的QPS。
+* 导致Sentinel中资源数量过多，默认资源数量的阈值是6000，对于多出的资源规则将不会生效。
+
+
+
+​	针对这个问题可以通过UrlCleaner接口来实现资源清洗，也就是对于/clean/{id}这个URL，我们可以统一归集到/clean/*资源下，具体配置代码如下，实现UrlCleaner接口，并重写clean方法即可。
+
+![](https://pic.imgdb.cn/item/60c9f52a844ef46bb291abe9.jpg)
+
+## Sentinel集成Nacos实现动态流控规则
+
+​	当然，我们还需要对定义的资源设置流控规则，前面演示了两种方式：
+
+* 通过FlowRuleManager.loadRules（List rules）手动加载流控规则。
+* 在Sentinel Dashboard上针对资源动态创建流控规则。
+
+
+
+​	针对第一种设置方式，如果接入Sentinel Dashboard，那么同样支持动态修改流控规则。但是，这里会存在一个问题，基于Sentinel Dashboard所配置的流控规则都是保存在内存中的，一旦应用重启，这些规则都会被清除。为了解决这个问题，Sentinel提供了动态数据源支持。
+
+​	目前，Sentinel支持Consul、ZooKeeper、Redis、Nacos、Apollo、etcd等数据源的扩展。下面通过一个案例演示Spring Cloud Sentinel集成Nacos实现动态流控规则，配置步骤如下。
+
+* 添加Nacos数据源的依赖包。
+
+![](https://pic.imgdb.cn/item/60c9f621844ef46bb29dc7f6.jpg)
+
+*  创建一个REST接口，用于测试。
+
+![](https://pic.imgdb.cn/item/60c9f637844ef46bb29ed9f9.jpg)
+
+* 在application.yml中添加数据源配置。
+
+![](https://pic.imgdb.cn/item/60c9f64b844ef46bb29fde59.jpg)
+
+​	部分配置说明如下。
+
+* datasource：目前支持redis、apollo、zk、file、nacos，选择什么类型的数据源就配置相应的key即可。
+* data-id：可以设置成${spring.application.name}，方便区分不同应用的配置。
+* rule-type：表示数据源中规则属于哪种类型，如flow、degrade、param-flow、gw-flow等。
+* data-type：指配置项的内容格式，Spring Cloud Alibaba Sentinel提供了JSON和XML两种格式。如果需要自定义，则可以将值配置为custom，并配置converter-class指向converter类。
+*  登录Nacos控制台，创建流控配置规则，配置信息如图7-14所示。
+
+![](https://pic.imgdb.cn/item/60c9f693844ef46bb2a35ff4.jpg)
+
+* 最后，登录Sentinel Dashboard，找到执行项目名称菜单下的“流控控规则”，就可以看到在Nacos上所配置的流控规则已经被加载了，如图7-15所示。
+
+![](https://pic.imgdb.cn/item/60c9f6ae844ef46bb2a4c2a1.jpg)
+
+* 当我们在Nacos的控制台上修改流控规则后，可以同步在Sentinel Dashboard上看到流控规则的变化。
+
+通过上述配置整合之后，接口流控规则的动态修改就存在于以下两个地方：
+
+* Sentinel Dashboard.
+* Nacos控制台。
+
+
+
+​	那么问题就来了，在Nacos控制台上修改流控规则，虽然可以同步到Sentinel Dashboard，但是Nacos此时应该作为一个流控规则的持久化平台，所以正常的操作过程应该是开发者在Sentinel Dashboard上修改流控规则后同步到Nacos上，遗憾的是，目前Sentinel Dashboard不支持该功能。
+
+​	所以，Nacos名义上是“Datasource”，但实际上充当的仍然是配置中心的角色，开发者可以在Nacos控制台上动态修改流控规则并实现规则同步。在实际开发中，很难避免在不清楚情况的前提下，部分开发者通过Sentinel Dashboard来管理流控规则，部分开发者通过Nacos来管理流控规则，这将会导致非常严重的问题。
+
+​	如图7-16所示，Nacos在此处扮演的角色应该是一个“Datasource”，所以笔者强烈建议大家不要在Nacos上修改流控规则，因为这种修改的危险系数很高，毕竟Nacos的UI并不是专门负责流控规则维护的。
+
+![](https://pic.imgdb.cn/item/60c9f702844ef46bb2a901ff.jpg)
+
+​	这也就意味着流控规则的管理应该集中在Sentinel Dashboard上，接下来的问题就很简单了，我们需要实现Sentinel Dashboard来动态维护流控规则并同步到Nacos上，目前官方还没有提供支持，但是大家可以自己来实现。
+
+## Sentinel Dashboard集成Nacos实现规则同步
+
+​	Sentinel Dashboard的“流控规则”下的所有操作，都会调用Sentinel-Dashboard源码中的FlowControllerV1类，这个类中包含流控规则本地化的CRUD操作。
+
+​	另外，在com.alibaba.csp.sentinel.dashboard.controller.v2包下存在一个FlowControllerV2类，这个类同样提供流控规则的CRUD，和V1版本不同的是，它可以实现指定数据源的规则拉取和发布，部分代码如下：
+
+![](https://pic.imgdb.cn/item/60c9f772844ef46bb2ae99bf.jpg)
+
+### Sentinel Dashboard源码修改
+
+​	修改Sentinel Dashboard的源码，具体的实现步骤如下。
+
+* 在GitHub中下载Sentinel Dashboard 1.7.1的源码。
+* 使用IDEA工具打开${Sentinel_home}/sentinel-dashboard工程。
+*  在pom.xml中把sentinel-datasource-nacos依赖的`<scope>`注释掉。
+
+修改resources/app/scripts/directives/sidebar/sidebar.html文件中的下面这段代码，将dashboard.flowV1改成dashboard.flow，也就是去掉V1。
+
+![](https://pic.imgdb.cn/item/60c9f7fb844ef46bb2b55be2.jpg)
+
+​	修改之后，会调用FlowControllerV2中的接口。
+
+*  在com.alibaba.csp.sentinel.dashboard.rule包中创建一个nacos包，并创建一个类用来加载外部化配置。
+
+![](https://pic.imgdb.cn/item/60c9f819844ef46bb2b6f6cd.jpg)
+
+*  创建一个Nacos配置类NacosConfiguration。
+
+![](https://pic.imgdb.cn/item/60c9f855844ef46bb2ba1ce1.jpg)
+
+* 注入Converter转换器，将FlowRuleEntity转化成FlowRule，以及反向转化。
+* 注入Nacos配置服务ConfigService。
+* 创建一个常量类NacosConstants，分别表示默认的GROUP_ID和DATA_ID的后缀。
+
+![](https://pic.imgdb.cn/item/60c9f882844ef46bb2bc7f0f.jpg)
+
+* 实现动态从Nacos配置中心获取流控规则。
+
+![](https://pic.imgdb.cn/item/60c9f8d2844ef46bb2c0d01e.jpg)
+
+![](https://pic.imgdb.cn/item/60c9f8dc844ef46bb2c15af0.jpg)
+
+​	在第5章中讲过Nacos配置中心，所以这段代码不难理解。主要是通过ConfigServic.getConfig方法从Nacos Config Server中读取指定配置信息，并通过converter转化为FlowRule规则。
+
+* 创建一个流控规则发布类，在Sentinel Dashboard上修改完配置之后，需要调用该发布方法将数据持久化到Nacos中。
+
+![](https://pic.imgdb.cn/item/60c9f919844ef46bb2c4a0b3.jpg)
+
+* 修改FlowControllerV2类，将上面配置的两个类注入进来，表示规则的拉取和规则的发布统一用我们前面自定义的两个实例。
+
+![](https://pic.imgdb.cn/item/60c9f92e844ef46bb2c5c113.jpg)
+
+*  在application.properties文件中添加Nacos服务端的配置信息。
+
+![](https://pic.imgdb.cn/item/60c9f93e844ef46bb2c6ad3a.jpg)
+
+* 使用以下命令将代码打包成一个fat jar，根据前面介绍的操作方法启动服务。
+
+![](https://pic.imgdb.cn/item/60c9f966844ef46bb2c8db28.jpg)
+
+### Sentinel Dashboard规则数据同步
+
+​	对于应用程序来说，需要改动的地方比较少，只要注意配置文件中data-id的命名要以-sentinel-flow结尾即可，因为在Sentinel Dashboard中我们写了一个固定的后缀。
+
+![](https://pic.imgdb.cn/item/60c9f998844ef46bb2cb93ea.jpg)
+
+​	后续的测试过程就比较简单了。
+
+* 直接登录Sentinel Dashboard，进入“流控规则”，然后针对指定的资源创建流控规则。
+*  进入Nacos控制台，就可以看到如图7-17所示的配置列表。
+
+![](https://pic.imgdb.cn/item/60c9f9b2844ef46bb2ccffee.jpg)
+
+## Dubbo集成Sentinel实现限流
+
+​	Sentinel提供了与Dubbo整合的模块Sentinel Apache Dubbo Adapter，可以针对服务提供方和服务消费方进行流控，在使用的时候，只需要添加以下依赖。
+
+![](https://pic.imgdb.cn/item/60c9f9e7844ef46bb2cfed77.jpg)
+
+​	添加好该依赖之后，Dubbo服务中的接口和方法（包括服务端和消费端）就会成为Sentinel中的资源，只需针对指定资源配置流控规则就可以实现Sentinel流控功能。
+​	Sentinel Apache Dubbo Adapter实现限流的核心原理是基于Dubbo的SPI机制实现Filter扩展，Dubbo的Filter机制是专门为服务提供方和服务消费方调用过程进行拦截设计的，每次执行远程方法，该拦截都会被执行。
+
+​	同时，Sentinel Apache Dubbo Adapter还可以自定义开启或者关闭某个过滤器（Filter）的功能，下面这段代码表示关闭消费端的过滤器。
+
+![](https://pic.imgdb.cn/item/60c9fa04844ef46bb2d19289.jpg)
+
+### Dubbo服务接入Sentinel Dashboard
+
+​	spring-cloud-starter-alibaba-sentinel目前无法支持Dubbo服务的限流，所以针对Dubbo服务的限流只能使用sentinel-apache-dubbo-adapter。这个适配组件并没有自动接入Sentinel Dashboard，需要通过以下步骤来进行接入。
+
+* 引入sentinel-transport-simple-http依赖，这个依赖可以上报应用相关信息到控制台。
+
+![](https://pic.imgdb.cn/item/60c9fa2f844ef46bb2d3e189.jpg)
+
+* 添加启动参数。
+
+![](https://pic.imgdb.cn/item/60c9fa3f844ef46bb2d4cdde.jpg)
+
+参数配置说明如下。
+
+* -Djava.net.preferIPv4Stack：表示只支持IPv4。
+* -Dcsp.sentinel.api.port：客户端的port，用于上报应用的信息。
+* -Dcsp.sentinel.dashboard.server：Sentinel Dashboard地址。
+* -Dproject.name：应用名称，会在Sentinel Dashboard右侧展示。
+* 登录Sentinel Dashboard之后，进入“簇点链路”，就可以看到如图7-18所示的资源信息。
+
+![](https://pic.imgdb.cn/item/60c9fa83844ef46bb2d864de.jpg)
+
+​	需要注意的是，限流可以通过服务接口或服务方法设置。
+
+* 服务接口：resourceName为接口的全限定名，在图7-18中的体现为com.gupaoedu.sentinel.dubbo.IHelloService。
+* 服务方法：resourceName为接口全限定名：方法名，如com.gupaoedu.sentinel.dubbo.IHelloService：sayHello（）。
+
+### Dubbo服务限流规则配置
+
+​	Dubbo限流规则同样可以通过以下集中方式来实现。
+
+* Sentinel Dashboard.
+* FlowRuleManager.loadRules(List rules).
+
+
+
+​	前面我们讲过基于Sentinel Dashboard来实现流控规则配置，最终持久化到Nacos中。然而规则的持久化机制在Spring Cloud Sentinel中是自动实现的，在Sentinel Apache Dubbo Adapter组件中并没有实现该功能。下面演示一下在Dubbo服务中如何实现规则的持久化。
+
+* 添加sentinel-datasource-nacos的依赖。
+
+![](https://pic.imgdb.cn/item/60c9facb844ef46bb2dc4b83.jpg)
+
+* 通过Sentinel提供的InitFunc扩展点，实现Nacos数据源的配置。
+
+![](https://pic.imgdb.cn/item/60c9fade844ef46bb2dd4b24.jpg)
+
+​	NacosDataSourceInitFunc要实现自动加载，需要在resource目录下的META-INF/services中创建一个名称为com.alibaba.csp.sentinel.init.InitFunc的文件，文件内容为NacosDataSourceInitFunc的全路径。
+
+![](https://pic.imgdb.cn/item/60c9fafa844ef46bb2decc3b.jpg)
+
+*  访问Sentinel Dashboard，在针对某个资源创建流控规则时，这个规则会同步保存到Nacos配置中心。而当Nacos配置中心发生变化时，会触发事件机制通知Dubbo应用重新加载流控规则。
+
+## Sentinel热点限流
+
+​	热点数据表示经常访问的数据，在有些场景中我们希望针对这些访问频次非常高的数据进行限流，比如针对一段时间内频繁访问的用户IP地址进行限流，或者针对频繁访问的某个用户ID进行限流。
+
+​	Sentinel提供了热点参数限流的策略，它是一种特殊的限流，在普通限流的基础上对同一个受保护的资源区根据请求中的参数分别处理，该策略只对包含热点参数的资源调用生效。热点限流在以下场景中使用较多。
+
+* 服务网关层：例如防止网络爬虫和恶意攻击，一种常用方法就是限制爬虫的IP地址，客户端IP地址就是一种热点参数。
+* 写数据的服务：例如业务系统提供写数据的服务，数据会写入数据库之类的存储系统。存储系统的底层会加锁写磁盘上的文件，部分存储系统会将某一类数据写入同一个文件。如果底层写同一文件，会出现抢占锁的情况，导致出现大量超时和失败。出现这种情况时一般有两种解决办法：修改存储设计、对热点参数限流。
+
+
+
+​	Sentinel通过LRU策略结合滑动窗口机制来实现热点参数的统计，其中，LRU策略可以统计单位时间内最常访问的热点数据，滑动窗口机制可以协助统计每个参数的QPS。
+
+​	如图7-19所示，Sentinel会根据请求的参数来判断哪些是热点参数，然后通过热点参数限流规则，将QSP超过设定阈值的请求阻塞。
+
+![](https://pic.imgdb.cn/item/60c9fbd9844ef46bb2eabd2f.jpg)
+
+### 热点参数限流的使用
+
+​	引入热点参数限流依赖包sentinel-parameter-flow-control。
+
+![](https://pic.imgdb.cn/item/60c9fbf5844ef46bb2ec233c.jpg)
+
+​	接下来，创建一个REST接口，并定义限流埋点，此处针对参数id配置热点限流规则。
+
+![](https://pic.imgdb.cn/item/60c9fc0c844ef46bb2ed5345.jpg)
+
+​		针对不同的热点参数，需要通过SphU.entry（resourceName，EntryType.IN，1，id）方法设置，其最后一个参数是一个数组，有多个热点参数时就按照次序依次传入，该配置表示后续会针对该参数进行热点限流。
+
+​	下面针对上述资源sayHelo设置热点参数限流规则，通过ParamFlowRuleManager.loadRules方法加载热点参数规则。
+
+![](https://pic.imgdb.cn/item/60c9fc2d844ef46bb2ef0858.jpg)
+
+​	通过测试工具或者快速刷新浏览器来测试热点参数限流。如图7-20所示，访问Sentinel Dashboard，进入“实时监控”来查看限流的效果。
+
+![](https://pic.imgdb.cn/item/60c9fc53844ef46bb2f1157f.jpg)
+
+###  ＠SentinelResource热点参数限流
+
+​	如果是通过＠SentinelResource注解来定义资源的，当注解所配置的方法上有参数时，Sentinel会把这些参数传入Sphu.entry（res，args）。比如下面这段代码，会把id这个参数作为热点参数进行限流。
+
+![](https://pic.imgdb.cn/item/60c9fc81844ef46bb2f37b01.jpg)
+
+### 热点参数规则说明
+
+​	热点参数规则是通过ParamFlowRule来配置的，它的大部分属性和FlowRule类似，下面针对ParamFlowRule特定的属性进行简单说明。
+
+* durationInSec：统计窗口时间长度，单位为秒。
+* maxQueueingTimeMS：最长排队等待时长，只有当流控行为controlBehavior设置为匀速排队模式时生效。
+* paramIdx：热点参数的索引，属于必填项，它对应的是SphU.entry（xxx，args）中的参数索引位置。
+* paramFlowItemList：针对指定参数值单独设置限流阈值，不受count阈值值的限制。
+
+
+
