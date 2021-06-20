@@ -883,7 +883,7 @@ cd distribution/target/nacos-server-$version/nacos/bin
 
 
 
-* 执行sh startup.sh-m standalone，启动服务。
+* 执行sh startup.sh -m standalone，启动服务。
 * 服务启动之后，可以通过http://127.0.0.1:8848/nacos访问Nacos的控制台。控制台主要用于增强对服务列表、健康状态管理、服务治理、分布式配置管理等方面的管控能力，可以进一步帮助开发者降低管理微服务应用架构的成本。
 
 ### Nacos服务注册发现相关API说明
@@ -966,7 +966,7 @@ cd distribution/target/nacos-server-$version/nacos/bin
 
 ![](https://pic.imgdb.cn/item/60bf6dc4844ef46bb2ee0a79.jpg)
 
-* 启动SpringBootNacosDiscoveryApplication，调用curl http://127.0.0.1:8080/discovery？serviceName=example去Nacos服务器上查询服务名称example所对应的地址信息，此时由于Nacos Server并没有example的服务实例，返回一个空的JSON数组[]。
+* 启动SpringBootNacosDiscoveryApplication，调用curl http://127.0.0.1:8080/discovery?serviceName=example去Nacos服务器上查询服务名称example所对应的地址信息，此时由于Nacos Server并没有example的服务实例，返回一个空的JSON数组[]。
 * 接着，通过Nacos提供的Open API，向Nacos Server注册一个名字为example的服务。
 
 ![](https://pic.imgdb.cn/item/60bf6de7844ef46bb2f0869a.jpg)
@@ -1087,7 +1087,7 @@ cd distribution/target/nacos-server-$version/nacos/bin
 
 ![](https://pic.imgdb.cn/item/60bf7e8f844ef46bb2569ac5.jpg)
 
-*  在spring-cloud-nacos-sample-provier项目的pom.xml文件中添加相关依赖包。
+*  在		项目的pom.xml文件中添加相关依赖包。
 
 ![](https://pic.imgdb.cn/item/60bf7eae844ef46bb2595803.jpg)
 
