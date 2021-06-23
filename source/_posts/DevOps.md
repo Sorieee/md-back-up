@@ -1680,6 +1680,10 @@ https://aflyun.blog.csdn.net/article/details/103338558
 
 ​	调整时区，系统重新校验实践
 
+**update site**
+
+http://mirror.xmission.com/jenkins/updates/update-center.json
+
 # pipeline入门
 
 ## pipline是什么
@@ -1703,4 +1707,123 @@ https://aflyun.blog.csdn.net/article/details/103338558
 ​	Jenkins默认是不支持Jenkinsfile的。我们需要安装pipeline插件，本书使用的插件版本为2.27，其安装方式和普通插件的安装方式无异。安装完成后，就可以创建pipeline项目了，如图2-1所示。
 
 ![](https://pic.imgdb.cn/item/60d1fa2b844ef46bb29c6f2c.jpg)
+
+## pipeline语法的选择
+
+​	Jenkins团队在一开始实现Jenkins pipeline时，Groovy语言被选择作为基础来实现pipeline。所以，在写脚本式pipeline时，很像是（其实就是）在写Groovy代码。这样的确为用户提供了巨大的灵活性和可扩展性，我们还可以在脚本式pipeline中写try-catch。示例如下：
+
+![](https://pic.imgdb.cn/item/60d3229a844ef46bb2cac661.jpg)
+
+​	以上写法被称为脚本式（Scripted）语法。Jenkins pipeline还支持另一种语法：声明式（Declar-ative）语法。pipeline插件从2.5版本开始，才同时支持两种格式的语法。
+
+​	脚本式语法的确灵活、可扩展，但是也意味着更复杂。再者，Groovy语言的学习成本对于（不使用Groovy的）开发团队来说通常是不必要的。所以才有了声明式语法，一种提供更简单、更结构化（more opinionated）的语法。示例如下：
+
+​	![](https://pic.imgdb.cn/item/60d32528844ef46bb2d9e2ce.jpg)
+
+​	本书所有的示例都将使用声明式语法。因为声明式语法更符合人类的阅读习惯、更简单。声明式语法也是Jenkins社区推荐的语法。
+
+## 创建第一个pipeline
+
+​	首先在Jenkins中新建一个pipeline项目，如图2-2所示。
+
+![](https://pic.imgdb.cn/item/60d3265a844ef46bb2e0e63c.jpg)
+
+​	在pipeline-hello-world项目的设置页面中，在Pipeline节点下填入pipeline的内容，如图2-3所示。
+
+```
+pipeline {
+    agent any
+    stages {
+        stage("build") {
+            steps {
+                echo "Hello World"
+            }
+        }
+    }
+}
+```
+
+
+
+![](https://pic.imgdb.cn/item/60d328c5844ef46bb2f00ac2.jpg)
+
+执行后，结果如图2-4所示。
+
+![](https://pic.imgdb.cn/item/60d32968844ef46bb2f43336.jpg)
+
+​	和大多数Hello world示例一样，以上示例只是为了让大家对pipeline有一个感性的认识。
+
+## 从版本控制库拉取pipeline
+
+https://www.cnblogs.com/dotnet261010/p/12393917.html
+
+​	在Hello world示例中，我们是直接在Jenkins界面上填入pipeline内容的。在试验时可以这么做，但是不推荐，因为这样无法做到pipeline的版本化。
+
+​	首先需要安装Git插件，然后使用SSH的clone方式拉取代码。所以，需要将Git私钥放到Jenkins上，这样Jenkins才有权限从Git仓库拉取代码。
+
+​	将Git私钥放到Jenkins上的方法是：进入Jenkins→Credentials→System→Globalcredentials页，然后选择Kind为“SSHUsername with private key”，接下来按照提示设置就好了，如图2-5所示。关于Credential的更多内容，我们会在第9章中进行详细介绍。目前只需要理解：Jenkins从Git仓库拉取代码时，需要SSH key就可以了，然后Jenkins本身提供了这种方式让我们设置。
+
+![](https://pic.imgdb.cn/item/60d33852844ef46bb263d4da.jpg)
+
+​	另外，需要注意的是，我们需要提前将SSH的公钥放到Git仓库中。关于这方面内容网络上有很多教程，本书不再赘述。现在，我们来看看项目结构，只有一个Jenkinsfile文件。
+
+​	在Hello world示例中，在Pipeline节点下，在“Definition”中选择“Pipelinescript from SCM”，并在“SCM”中选择“Git”，然后根据选项填入信息内容就可以了，如图2-6所示。
+
+​		现在，我们来看看项目结构，只有一个Jenkinsfile文件。
+
+​		Jenkinsfile文件中的内容就是Hello world示例的内容。接下来，我们将项目推送到GitLab。
+
+![](https://pic.imgdb.cn/item/60d33aad844ef46bb27599b5.jpg)
+
+这里有两点需要注意：
+
+* 在“Credentials”中选择我们刚刚创建的用于拉取代码的凭证。
+* “Script Path”就是pipeline的文件名，默认是Jenkinsfile。保存并创建成功后，执行，在日志中除了Hello world被打印出来，git clone过程的日志也被打印出来。
+
+![](https://pic.imgdb.cn/item/60d33d43844ef46bb28a16b0.jpg)
+
+​	Maven是非常流行的一个Java应用构建工具。下面我们再来看一个使用Maven构建Java应用的例子。Jenkins默认支持Maven。首先在本地创建一个Maven项目，目录结构如下：
+
+![](https://pic.imgdb.cn/item/60d341f7844ef46bb2b4d719.jpg)
+
+​	接下来，需要在Jenkins上安装JDK和Maven。我们可以登录Jenkins服务器手动安装，也可以让Jenkins自动安装。这里选择后者。方法如下：
+
+​	（1）进入Manage Jenkins→Global Tool Configuration→Maven页，设置如图2-7所示。
+
+​		图略
+
+​	留意Name输入框中的值，这里填的是mvn-3.5.4。在后面的pipeline中会使用到。
+
+（2）进入Manage Jenkins→Global Tool Configuration→JDK页，设置如图2-8所示。
+
+​	略
+
+Jenkinsfile内容如下：
+
+```
+pipeline {
+    agent any
+    tools {
+        maven 'mvn-3.5.4'
+    }
+    stages {
+        stage("build") {
+            steps {
+                sh "mvn clean package spring-boot:repackage"
+                sh "printenv" // 将环境变量打印
+            }
+        }
+    }
+}
+```
+
+​	当Jenkins执行到tools时，就会根据Maven的设置自动下载指定版本的Maven，并安装。tools是pipeline中的一个指令，用于自动安装工具，同时将其路径放到PATH变量中。通过命令sh"printenv"，可以看到tools将MAVEN_HOME放到了当前任务的环境变量中。
+
+​	关于tools的更多信息，我们会在第4章中进行详细介绍。单击构建后，通过Jenkins执行日志，我们看到指定版本的Maven被下载和安装，mvn执行打包。
+
+​	![](https://pic.imgdb.cn/item/60d3439b844ef46bb2c5559d.jpg)
+
+## 本章小结
+
+​	由于历史原因，Jenkins pipeline支持两种语法。node为根节点的是脚本式语法，而pipeline为根节点的是声明式语法。本书使用的是Jenkins社区推荐的声明式语法。
 
