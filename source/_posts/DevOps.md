@@ -2773,3 +2773,851 @@ options {
 
 ​	在使用声明式pipeline一段时间后，你会发现直接在steps块中写if-else，或者定义一个变量，Jenkins都会报错。也就是不能直接在steps块中写Groovy代码。
 
+​	Jenkins pipeline专门提供了一个script步骤，你能在script步骤中像写代码一样写pipeline逻辑。比如分别在不同的浏览器上跑测试。
+
+```groovy
+pipeline {
+    agent any
+    stages {
+        stage('Example') {
+            steps {
+                script {
+                    def browsers = ['chrome', 'firefox']
+                    for (int i = 0; i < browsers.size(); i++) {
+                        echo "Testing the ${browsers[i]} browser"
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+​	可以看出，在script块中的其实就是Groovy代码。大多数时候，我们是不需要使用script步骤的。如果在script步骤中写了大量的逻辑，则说明你应该把这些逻辑拆分到不同的阶段，或者放到共享库中。共享库是一种扩展Jenkins pipeline的技术，我们会在后面的章节中讲到。
+
+​	另外，细心的读者可能已经注意到，这样串行的测试方法是低效的，而应该在不同的浏览器上并行跑测试。
+
+## pipeline内置基础步骤
+
+### 文件目录相关步骤
+
+**deleteDir：删除当前目录**
+
+​	deleteDir是一个无参步骤，删除的是当前工作目录。通常它与dir步骤一起使用，用于删除指定目录下的内容。
+
+**dir：切换到目录**
+
+​	默认pipeline工作在工作空间目录下，dir步骤可以让我们切换到其他目录。使用方法如下：
+
+```groovy
+dir("/var/logs") {
+    deleteDir()
+}
+```
+
+**fileExists：判断文件是否存在**
+
+​	fileExists（'/tmp/a.jar'）判断/tmp/a.jar文件是否存在。如果参数是相对路径，则判断在相对当前工作目录下，该文件是否存在。结果返回布尔类型。
+
+**isUnix：判断是否为类UNIX系统**
+
+​	如果当前pipeline运行在一个类UNIX系统上，则返回true。
+
+**pwd：确认当前目录**
+
+​	pwd与Linux的pwd命令一样，返回当前所在目录。它有一个布尔类型的可选参数：tmp，如果参数值为true，则返回与当前工作空间关联的临时目录。
+
+**writeFile：将内容写入指定文件中**
+
+*  file：文件路径，可以是绝对路径，也可以是相对路径。
+* text：要写入的文件内容。
+* encoding（可选）：目标文件的编码。如果留空，则使用操作系统默认的编码。如果写的是Base64的数据，则可以使用Base64编码。
+
+**readFile：读取文件内容**
+
+​	读取指定文件的内容，以文本返回。readFile支持的参数有：
+
+* file：路径，可以是绝对路径，也可以是相对路径。
+* encoding（可选）：读取文件时使用的编码。
+
+示例如下：
+
+![](https://pic.imgdb.cn/item/60d736b1844ef46bb2b5b237.jpg)
+
+### 制品相关步骤
+
+**stash：保存临时文件**
+
+​	stash步骤可以将一些文件保存起来，以便被同一次构建的其他步骤或阶段使用。如果整个pipeline的所有阶段在同一台机器上执行，则stash步骤是多余的。所以，通常需要stash的文件都是要跨Jenkins node使用的。关于Jenkins node的相关概念，我们会在第14章中进行介绍。
+
+​	stash步骤会将文件存储在tar文件中，对于大文件的stash操作将会消耗Jenkinsmaster的计算资源。Jenkins官方文档推荐，当文件大小为5∼100MB时，应该考虑使用其他替代方案。
+
+​	stash步骤的参数列表如下：
+
+*  name：字符串类型，保存文件的集合的唯一标识。
+* allowEmpty：布尔类型，允许stash内容为空。
+* excludes：字符串类型，将哪些文件排除。如果排除多个文件，则使用逗号分隔。留空代表不排除任何文件。
+* includes：字符串类型，stash哪些文件，留空代表当前文件夹下的所有文件。
+* useDefaultExcludes：布尔类型，如果为true，则代表使用Ant风格路径默认排除文件列表。
+
+
+
+​	除了name参数，其他参数都是可选的。excludes和includes使用的是Ant风格路径表达式。在3.7.5节中将简单介绍该表达式写法。
+
+**unstash：取出之前stash的文件**
+
+​	unstash步骤只有一个name参数，即stash时的唯一标识。通常stash与unstash步骤同时使用。以下是完整示例。
+
+![](https://pic.imgdb.cn/item/60d7387c844ef46bb2c6236e.jpg)
+
+### 命令相关步骤
+
+​	与命令相关的步骤其实是Pipeline：Nodes and Processes插件提供的步骤。由于它是Pipeline插件的一个组件，所以基本不需要单独安装。
+
+**sh：执行shell命令**
+
+sh步骤支持的参数有：
+
+* script：将要执行的shell脚本，通常在类UNIX系统上可以是多行脚本。
+*  encoding：脚本执行后输出日志的编码，默认值为脚本运行所在系统的编码。
+* returnStatus：布尔类型，默认脚本返回的是状态码，如果是一个非零的状态码，则会引发pipeline执行失败。如果returnStatus参数为true，则不论状态码是什么，pipeline的执行都不会受影响。
+* returnStdout：布尔类型，如果为true，则任务的标准输出将作为步骤的返回值，而不是打印到构建日志中（如果有错误，则依然会打印到日志中）。除了script参数，其他参数都是可选的。
+
+
+
+returnStatus与returnStdout参数一般不会同时使用，因为返回值只能有一个。如果同时使用，则只有returnStatus参数生效。
+
+**bat、powershell步骤**
+
+* bat步骤执行的是Windows的批处理命令。powershell步骤执行的是PowerShell脚本，支持3+版本。这两个步骤支持的参数与sh步骤的一样，这里就不重复介绍了。
+
+###  其他步骤
+
+**error：主动报错，中止当前pipeline**
+
+​	error 步骤的执行类似于抛出一个异常。它只有一个必需参数：message。通常省略参数：error（"there's an error"）。
+**tool：使用预定义的工具**
+
+​	如果在Global Tool Configuration（全局工具配置）中配置了工具，如图3-4所示，比如配置了Docker，那么可以通过tool步骤得到工具路径。
+
+![](https://pic.imgdb.cn/item/60d738fd844ef46bb2cac4ed.jpg)
+
+tool步骤支持的参数有：
+
+* name：工具名称。
+* type（可选）：工具类型，指该工具安装类的全路径类名。
+
+
+
+​	每个插件的type值都不一样，而且绝大多数插件的文档根本不写type值。除了到该插件的源码中查找，还有一种方法可以让我们快速找到type值，就是前往Jenkinspipeline代码片段生成器中生成该tool步骤的代码即可，如图3-5所示。
+
+![](https://pic.imgdb.cn/item/60d73923844ef46bb2cc246a.jpg)
+
+**timeout：代码块超时时间**
+
+​	为timeout步骤闭包内运行的代码设置超时时间限制。如果超时，将抛出一个org.jenkinsci.plugins.workflow.steps.FlowInterruptedException异常。timeout步骤支持如下参数：
+
+*  time：整型，超时时间。
+* unit（可选）：时间单位，支持的值有NANOSECONDS、MICROSECONDS、MILLISECONDS、SECONDS、MINUTES（默认）、HOURS、DAYS。
+* activity（可选）：布尔类型，如果值为true，则只有当日志没有活动后，才真正算作超时
+
+**waitUntil：等待条件满足**
+
+​	不断重复waitUntil块内的代码，直到条件为true。waitUntil不负责处理块内代码的异常，遇到异常时直接向外抛出。waitUntil步骤最好与timeout步骤共同使用，避免死循环。示例如下：
+
+
+
+![](https://pic.imgdb.cn/item/60d73956844ef46bb2cdd6e2.jpg)
+
+**retry：重复执行块**
+
+执行N 次闭包内的脚本。如果其中某次执行抛出异常，则只中止本次执行，并不会中止整个retry的执行。同时，在执行retry的过程中，用户是无法中止pipeline的。
+![](https://pic.imgdb.cn/item/60d73971844ef46bb2ceb34b.jpg)
+
+**sleep：让pipeline休眠一段时间**
+
+sleep步骤可用于简单地暂停pipeline，其支持的参数有：
+
+*  time：整型，休眠时间。
+*  unit（可选）：时间单位，支持的值有NANOSECONDS、MICROSECONDS、MILLISECONDS、SECONDS（默认）、MINUTES、HOURS、DAYS。
+
+![](https://pic.imgdb.cn/item/60d7398e844ef46bb2cfaa03.jpg)
+
+### 小贴士
+
+**使用pipeline代码片段生成器学习**
+
+​	对于初学Jenkins pipeline的新人来说，如何开始写pipeline是一个坎儿。好在Jenkins提供了一个pipeline代码片段生成器，通过界面操作就可以生成代码。
+
+​	对于初学Jenkins pipeline的新人来说，如何开始写pipeline是一个坎儿。好在Jenkins提供了一个pipeline代码片段生成器，通过界面操作就可以生成代码。
+
+​	进入“Pipeline Syntax”页面后，在右边的“Sample Step”下拉框中选择需要生成代码的步骤，并根据提示填入参数，然后单击“Generate Pipeline Script”按钮，就可以生成代码了，如图3-7所示。
+
+![](https://pic.imgdb.cn/item/60d739be844ef46bb2d15867.jpg)
+
+![](https://pic.imgdb.cn/item/60d739c7844ef46bb2d1b2cd.jpg)
+
+**使用VS Code扩展校验Jenkinsfile**
+
+​	不像Java语言有各种开发工具支持，Jenkinsfile从诞生以来就没有很好的工具支持，无奈只能使用VS Code文本编辑器+Groovy语法高亮进行开发。对语法的校验全凭自己对Jenkinsfile的熟悉程度。
+
+​	2018年11月初，Jenkins官方博客介绍了一个VS Code扩展：Jenkins PipelineLinter Connector，实现了对Jenkinsfile的语法校验。
+
+​	在VS Code应用市场搜索“Jenkins Pipeline Linter Connector”并安装，然后对该扩展进行设置，如图3-8所示。
+
+![](https://pic.imgdb.cn/item/60d739e8844ef46bb2d2d9fe.jpg)
+
+​	然后，进入Jenkins的Manage Jenkins→Manage Configure Global Security页，确认Jenkins启用了“CSRF Protection”，如图3-9所示。
+
+接下来，打开一个Jenkinsfile文件，调用扩展命令，如图3-10所示
+
+![](https://pic.imgdb.cn/item/60d739fe844ef46bb2d3b039.jpg)
+
+最后，在OUTPUT中可以看到校验结果，如图3-11所示。
+
+![](https://pic.imgdb.cn/item/60d73a13844ef46bb2d472b1.jpg)
+
+​	值得注意的是，该扩展只能利用Jenkins API进行语法校验。比如将input步骤写成nput，校验同样通过。
+
+**使用Workspace Cleanup插件清理空间**	
+
+​	通常，当pipeline执行完成后，并不会自动清理空间。如果需要（通常需要）清理工作空间，则可以通过Workspace Cleanup插件实现。
+
+（1）安装Workspace Cleanup插件（地址为https：//plugins.jenkins.io/ws-cleanup）。
+
+（2）在pipeline的post部分加入插件步骤。
+
+![](https://pic.imgdb.cn/item/60d73a3a844ef46bb2d5e021.jpg)
+
+**Ant风格路径表达式简介**
+
+​	Ant是比Maven更老的Java构建工具。Ant发明了一种描述文件路径的表达式，大家都习惯称其为Ant风格路径表达式。Jenkins pipeline的很多步骤的参数也会使用此表达式。
+
+​	Ant路径表达式包括3种通配符。
+
+* ？：匹配任何单字符。
+* *：匹配0个或者任意数量的字符。
+* **：匹配0个或者更多的目录
+
+
+
+我们通过以下例子来学习。
+
+* `**/CVS/*`：匹配CVS文件夹下的所有文件，CVS文件夹可以在任何层级。
+
+# 环境变量与构建工具
+
+## 环境变量
+
+​	环境变量可以被看作是pipeline与Jenkins交互的媒介。比如，可以在pipeline中通过BUILD_NUMBER变量知道构建任务的当前构建次数。环境变量可以分为Jenkins内置变量和自定义变量。接下来我们分别讨论。
+
+### Jenkins内置变量
+
+​	在pipeline执行时，Jenkins通过一个名为env的全局变量，将Jenkins内置环境变量暴露出来。其使用方法有多种，示例如下：
+
+```groovy
+pipeline {
+    agent any
+    stages {
+        stage('Example') {
+            steps {
+                echo "Runing ${evn.BUILD_NUMBER} on ${evn.JENKINS_URL}"
+                echo "Runing $evn.BUILD_NUMBER on $evn.JENKINS_URL"
+                echo "Runing ${BUILD_NUMBER} on ${JENKINS_URL}"
+            }
+        }
+    }
+}
+```
+
+​	默认env的属性可以直接在pipeline中引用。所以，以上方法都是合法的。但是不推荐方法三，因为出现变量冲突时，非常难查问题。
+
+​	那么，env变量都有哪些可用属性呢？通过访问＜Jenkins master的地址>/pipeline-syntax/globalsenv来获取完整列表。在列表中，当一个变量被声明为“For a multibranchproject”时，代表只有多分支项目才会有此变量。
+
+* BUILD_NUMBER：构建号，累加的数字。在打包时，它可作为制品名称的一部分，比如server-2.jar。
+* BRANCH_NAME：多分支pipeline项目支持。当需要根据不同的分支做不同的事情时就会用到，比如通过代码将release分支发布到生产环境中、master分支发布到测试环境中。
+* BUILD_URL：当前构建的页面URL。如果构建失败，则需要将失败的构建链接放在邮件通知中，这个链接就可以是BUILD_URL。
+* GIT_BRANCH：通过git拉取的源码构建的项目才会有此变量。
+
+
+
+​	在使用env变量时，需要注意不同类型的项目，env变量所包含的属性及其值是不一样的。比如普通pipeline任务中的GIT BRANCH变量的值为origin/master，而在多分支pipeline任务中GITBRANCH变量的值为master。
+
+​	小技巧：在调试pipeline时，可以在pipeline的开始阶段加一句：sh'printenv'，将env变量的属性值打印出来。这样可以帮助我们避免不少问题。
+
+### 自定义pipeline环境变量
+
+​	当pipeline变得复杂时，我们就会有定义自己的环境变量的需求。声明式pipeline提供了environment指令，方便自定义变量。比如：
+
+```groovy
+pipeline {
+    agent any
+    environment {
+        CC = 'clang'
+    }
+    stages {
+        stage('Example') {
+            environment {
+                DEBUG_FLAGS = '-g'
+            }
+            steps {
+                sh "${CC} ${DEBUG_FLAGS}"
+                sh 'printenv'
+            }
+        }
+    }
+}
+```
+
+​	另外，environment指令可以在pipeline中定义，代表变量作用域为整个pipeline；也可以在stage中定义，代表变量只在该阶段有效。
+
+​	在实际工作中，还会遇到一个环境变量引用另一个环境变量的情况。在environment中可以这样定义：
+
+![](https://pic.imgdb.cn/item/60d7f0905132923bf87c5d2f.jpg)
+
+​	值得注意的是，如果在environment中定义的变量与env中的变量重名，那么被重名的变量的值会被覆盖掉。比如在environment中定义PATH变量（PATH也是env中的一个变量）。
+
+### 自定义全局环境变量
+
+​	进入Manage Jenkins→ConfigureSystem→Global properties页，勾选“Environment variables”复选框，单击“Add”按钮，在输入框中输入变量名和变量值即可。
+
+​	自定义全局环境变量会被加入 env 属性列表中，所以，使用自定义全局环境变量与使用Jenkins内置变量的方法无异：${env.g name}。
+
+## 构建工具
+
+​	构建是指将源码转换成一个可使用的二进制程序的过程。这个过程可以包括但不限于这几个环节：下载依赖、编译、打包。构建过程的输出——比如一个zip包，我们称之为制品（有些书籍也称之为产出物）。而管理制品的仓库，称为制品库。
+
+### 构建工具的选择
+
+​	对构建工具的选择，很大一部分因素取决于你所使用的语言。比如构建 Scala 使用 SBT，JavaScript的Babel、Browserify、Webpack、Grunt以及Gulp等。当然，也有通用的构建工具，比如Gradle，它不仅支持Java、Groovy、Kotlin等语言，通过插件的方式还可以实现对更多语言的支持。
+
+​	对构建工具的选择，还取决于团队对工具本身的接受程度。笔者的建议是，团队中同一技术栈的所有项目都使用同一个构建工具。
+
+### tools指令介绍
+
+​	tools指令能帮助我们自动下载并安装所指定的构建工具，并将其加入PATH变量中。这样，我们就可以在sh步骤里直接使用了。但在agent none的情况下不会生效。
+
+​	tools指令默认支持3种工具：JDK、Maven、Gradle。通过安装插件，tools指令还可以支持更多的工具。接下来，我们介绍几种常用的构建环境的搭建。
+
+### JDK环境搭建
+
+**自动安装JDK**
+
+​	设置自动安装Oracle JDK时有一些特殊，因为下载Oracle JDK时需要输入用户名和密码。进入Manage Jenkins→Global ToolConfiguration→JDK页，单击“Add JDK”按钮，就可以设置自动安装JDK，如图4-2所示。
+
+![](https://pic.imgdb.cn/item/60d7fb1f5132923bf8b272d7.jpg)
+
+​	单击图4-2中所示的“Please enter yourusername/password”链接，在弹出的对话框中输入你在Oracle官网上的用户名和密码。
+
+​	基于安全的考虑，公司的网络可能无法直接访问外网，所以无法使用自动下载。这时就需要在Jenkins agent上自行安装JDK，然后在ManageJenkins→Global Tool Configuration→JDK页中指定名称和JAVA_HOME路径，如图4-3所示。
+
+![](https://pic.imgdb.cn/item/60d8001d5132923bf8cec151.jpg)
+
+### Maven
+
+​	Jenkins pipeline的tools指令默认就支持Maven。所以，使用Maven只需要两步。
+
+​	（1）进入Manage Jenkins→Global ToolConfiguration→Maven页，设置如图4-4所示。请注意Name的值为mvn-3.5.4。接下来会用到这个值。“Install from Apache”下的Version可以选择Maven版本。
+
+​	（2）在Jenkinsfile中指定Maven版本，并使用mvn命令。
+
+![](https://pic.imgdb.cn/item/60d800675132923bf8d07b75.jpg)
+
+​	这样，当执行到tools指令时，Jenkins会自动下载并安装Maven。将mvn命令加入环境变量中，可以使我们在pipeline中直接执行mvn命令。
+
+### 使用Managed files设置Maven
+
+​	Maven默认使用的是其官方仓库，国内下载速度很慢。所以，我们通常会使用国内的Maven镜像仓库。这时就需要修改 Maven 的配置文件settings.xml。settings.xml 文件的默认路径为${M2 HOME}/conf/settings.xml。但是，我们是不可能登录上Jenkins的机器，然后手动修改这个文件的。
+
+​	Config File Provider插件（https：//plugins.jenkins.io/config-file-provider）能很好地解决这个问题。只需要在Jenkins的界面上填入settings.xml的内容，然后在pipeline中指定settings.xml就可以了。也就是说，对于不同的pipeline，可以使用不同的settings.xml。
+
+​	具体实现方法如下：
+
+1. 安装Config File Provider插件。
+2. 进入Manage Jenkins页面，就可以看到多出一个“Managed files”菜单，如图4-5所示。
+3. 单击“Managed files”进入，在左侧菜单栏中选择“Add a new Config”，就会看到该插件支持很多种配置文件的格式及方式，如图4-6所示。
+
+![](https://pic.imgdb.cn/item/60d805d15132923bf8f2a8f0.jpg)
+
+​	我们看到列表中有多个重复的选项，看来ConfigFile Provider插件2.18版本在Jenkins 2.121.1下有Bug。但是依然可以设置，不会报错。
+
+​	（4）选择“Global Maven settings.xml”选项。因为我们的设置是全局的。填写“ID”字段，Jenkins pipeline会引用此变量名。假如使用的ID为maven-global-settings。
+
+​	（5）单击“Submit”按钮提交后，就看到编辑页了。将自定义的Maven settings.xml的内容粘贴到“Content”字段中，单击“Submit”按钮即添加完成，如图4-7所示。
+
+![](https://pic.imgdb.cn/item/60d81e3e5132923bf8a1604e.jpg)
+
+（6）在Jenkins pipeline中使用的方法如下
+
+```groovy
+configfileProvider([configFile(fileId: 'maven-global-settings', variable: 'MAVEN_GLOBAL_ENV')]) {
+    sh 'mvn -s $MAVEN_GLOBAL_ENV clean install'
+}
+```
+
+### Go语言环境搭建
+
+Jenkins支持Golang的构建，只需要以下几步。
+
+（1）安装Go插件（https：//plugins.jenkins.io/golang）。
+
+（2）进入Manage Jenkins→Global ToolConfiguration→Go页，设置如图4-8所示。
+
+（3）在pipeline中加入tools部分。
+
+```groovy
+tools {
+    go 'go1.10'
+}
+```
+
+此时，在环境变量中会增加一个GOROOT变量。
+
+![](https://pic.imgdb.cn/item/60d81f5e5132923bf8a9b358.jpg)
+
+（4）设置GOPATH。了解Go语言开发的读者都会知道，编译时需要设置GOPATH环境变量。直接在environment指令中添加就可以了。
+
+​	完整代码如下：
+
+![](https://pic.imgdb.cn/item/60d81f8e5132923bf8ab0f5c.jpg)
+
+​	Python环境很容易产生Python版本冲突、第三方库冲突等问题。所以，Python开发通常会进行工程级别的环境隔离，也就是每个Python工程使用一个Python环境。
+
+​	在Jenkins环境下，我们使用Pyenv Pipeline插件（https：//plugins.jenkins.io/pyenv-pipeline）可以轻松地实现。
+
+​	首先，准备Python基础环境。
+
+（1）在Jenkins机器上安装python、pip、virtualenv。
+
+* pip：Python的包管理工具。
+* virtualenv：Python中的虚拟环境管理工具。
+
+（2）安装Pyenv Pipeline插件。
+
+​	然后，在pipeline中使用Pyenv Pipeline插件提供的withPythonEnv方法。
+
+![](https://pic.imgdb.cn/item/60d820395132923bf8aff3dc.jpg)
+
+​	withPythonEnv方法会根据第一个参数——可执行python路径——在当前工作空间下创建一个virtualenv环境。
+
+​	withPythonEnv方法的第二个参数是一个闭包。闭包内的代码就执行在新建的virtualenv环境下
+
+## 利用环境变量支持更多的构建工具
+
+​	平时，开发人员在搭建开发环境时做的就是：首先在机器上安装好构建工具，然后将这个构建工具所在目录加入PATH环境变量中。
+
+​	平时，开发人员在搭建开发环境时做的就是：首先在机器上安装好构建工具，然后将这个构建工具所在目录加入PATH环境变量中。
+
+![](https://pic.imgdb.cn/item/60d821b95132923bf8bad035.jpg)
+
+还可以有另一种写法：
+
+![](https://pic.imgdb.cn/item/60d8222e5132923bf8be24ab.jpg)
+
+## 利用tools作用域实现多版本编译
+
+​	在实际工作中，有时需要对同一份源码使用多个版本的编译器进行编译。tools指令除了支持pipeline作用域，还支持stage作用域。所以，我们可以在同一个pipeline中实现多版本编译。代码如下：
+
+![](https://pic.imgdb.cn/item/60d822e25132923bf8c359ed.jpg)
+
+​	在打印出来的日志中，会发现每个stage下的JAVA_HOME变量的值都不一样。
+
+# 代码质量
+
+## 静态代码分析
+
+### 代码规范检查
+
+​	写代码时大括号该不该换行？对于这样的问题，很容易在团队里引发“战争”。在笔者看来，像该不该换行这类代码风格的优缺点问题，不是关键问题。关键问题在于整个团队甚至整个公司所有人是否采用同一套规范。
+
+​	2017年阿里巴巴发布了《阿里巴巴Java开发手册》（https：//github.com/alibaba/p3c），在行业内引起了不小的轰动。《阿里巴巴Java开发手册》（下文以p3c简称）内容包括：命名风格、常量定义等。有了阿里巴巴的“光环”，公司内所有人就“代码规范”达成共识，变得更容易了。至于p3c里的规范是否真的是最好的，这是相对次要的一个问题。
+
+### 使用PMD进行代码规范检查
+
+​	PMD（https：//pmd.github.io/）是一款可扩展的静态代码分析器，它不仅可以对代码风格进行检查，还可以检查设计、多线程、性能等方面的问题。
+
+​	Maven的PMD插件（https：//pmd.github.io/）使我们能在Maven上使用PMD。
+
+使用步骤如下：
+
+（1）在Maven项目的pom.xml中加入PMD插件。
+
+![](https://pic.imgdb.cn/item/60d82b1d5132923bf8ff4dde.jpg)
+
+​	maven-pmd-plugin插件并不会自动使用p3c-pmd，需要在引入dependencies部分手动加入p3c-pmd依赖，然后在rulesets属性中引入p3c的规则。
+
+（2）安装Jenkins PMD插件（https：//pmd.github.io/）。
+
+​	Jenkins PMD插件的作用是将PMD报告呈现在任务详情页中
+
+（3）在Jenkinsfile中加入pmd步骤。
+
+![](https://pic.imgdb.cn/item/60d833245132923bf83a25bd.jpg)
+
+![](https://pic.imgdb.cn/item/60d833335132923bf83a9cdf.jpg)
+
+### 各静态代码分析器之间的区别
+
+​	目前每种语言基本上都有自己的静态代码分析器，比如Java语言，除PMD外，还有Check-style、FindBugs等。但是没有一款能“大一统”，实现对所有语言、所有场景的支持。
+
+​	另外，同一种语言下的不同分析器，它们在功能上既有区别，又有重叠，读者需要根据自己团队的情况进行选择。但是不论选择哪款分析器，所有进行静态代码分析的地方都必须统一分析规则。比如我们决定使用阿里巴巴的开发规范，那么Maven插件、IDE插件以及后面说到的SonarQube都必须使用；否则，分析结果可能会不一致，进而影响分析结果的可信度。
+
+## 单元测试
+
+### JUnit单元测试报告
+
+​	Maven会执行测试阶段（包括单元测试），然后生成测试报告。
+
+​	收集并展示JUnit测试报告的步骤如下：
+
+（1）安装Jenkins JUnit插件（https：//plugins.jenkins.io/junit）。
+
+（2）在Jenkins中加入junit步骤。通常将junit步骤放在post always中，因为当测试不通过时，我们依然可以收集到测试报告。写法如下：
+
+![](https://pic.imgdb.cn/item/60d83a5d5132923bf86bff30.jpg)
+
+单击“Test Result”进入，可以看到测试报告的详细信息，如图5-4所示。
+
+![](https://pic.imgdb.cn/item/60d83a755132923bf86c9d26.jpg)
+
+### JaCoCo实现代码覆盖率
+
+​	JUnit只是方便我们写单元测试的一个框架，但是并没有告诉我们有多少代码被测试覆盖到了。而JaCoCo填补了这一空白。JaCoCo是一个免费的Java代码覆盖率的库，能帮助我们检测出代码覆盖率，并输出覆盖率报告。
+
+JaCoCo提供了以下几个维度的覆盖率分析。
+
+* 指令覆盖率（Instruction Coverage）
+* 分支覆盖率（Branch Coverage）
+* 圈复杂度覆盖率（Cyclomatic Complexity Coverage）
+* 行覆盖率（Line **Coverage**)
+* 方法覆盖率（Method Coverage）
+
+以下是JaCoCo插件的使用步骤。
+
+（1）安装JaCoCo插件（https：//plugins.jenkins.io/jacoco）。
+
+（2）在Maven项目中引入JaCoCo插件，执行maven jacoco生成代码覆盖率报告。
+
+![](https://pic.imgdb.cn/item/60d8410e5132923bf8951521.jpg)
+
+（3）使用jacoco步骤。jacoco步骤在mvn命令之后执行，写法如下：
+
+![](https://pic.imgdb.cn/item/60d841a55132923bf898ae76.jpg)
+
+为了更好地理解 jacoco 步骤的参数，我们看看 JaCoCo 插件在自由风格项目中的UI，如图5-5所示。
+
+![](https://pic.imgdb.cn/item/60d846005132923bf8b1dc21.jpg)
+
+​	pipeline运行完成后，我们可以在任务详情页的下方看到报告，如图5-6所示。
+
+​	buildOverBuild和changeBuildStatus参数都能影响Jenkins任务的结果状态，那么当这两个参数的值都为true时，结果是什么呢？由其共同决定。以下是它们的判断逻辑。
+
+![](https://pic.imgdb.cn/item/60d8461a5132923bf8b271eb.jpg)
+
+​	最后，各个维度的覆盖率应该设置多少呢？没有标准答案。
+
+​	笔者的经验是先要确定项目是遗留的还是新建的。遗留的就以当前覆盖率为基线，新建的则设置相对高一些的要求。再看项目的紧急程度，如果非常紧急的话，则可以考虑放低要求。最后看项目的重要程度。如果这个项目在整个架构中起着非常重要的作用，那么覆盖率要求会高一些。
+
+### 代码覆盖率越高，软件的质量就越高吗
+
+​	代码覆盖率最好不要单独使用，而是需要与其他指标，如代码变动率、复杂度等一并考虑。
+
+## 性能测试
+
+​	Taurus是一个开源的自动化框架，用于运行各种开源负载测试工具和功能测试工具。其支持最流行的开源负载测试工具Apache JMeter、Selenium、Gatling、The Grinder等。Taurus的关键特性有：
+
+* 我们可以使用YAML或JSON来描述性能测试。这也正是我们想要的test ascode。
+* 它会根据我们选择的性能测试类型自动下载相应的工具。比如在下例中会使用JMeter，那么Taurus会自动下载JMeter并安装。
+
+
+
+​	Jenkins的Performance插件就是使用Taurus来进行性能测试的。在进行性能测试之前，首先要准备环境。
+
+### 准备性能测试环境
+
+（1）在运行性能测试环境的机器上，按照4.2.6节介绍的步骤准备Python环境。
+
+（2）安装Performance插件（https：//plugins.jenkins.io/performance）。
+
+（3）安装Taurus？不需要自行安装，Performance插件如果发现机器上没有安装Taurus，它会自动运行pip install bzt命令进行安装。
+
+### 运行JMeter测试
+
+​	假设平时你都是手动执行JMeter测试的，现在希望将它自动化。这很简单，只需要两步。
+
+（1）在现有的项目中加入Jenkinsfile。
+
+![](https://pic.imgdb.cn/item/60d847095132923bf8b7da62.jpg)
+
+（2）在项目中加入blaze_exist_jmeter_config.yml文件。
+
+![](https://pic.imgdb.cn/item/60d8471a5132923bf8b83dd8.jpg)
+
+​	blaze_exist_jmeter_config.yml是Taurus的配置文件，用于描述如何进行性能测试。以上配置很简单，就是执行一个名为simple的场景（scenario），这个场景就是执行现有的JMeter脚本。modules配置了JMeter的下载地址及版本。上例中，我们指定了国内的下载链接，避免从国外下载。
+
+​	在Jenkinsfile中，bzt是Performance插件提供的一个步骤。其参数如下：
+
+* params：字符串类型，Taurus配置文件的路径。
+* alwaysUseVirtualenv：布尔类型，如果为false，则不使用virtualenv进行环境隔离。默认值为true。
+* bztVersion：字符串类型，bzt版本。
+* generatePerformanceTrend：布尔类型，是否在Jenkins项目详情页生成性能趋势图。默认值为true。
+* useBztExitCode：布尔类型，是否使用bzt步骤的退出码作为Jenkins项目的构建结果。默认值为true。
+* useSystemSitePackages：布尔类型，是否为virtualenv加上“--system-site-packages”参数。默认值为true。
+* workingDirectory：字符串类型，指定bzt的工作目录。
+*  workspace：字符串类型，已经废弃，请使用workingDirectory。
+
+
+
+​	至此，以上用法可以满足大部分人在Jenkins上使用JMeter的需求。关于Taurus配置文件的更多语法，大家可以前往Taurus官网学习。
+
+![](https://pic.imgdb.cn/item/60d847605132923bf8b9c77b.jpg)
+
+## SonarQube：持续代码质量检查
+
+​	关于更详细的区别，可前往官方网站（https：//www.sonarsource.com/plans-and-pricing/）进行了解。本书使用的是开源版6.7.5 LTS，假设读者已经安装此版本。
+
+### Maven与SonarQube集成
+
+​	为方便起见，我们就不自己写例子了，而是直接使用JUnit 4源码来做示例。将JUnit 4从GitHub克隆下来后，在pom.xml中加入SonarQube插件依赖。
+
+![](https://pic.imgdb.cn/item/60d848755132923bf8bfd39f.jpg)
+
+执行命令：
+![](https://pic.imgdb.cn/item/60d8488d5132923bf8c06501.jpg)
+
+​	sonar.host.url参数用于指定SonarQube服务的地址。这时，就可以在SonarQube的“Projects”中看到JUnit 4的分析结果，如图5-9所示。
+
+![](https://pic.imgdb.cn/item/60d848a35132923bf8c0e838.jpg)
+
+​	可以看到JUnit 4有11个Bug。SonarQube服务默认允许任何人执行源码分析，因此在生产环境中使用会有安全隐患。以下几步可以提高其安全性：
+
+​	（1）设置SonarQube禁止非登录用户使用，如图5-10所示。
+
+![](https://pic.imgdb.cn/item/60d848b95132923bf8c15e61.jpg)
+
+（2）为用户生成Token，Jenkins只能通过Token与SonarQube集成。登录SonarQube，进入个人设置页面中的Security tab页，如图5-11所示。
+
+![](https://pic.imgdb.cn/item/60d848cc5132923bf8c1c408.jpg)
+
+（3）在执行mvn命令时加入相应的sonar.login参数。
+
+![](https://pic.imgdb.cn/item/60d848da5132923bf8c20eaa.jpg)
+
+### Jenkins与SonarQube集成
+
+​	在上一节中，我们将Maven与SonarQube集成。这时，SonarQube对于Jenkins来说还是透明的，Jenkins并不知道代码质量如何。本节我们将集成Jenkins与SonarQube，以实现当代码质量不合格时，Jenkins pipeline失败。
+
+（1）Jenkins：安装SonarQube Scanner插件（https：//plugins.jenkins.io/sonar），本书使用的版本是2.8。
+
+（2）Jenkins：配置SonarQube Scanner插件，如图5-12所示。
+
+![](https://pic.imgdb.cn/item/60d8490a5132923bf8c31866.jpg)
+
+（3）SonarQube：设置Webhooks。不同代码规模的源码，分析过程的耗时是不一样的。所以，当分析完成时，由SonarQube主动通知Jenkins。设置方法就是进入SonarQube的Adminstration→Configuration→Webhooks页，加入＜Jenkins的地址>/sonarqube-webhook/，如图5-13所示。
+
+![](https://pic.imgdb.cn/item/60d849195132923bf8c36a80.jpg)
+
+​	＜Jenkins的地址>/sonarqube-webhook/接口由Jenkins SonarQube插件提供。
+
+（4）在Jenkinsfile中加入SonarQube的stage。
+
+![](https://pic.imgdb.cn/item/60d849305132923bf8c3f14e.jpg)
+
+​	withSonarQubeEnv是一个环境变量包装器，读取的是我们在图5-12中所配置的变量。在它的闭包内，我们可以使用以下变量。
+
+*  SONAR_HOST_URL：SonarQube服务的地址。
+* SONAR_AUTH_TOKEN：SonarQube认证所需要的Token。
+
+
+
+​	waitForQualityGate 步骤告诉 Jenkins 等待 SonarQube 返回的分析结果。当它的abortPipeline参数为true时，代表当质量不合格时，将pipeline的状态设置为UNSTABLE。
+
+​	我们同时使用了timeout包装器来设置waitForQualityGate步骤的超时时间，避免当网络出问题时，Jenkins任务一直处于等待状态。
+
+（5）设置Quality Gates（质量阈值）。在SonarQube的“Quality Gates”下，我们可以看到系统自带的质量阈值，如图5-14所示。可以看出它是针对新代码的。所以，在初次及没有新代码加入的情况下，执行代码分析是不会报出构建失败的。
+
+![](https://pic.imgdb.cn/item/60d8496e5132923bf8c54570.jpg)
+
+### 使用SonarQube Scanner实现代码扫描
+
+​	上文中，我们是使用Maven插件实现代码扫描的，也就是利用构建工具本身提供的插件来实现。在构建工具本身不支持的情况下，我们使用SonarQube本身提供的扫描工具（Scanner）进行代码扫描。
+
+​	具体步骤如下：
+
+（1）在安装SonarQube Scanner插件后，设置扫描工具自动下载并安装（推荐），如图5-15所示。
+
+![](https://pic.imgdb.cn/item/60d8498a5132923bf8c5e571.jpg)
+
+也可以取消自动安装，改成手动安装后指定目录，如图5-16所示。
+
+![](https://pic.imgdb.cn/item/60d849965132923bf8c627f3.jpg)
+
+​	请注意，这里的Name值与图5-12中所设置的值是两码事。此处设置的是SonarScanner工具本身的名称与路径
+（2）在代码项目根目录下放入sonar-project.properties文件，sonar-scanner会读取其配置，内容如下：
+
+![](https://pic.imgdb.cn/item/60d849aa5132923bf8c6975a.jpg)
+
+（3）pipeline部分代码如下：
+
+![](https://pic.imgdb.cn/item/60d849b65132923bf8c6d53a.jpg)
+
+### SonarQube集成p3c
+
+​	前文中，我们已经交待，必须在所有做代码规范检查的地方使用同一套规范。而SonarQube默认使用的是它自带的规范（SonarQube称为规则），所以也需要设置SonarQube使用p3c的规范。
+
+​	有好心的朋友开源了SonarQube的p3c PMD插件（https：//github.com/mrprince/sonar-p3c-pmd），我们可以拿来直接使用。
+
+具体步骤如下：
+
+（1）从GitHub下载p3c PMD插件，编译打包。
+
+2）将上一步打包好的JAR包放到SonarQube所在服务器的＜SonarQube的home目录>/ext ensions/plugins目录下。
+
+（3）SonarQube：创建p3c profile。单击SonarQube顶部的“QualityProfiles”，然后单击页面右上角的“Create”按钮，输入新profile名称，选择Java语言，如图5-17所示。
+
+（4）SonarQube：在profile列表中找到刚刚创建的p3c profile，单击其最右边的下三角按钮，选择“Set as Default”，如图5-18所示。
+
+创建p3c profile成功，如图5-19所示。
+
+![](https://pic.imgdb.cn/item/60d849f25132923bf8c8166c.jpg)
+
+![](https://pic.imgdb.cn/item/60d849fb5132923bf8c84c18.jpg)
+
+​	（5）SonarQube：为p3c profile激活p3c规则。新创建的profile是没有激活任何规则的，需要手动激活。单击下三角按钮，选择“Activate More Rules”，如图5-20所示。
+
+（6）跳转到激活页面，激活所有的p3c规则，如图5-21所示。
+
+这样，当SonarQube分析Java代码时，就会使用p3c规则了。
+
+![](https://pic.imgdb.cn/item/60d84a115132923bf8c8c151.jpg)
+
+### 将分析报告推送到GitLab
+
+​	如果希望对每一次代码的commit都进行分析，并将分析结果与该commit关联起来，那么SonarQube的GitLab插件就是一个不错的选择。SonarQube GitLab插件的功能就是将SonarQube的分析结果推送到GitLab。
+
+​	（1）在SonarQube上安装GitLab插件（https：//github.com/gabrie-allaigre/sonar-gitlab-plugin），如图5-22所示。
+
+![](https://pic.imgdb.cn/item/60d84a295132923bf8c94309.jpg)
+
+​	如果因为网络原因安装失败，则可进行手动安装。
+
+（2）配置SonarQube GitLab插件，如图5-23所示。
+
+![](https://pic.imgdb.cn/item/60d84a3c5132923bf8c9ab45.jpg)
+
+置好SonarQube GitLab插件后，需要为sonar-scanner添加几个参数，以告诉SonarQube将分析结果关联到GitLab的相应commit上。
+
+![](https://pic.imgdb.cn/item/60d84a4b5132923bf8c9f8e8.jpg)
+
+* -Dsonar.analysis.mode：分析报告模式，值为preview，代表将结果推送到GitLab。此参数虽然官方标注SonarQube 6.6后被废弃，但是笔者使用6.7版本依然需要加上它。
+
+* -Dsonar.gitlab.ref_name：分支名称。
+* -Dsonar.gitlab.project_id：GitLab对应的项目路径。
+* -Dsonar.projectName：对应SonarQube上的项目名称。
+* -Dsonar.gitlab.commit_sha：代码的commit ID。
+
+当SonarQube分析完成后，我们就可以在GitLab的相应commit页面上的代码行内或commit评论区看到分析结果了，如图5-24所示。
+
+分析结果是显示在行内还是评论区，由SonarQube GitLab插件的配置决定。关于该插件的更多参数本书就不做更多介绍了。
+
+## Allure测试报告：更美观的测试报告
+
+### Allure测试报告介绍
+
+​	是不是觉得JUnit输出的测试报告不美观。不只是JUnit，很多其他编程语言的测试框架的测试报告也差不多。Allure测试报告是一个框架，能将各种测试报告更美观地呈现出来。
+
+###  集成Allure、Maven、Jenkins
+
+​	接下来，我们将Allure、Maven、Jenkins集成。Allure与其他编程语言及构建工具的集成与此类似。
+
+具体步骤如下：
+
+（1）安装Allure Jenkins插件（https：//plugins.jenkins.io/allure-jenkins-plugin），进入Jenkins的Manage Jenkins→Global ToolConfiguration→Allure Commandline页，配置Allure自动下载并安装的版本，如图5-25所示。
+
+![](https://pic.imgdb.cn/item/60d84abb5132923bf8cc587c.jpg)
+
+（2）在pom.xml文件中加入依赖。
+
+![](https://pic.imgdb.cn/item/60d84ac85132923bf8cc9fcf.jpg)
+
+（3）在pom.xml文件中加入Allure插件（https：//github.com/allure-framework/allure-maven）。
+
+![](https://pic.imgdb.cn/item/60d84ad95132923bf8ccf8b9.jpg)
+
+（4）在Jenkinsfile中的post阶段加入allure步骤。
+
+![](https://pic.imgdb.cn/item/60d84ae75132923bf8cd41be.jpg)
+
+构建完成后，我们看到在构建历史记录中出现了Allure的logo，如图5-26所示。单击Allure的logo，就可以进入优美的测试报告页面了，如图5-27所示。Allure测试报告是不是美观了很多？不要小看这点视觉上的改善，它可能会让你的领导对你刮目相看。
+
+![](https://pic.imgdb.cn/item/60d84af75132923bf8cd9612.jpg)
+
+![](https://pic.imgdb.cn/item/60d84b005132923bf8cdc6a9.jpg)
+
+## 当我们谈质量时，谈的是什么
+
+​	质量是什么？温伯格（Gerald M.Weinberg）在《质量·软件·管理（第1卷）》中给出了一个可操作性很强的定义：
+
+​	质量就是对某个（某些）人而言的价值。
+
+​	回到工作中，我们在谈质量前，是不是应该先讨论质量是对“谁”而言的，再谈如何提高质量。
+
+## 总结
+
+略
+
+# 触发pipeline执行
+
+##  什么是触发条件
+
+​	前文中，我们都是在推送代码后，再切换到Jenkins界面，手动触发构建的。显然，这不够“自动化”。自动化是指pipeline按照一定的规则自动执行。而这些规则被称为pipeline触发条件。
+
+​	对于pipeline触发条件，笔者从两个维度来区分：时间触发和事件触发。
+
+## 时间触发
+
+​	时间触发是指定义一个时间，时间到了就触发pipeline执行。在Jenkins pipeline中使用trigger指令来定义时间触发。
+
+​	tigger指令只能被定义在pipeline块下，Jenkins内置支持cron、pollSCM，upstream三种方式。其他方式可以通过插件来实现。
+
+### 定时执行：cron
+
+​	定时执行就像cronjob，一到时间点就执行。它的使用场景通常是执行一些周期性的job，如每夜构建。
+
+![](https://pic.imgdb.cn/item/60d883985132923bf808a36c.jpg)
+
+​	Jenkins trigger cron语法采用的是UNIX cron语法（有些细微的区别）。一条cron包含5个字段，使用空格或Tab分隔，格式为：MINUTE HOUR DOMMONTH DOW。每个字段的含义为：
+
+* MINUTE：一小时内的分钟，取值范围为0∼59。
+* HOUR：一天内的小时，取值范围为0∼23。
+* DOM：一个月的某一天，取值范围为1∼31。
+* MONTH：月份，取值范围为1∼12。
+* DOW：星期几，取值范围为0∼7。0和7代表星期天。
+
+还可以使用以下特殊字符，一次性指定多个值。
+
+* *：匹配所有的值
+* M-N：匹配M 到N 之间的值。
+* M-N/X or*/X：指定在M 到N 范围内，以X值为步长。
+* A，B，· · ·，Z：使用逗号枚举多个值。
+
+
+
+​	在一些大型组织中，会同时存在大量的同一时刻执行的定时任务，比如N 个半夜零点（0 0***）执行的任务。这样会产生负载不均衡。在Jenkins trigger cron语法中使用“H”字符来解决这一问题，H代表hash。对于没必要准确到零点0分执行的任务，cron可以这样写：H 0***，代表在零点0分至零点59分之间任何一个时间点执行。
+
+
+
+​	需要注意的是，H应用在DOM（一个月的某一天）字段时会有不准确的情况，因为10月有31天，而2月却是28天。
+
+​	Jenkins trigger cron还设计了一些人性化的别名：@yearly、@annually、@monthly、@weekly、@daily、@midnight和@hourly。例如，@hourly与H****相同，代表一小时内的任何时间；@midnight实际上代表在半夜12：00到凌晨2：59之间的某个时间。其他别名很少有应用场景。
+
+### 轮询代码仓库：pollSCM
+
+​	轮询代码仓库是指定期到代码仓库询问代码是否有变化，如果有变化就执行。有读者会问：那多久轮询一次？笔者的回答是：越频繁越好。因为构建的间隔时间越长，在一次构建内就可能会包含多次代码提交。当构建失败时，你无法马上知道是哪一次代码提交导致了构建失败。总之，越不频繁集成，得到的“持续集成”的好处就越少。笔者通常会在Jenkinsfile中这样写：
+
+![](https://pic.imgdb.cn/item/60d884115132923bf80c4b28.jpg)
+
+​	事实上，如果代码有变化，最好的方式是代码仓库主动通知Jenkins，而不是Jenkins频繁去代码仓库检查。那这种方式存在的意义是什么？
+
+​	在一些特殊情况下，比如外网的代码仓库无法调用内网的Jenkins，或者反过来，则会采用这种方式。
+
