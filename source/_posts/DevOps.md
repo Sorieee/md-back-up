@@ -3,6 +3,7 @@ title: DevOps
 date: 2021-06-10 10:57:43
 tags:
 
+
 ---
 
 # 持续交付: 发布可靠软件的系统方法-Start
@@ -2069,7 +2070,7 @@ tags:
 
 * 收费模式。
 * 使用许可策略。
-*  所用第三方技术的版权问题。
+* 所用第三方技术的版权问题。
 * 打包。
 * 市场活动所需要的材料（印刷材料、网站、播客、博客、新闻发布会等）。
 * 产品文档。
@@ -2085,7 +2086,7 @@ tags:
 ​	当这个启动迭代结束时，你应该已经有了以下内容。
 
 * 部署流水线的提交阶段。
-*  一个用于部署的类生产环境。
+* 一个用于部署的类生产环境。
 * 通过一个自动化过程获取在提交阶段中生成的二进制包，并将其部署到这个类生产环境中。
 * 一个简单的冒烟测试，用于验证本次部署是正确的，并且应用程序正在运行。
 
@@ -2157,7 +2158,7 @@ tags:
 * 确保部署流程是经过充分冒烟测试的。
 * 度量应用程序的“预热”时长。如果应用程序使用了缓存，这一点就尤其重要了。将这也纳入到部署计划中。
 * 与外部系统进行测试集成。你肯定不想在第一次发布时才让应用程序与真实的外部系统集成。
-*  如果可能的话，在发布之前就把应用程序放在生产环境上部署好。如果“发布”能像重新配置一下路由器那样简单，让它直接指向生产环境，那就更好了。这种被称作蓝绿部署（blue-green deployment）的技术会在本章后面详细描述。
+* 如果可能的话，在发布之前就把应用程序放在生产环境上部署好。如果“发布”能像重新配置一下路由器那样简单，让它直接指向生产环境，那就更好了。这种被称作蓝绿部署（blue-green deployment）的技术会在本章后面详细描述。
 * 如果可能的话，在把应用程序发布给所有人之前，先试着把它发布给一小撮用户群。这种技术叫做金丝雀发布，也会在本章后续部分描述。
 * 将每次已通过验收测试的变更版本部署在试运行环境中（尽管不必部署到生产环境）。
 
@@ -2238,7 +2239,174 @@ tags:
 
 ## 紧急修复
 
+​	让每个紧急修复都走完标准的部署流水线。这是另一个应该保持更短周期的原因。
 
+下面是处理生产环境中的缺陷时应该考虑的一些因素。
+
+* 别自己加班到深夜来做这事儿，应该与别人一起结对做这事儿。
+* 确保有一个已经测试过的紧急修复流程。
+* 对于应用程序的变更，避免绕过标准的流程，除非在极端情况下。
+* 确保在试运行环境上对紧急修复版本做过测试。
+* 有时候回滚比部署新的修复版本更划算。做一些分析工作，找到最好的解决方案。想一想，假如数据丢失了，或者面对集成或联合环境时，会发生什么事？
+
+## 持续部署
+
+​	指导思想非常简单：使用部署流水线，并让最后一步（部署到生产环境）也自动化。这样，如果某次提交的代码通过了所有的自动化测试，就直接部署到生产环境中。如果想让这种做法不引发问题，自动化测试（应该包括自动化的单元测试、组件测试、功能性和非功能性验收测试）就必须异乎寻常的强大，覆盖整个应用程序。必须先写所有的测试（包括验收测试），然后再写代码。这样你才能做到，只有用户故事完成的最后那次代码提交才能使验收测试通过。
+
+**持续发布用户自行安装的软件**
+
+* 管理升级的历程。
+* 迁移二进制包、数据和配置信息。
+* 测试升级流程。
+* 从用户那里收集问题报告。
+
+
+
+​	对于客户自行安装的软件来说，一个重要问题是：随着时间的推移，如何管理已经发布的众多版本。它很可能引发技术支持的恶梦：为了调试某个问题，你要将版本回滚到相应的版本上，努力回忆当时开发与这个问题相关的某个特性的情形。理想情况下，希望大家都用同一个版本，即最新的稳定版本。为了达到这一点，就要尽可能做到无痛苦的版本升级。
+
+
+
+​	客户端处理升级有如下几种方式。
+
+* 让软件自己检查是否有新版本，并提示用户下载并升级到最新版本。这是最容易实现的，但用起来也是最痛苦的。没人想看着一个下载进度条一点一点地向前走。
+* 在后台下载，并提醒用户安装。在这种模式中，软件需要周期性地检查更新，在运行的同时悄悄地下载。当下载成功后，不断地提醒用户升级到最新版本。
+* 在后台下载并在应用程序下次启动时悄悄升级。应用程序可能也会提示你立即重新启动（Firefox就是这么做的）。
+
+
+
+​	正确的解决方案是升级过程已通过“防弹测试”（bullet proof）了，而且静默升级。特别是，当升级过程失败时，应用程序应该能够自动回滚到原来的版本并把失败报告给开发团队。开发团队就能修复这个问题，然后再次发布一个新版本（并希望）正确升级。所有这些都应该悄悄发生，无须用户知道。需要提示用户的唯一理由就是需要用户采取一些纠正措施。
+
+
+
+## 小贴士和窍门
+
+### 真正执行部署操作的人应该参与部署过程的创建
+
+​	当开发人员和运维人员成为朋友时，事情会变得更美好。
+
+### 记录部署活动
+
+​	如果部署过程没有完全自动化（包括环境的准备工作），记录哪些文件在自动化部署过程中复制和创建，这是非常重要的。这样做之后，很容易对发生的问题进行跟踪调试，因为很清楚在哪里能找到配置信息、日志和二进制包。
+
+​	同样重要的是，在每个环境的部署过程中，记录每个改动过的硬件清单和实际部署的日志。
+
+### 不要删除旧文件，而是移动到别的位置
+
+​	当做部署操作时，确保已保留了旧版本的一份副本。然后，在部署新版本之前清除旧版本的所有文件。如果旧版本的某个文件被遗忘在了最新部署版本的环境当中，出现问题后就很难追查了。更糟糕的是，如果旧版本的管理接口页面还留在那儿，那么很可能引起错误数据。
+
+​	在UNIX环境中，一个最佳实践是：把应用程序的每个版本部署在一个单独目录中，用一个符号链接指向当前版本。版本的部署和回滚就只是改一下符号链接这么简单。
+
+### 部署是整个团队的责任
+
+​	“构建和部署专家”的存在是一种反模式。团队中的每个成员都应该知道如何部署，如何维护部署脚本。通过每次部署软件（即使是在开发机器上）都使用真正的部署脚本，就可以达到这一点。
+
+​	如果部署脚本有问题，构建就应该失败。
+
+### 服务器应用程序不应该有GUI
+
+​	略。
+
+### 为新部署留预热期
+
+​	不要在预热时激活eBay-killer网站。当这样的网站在官方发布时，它应该已经运行了一段时间，足以让应用服务器和数据库建立好它们的缓存，准备好所有的连接，并完成了“预热”。
+
+​	对于网站来说，可以通过金丝雀发布达到这个目标。新服务器和新的发布在开始时可以服务于一小部分请求。然后，当环境无异常并被证明行之有效后，你就可以将更多的负载切换到这个新系统上。
+
+​	许多应用程序在部署时都会急于建立内部缓存。在缓存完成之前，应用程序的响应时间往往较长，甚至可能会失败。如果应用程序行为的确如此的话，请确保在部署计划中考虑到了这件事，包括重建缓存所需的时间（当然是在一个类生产环境中测试）。
+
+### 快速失败
+
+​	部署脚本也应该被纳入测试之中，以确保部署成功。这些测试也应该作为部署的一部分来运行。然而它们不应该是全面的单元测试，而是简单的冒烟测试，确保被部署的内容可以工作。
+
+​	理想情况下，系统在启动初始化时也应该执行这些检查，一旦遇到了问题，就应该让系统无法启动。
+
+### 不要直接对生产环境进行修改
+
+​	大多数生产环境的停机是由于那些未受控的修改。生产环境应该是被完全锁定的，这样只有部署流水线可以对其进行改变，包括从环境配置信息到部署在其中的应用程序和相关数据。很多组织有严格的访问管理流程。我们曾看到过，某个组织管理生产环境访问方式是使用由审批流程和两阶段验证系统生成的有限有效期的密码，在使用这个验证系统时需要输入一个由RSA fob产生的代码。在某个组织中，对生产系统的变更可能只能在一个带有闭路电视监控摄像机的房间的某个终端进行操作。
+
+​	这类授权过程也应该放在部署流水线中。这样做会得到相当大的好处，它意味着有一个系统来记录对生产环境的每一次变更。没有比确切记录谁、什么时候对生产环境做了哪些修改更好的审计跟踪方式了。而部署流水线正好提供了这种便利。
+
+# 基础设施和环境管理
+
+## 引言
+
+部署软件有如下3个步骤。
+
+* 创建并管理应用程序运行所需的基础设施（硬件、网络、中间件和外部服务）。
+* 在其上安装应用程序的正确版本。
+* 配置应用程序，包括它所需要的任何数据和状态。
+
+
+
+​	环境是指应用程序运行所需的所有资源和它们的配置信息。用如下这些属性来描述环境。
+
+* 组成运行环境的服务器的硬件配置信息——比如CPU的类型与数量、内存大小、硬盘和网络接口卡等，以及这些服务器互联所需的网络基础设施。
+* 应用程序运行所需要的操作系统和中间件（如消息系统、应用服务器和Web服务器，以及数据库服务器等）的配置信息。
+
+
+
+​	准备部署环境的过程以及部署之后对环境的管理是本章的主要内容。然而为了能够做到这一点，就要基于下面这些原则，用一个整体方法来管理所有基础设施。
+
+* 使用保存于版本控制库中的配置信息来指定基础设施所处的状态。
+* 基础设施应该具有自治特性，即它应该自动地将自己设定为所需状态。
+* 通过测试设备和监控手段，应该每时每刻都能掌握基础设施的实时状况。
+
+
+
+​	基础设施不但应该具有自治特性，而且应该是非常容易重新搭建的。这样的话，当有硬件问题时，就能迅速重建一个全新的已知状态的环境配置。
+
+* 操作系统及其配置信息，包括测试环境和生产环境。
+* 中间件软件栈及其配置信息，包括应用服务器、消息系统和数据库。
+* 基础设施软件，比如版本控制代码库、目录服务以及监控系统。
+* 外部集成点，比如外部系统和服务。
+* 网络基础设施，包括路由器、防火墙、交换机、DNS和DHCP等。
+* 应用程序开发团队与基础设施管理团队之间的关系。
+
+
+
+​	强调合作是DevOps运动的核心原则之一。DevOps运动的目标是将敏捷方法引入到系统管理和IT运营世界中。
+
+​	请记住指导原则：测试环境应该是与生产环境相似。也就是说，对于上面列出的所有条目，绝大多数应该是相似的（尽管不必完全相同）。其目的是为了尽早发现环境方面的问题，以及在向生产环境部署之前对关键活动（比如部署和配置）进行操作演练，从而减少发布风险。测试环境需要与生产环境足够相似，以达到这一目标。
+
+## 理解运维团队的需要
+
+​	无需证明，大多数项目的失败原因在于人，而不是技术本身。对于“将代码部署到测试和生产环境中”这事来说，更是如此。几乎所有大中型公司都会将开发活动和基础设施管理活动（也就是常说的运维活动）分交给两个独立的部门完成[插图]。常常能看到这两拨人的关系并不是很好。这是因为往往鼓励开发团队尽可能快地交付软件，而运维团队的目标则是稳定。
+
+​	需要谨记的最重要的事情是：所有的项目干系人都能达成一个共识，即让发布有价值的软件成为一件低风险的事情。根据我们的经验，做这件事的最佳方法就是尽可能频繁地发布（即持续交付）。这就能保证在两次发布之间的变更很小。如果你所在的组织中，发布总是需要花上几天的时间，还要熬夜加班的话，你肯定会强烈反对这种想法。
+
+​	运维团队依据一些关键的服务质量指标来衡量他们的效率，比如MTBF（MeanTime Between Failure，平均无故障时间）和MTTR（Mean Time To RepairFailure，平均修复时间）。运维团队常常还必须满足某些SLA（Service-LevelAgreement，服务级别的条款）。对运维团队来说，任何变更都可能是风险（包括那些可能影响到运维团队达成这些目标或其他要求的流程的变更）。既然这样，运维团队就有几个最为重要的关注点。
+
+### 文档与审计
+
+​	运维主管希望确保其所管任意环境中的任意变更都要被记录在案并被审计。这样一旦出了问题，他们可以查到是由哪些修改引起的。
+
+​	变更管理流程肯定是任何组织中最重要的流程之一，它用于管理受控环境的每一次变更。通常，运维团队会掌管生产环境，以及与生产环境近似的测试环境。这就意味着，任何人在任何时候想修改一下测试环境或生产环境，都必须提出申请，并被审批。很多低风险的配置变更可以由运维团队来执行。在ITIL中，这些变更叫做“标准”变更（standard change）。
+
+### 异常事件的告警
+
+​	运维团队会有自己的系统来监控基础设施和正在运行的应用程序，并希望当系统出现异常状况时收到警报，以便将停机时间最小化。
+
+​	缺乏经验的开发人员最常犯的一个编码错误就是吞噬错误信息（swallowerror）。与运维团队聊一下，你就会发现，应该把每个错误状态都记录下来，并放到某个已知的位置上，同时记录相应的严重程度，以便他们能确切知道发生了什么问题。这么做以后，若应用程序由于某种原因出问题了，运维人员能够很容易地重启或重新部署它。
+
+​	再强调一次，了解并满足运维团队的监控需求，并把这些需求放到发布计划中是开发团队的责任。
+
+​	首次发布仅仅是所有应用程序生命周期的一个开始。应用程序的每个新版本都会有所不同，比如错误的类型以及其生成的日志信息，可能被监控的方法也不同。它还可能以某种新的形式发生错误。因此，当要开发新版本时，让运维人员也参与其中是非常重要的，这样他们就可以为这些变更做一些准备工作。
+
+### 保障IT服务持续性的计划
+
+​	运维经理要参与组织的IT服务连续性计划的创建、实现、测试和维护。运维团队掌管的每个服务都会设定一个RPO（Recovery Point Objective，恢复点目标，即灾难之前丢失多长时间内的数据是可接受的）以及一个RTO（Recovery TimeObjective，恢复时间目标，即服务恢复之前允许的最长停机时间）。
+
+​	RPO控制了数据备份和恢复策略，因为数据备份必须足够频繁，才能达到这个RPO。
+
+​	为了满足业务方面所需的RTO，可能要额外建立一个生产环境和基础设施的副本，以便当主系统出错时，可以启用这个后备系统。
+
+### 使用运维团队熟悉的技术
+
+​	运维主管希望用运维团队自身熟悉的技术对其管理的环境进行变更操作，这样他们就能真正掌控和维护这些环境了。
+
+​	在每个项目开始时，开发团队和运维团队就应该坐下来，讨论并决定应用程序的部署应该如何执行。一旦所用技术达成一致，双方可能都需要学习一下这些技术（可能是某种脚本语言，比如Perl、Ruby或Python，或者某种打包技术，比如Debian打包系统或者WiX。
+
+## 基础设施的建模和管理
 
 
 
@@ -2328,8 +2496,7 @@ tags:
 https://www.jenkins.io/doc/book/installing/war-file/
 
 ```sh
-wget https://get.jenkins.io/war-stable/2.289.1/jenkins.war --no-check-certificate
-java -jar jenkins.war --httpPort=9090
+wget https://get.jenkins.io/war-stable/2.289.1/jenkins.war --no-check-certificatejava -jar jenkins.war --httpPort=9090
 ```
 
 https://www.cnblogs.com/ajianboke/p/10945522.html
@@ -2393,16 +2560,7 @@ http://mirror.xmission.com/jenkins/updates/update-center.json
 ​	在pipeline-hello-world项目的设置页面中，在Pipeline节点下填入pipeline的内容，如图2-3所示。
 
 ```
-pipeline {
-    agent any
-    stages {
-        stage("build") {
-            steps {
-                echo "Hello World"
-            }
-        }
-    }
-}
+pipeline {    agent any    stages {        stage("build") {            steps {                echo "Hello World"            }        }    }}
 ```
 
 
@@ -2463,20 +2621,7 @@ https://www.cnblogs.com/dotnet261010/p/12393917.html
 Jenkinsfile内容如下：
 
 ```
-pipeline {
-    agent any
-    tools {
-        maven 'mvn-3.5.4'
-    }
-    stages {
-        stage("build") {
-            steps {
-                sh "mvn clean package spring-boot:repackage"
-                sh "printenv" // 将环境变量打印
-            }
-        }
-    }
-}
+pipeline {    agent any    tools {        maven 'mvn-3.5.4'    }    stages {        stage("build") {            steps {                sh "mvn clean package spring-boot:repackage"                sh "printenv" // 将环境变量打印            }        }    }}
 ```
 
 ​	当Jenkins执行到tools时，就会根据Maven的设置自动下载指定版本的Maven，并安装。tools是pipeline中的一个指令，用于自动安装工具，同时将其路径放到PATH变量中。通过命令sh"printenv"，可以看到tools将MAVEN_HOME放到了当前任务的环境变量中。
@@ -2501,85 +2646,43 @@ pipeline {
 * 支持命名参数，比如：
 
 ```groovy
-def createName(Stirng giveName, Stirng familyName) {
-    return giveName + " " + familyName;
-}
-// 调用时可以这样
-createName familyName = "Lee", giveName = "Bruce"
+def createName(Stirng giveName, Stirng familyName) {    return giveName + " " + familyName;}// 调用时可以这样createName familyName = "Lee", giveName = "Bruce"
 ```
 
 * 支持默认参数值，比如：
 
 ```groovy
-def sayHello(String name = "humans") {
-    print "hello ${name}"
-}
-sayHello() // 此时括号不能忽略
+def sayHello(String name = "humans") {    print "hello ${name}"}sayHello() // 此时括号不能忽略
 ```
 
 * 支持单引号、双引号。双引号支持插值，单引号不支持。比如：
 
 ```groovy
-def name = 'world'
-print "hello ${name}" // 结果 hello world
-print 'hello ${name}' // 结果 hello ${name}
+def name = 'world'print "hello ${name}" // 结果 hello worldprint 'hello ${name}' // 结果 hello ${name}
 ```
 
 * 支持三引号。三引号分为三单引号和三双引号。它们都支持换行，区别在于只有三双引号支持插值。比如：
 
 ```groovy
-def name = 'world'
-def aString = '''line one
-line two
-line three
-${name}
-'''
-def bString = """line one
-line two
-line three
-${name}
-"""
+def name = 'world'def aString = '''line oneline twoline three${name}'''def bString = """line oneline twoline three${name}"""
 ```
 
 * 支持闭包。闭包的定义方法如下：
 
 ```groovy
-// 定义闭包
-def codeBlock = { print "hello closure"}
-// 当成函数调用
-codeBlock()
+// 定义闭包def codeBlock = { print "hello closure"}// 当成函数调用codeBlock()
 ```
 
 还可以将闭包看作一个参数传递给另一个方法
 
 ```groovy
-// 定义一个pipeline函数, 它接收一个闭包函数
-def pipeline(closure) {
-    closure()
-}
-// 在调用pipeline函数时，可以这样
-pipeline(codeBlock)
-// 如果把闭包定义的语句去掉
-pipeline({print "hello closure"})
-// 由于括号是非必需的, 所以
-pipeline {
-    print "hello closure"
-}
+// 定义一个pipeline函数, 它接收一个闭包函数def pipeline(closure) {    closure()}// 在调用pipeline函数时，可以这样pipeline(codeBlock)// 如果把闭包定义的语句去掉pipeline({print "hello closure"})// 由于括号是非必需的, 所以pipeline {    print "hello closure"}
 ```
 
 * 闭包的另类用法。我们定义一个stage函数
 
 ```groovy
-def stage(String name, closure) {
-    println name
-    closure()
-}
-// 正常用法
-stage("stage name", {print "closure"})
-// 另外的写法
-stage("stage name") {
-    print "closure"
-}
+def stage(String name, closure) {    println name    closure()}// 正常用法stage("stage name", {print "closure"})// 另外的写法stage("stage name") {    print "closure"}
 ```
 
 ​	这些知识点没有连贯性，读者浏览一遍后，大概有个印象就可以。等学习完本章后，再回头看就理解Jenkins pipeline的语法了。
@@ -2593,16 +2696,7 @@ stage("stage name") {
 ​	前文中，我们已经了解到：从软件版本控制库到用户手中这一过程可以分成很多阶段，每个阶段只专注处理一件事情，而这件事情又是通过多个步骤来完成的，这就是软件工程的pipeline。Jenkins对这个过程进行抽象，设计出一个基本的pipeline结构。
 
 ```groovy
-pipeline {
-    agent any
-    stages {
-        stages('build') {
-            steps {
-                echo "hello world"
-            }
-        }
-    }
-}
+pipeline {    agent any    stages {        stages('build') {            steps {                echo "hello world"            }        }    }}
 ```
 
 * pipeline：代表整条流水线，包含整条流水线的逻辑。
@@ -2610,7 +2704,7 @@ pipeline {
 * stages部分：流水线中多个stage的容器。stages部分至少包含一个stage。
 * steps部分：代表阶段中的一个或多个具体步骤（step）的容器。steps部分至少包含一个步骤，本例中，echo就是一个步骤。在一个stage中有且只有一个steps。
 * steps部分：代表阶段中的一个或多个具体步骤（step）的容器。steps部分至少包含一个步骤，本例中，echo就是一个步骤。在一个stage中有且只有一个steps。
-*  agent部分：指定流水线的执行位置（Jenkins agent）。流水线中的每个阶段都必须在某个地方（物理机、虚拟机或Docker容器）执行，agent部分即指定具体在哪里执行。我们会在第14章中进行详细介绍。
+* agent部分：指定流水线的执行位置（Jenkins agent）。流水线中的每个阶段都必须在某个地方（物理机、虚拟机或Docker容器）执行，agent部分即指定具体在哪里执行。我们会在第14章中进行详细介绍。
 
 ### 步骤
 
@@ -2629,12 +2723,7 @@ pipeline {
 ​	在上一章中，我们已经见过post部分，在pipeline执行失败后，发送邮件到指定邮箱中。
 
 ```
-post {
-	failure {
-		mail to: 'team@example.com',
-		subject: 'The pipeline failed :('
-	}
-}
+post {	failure {		mail to: 'team@example.com',		subject: 'The pipeline failed :('	}}
 ```
 
 ​	post部分包含的是在整个pipeline或阶段完成后一些附加的步骤。post部分是可选的，所以并不包含在pipeline最简结构中。但这并不代表它作用不大。根据pipeline或阶段的完成状态，post部分分成多种条件块，包括：
@@ -2650,33 +2739,7 @@ post {
 * cleanup：清理条件块。不论当前完成状态是什么，在其他所有条件块执行完成后都执行。post部分可以同时包含多种条件块。以下是post部分的完整示例。
 
 ```groovy
-pipeline {
-    agent any
-    stages {
-        stage('build') {
-            steps {
-                echo "build stage"
-            }
-            post {
-                always {
-                    echo "stage post always"
-                }
-            }
-        }
-    }
-    post {
-        changed {
-            echo "pipeline post changed"
-        }
-        always {
-            echo "pipeline post always"
-        }
-        success {
-            echo "pipeline post success"
-        }
-        // 省略其他模块
-    }
-}
+pipeline {    agent any    stages {        stage('build') {            steps {                echo "build stage"            }            post {                always {                    echo "stage post always"                }            }        }    }    post {        changed {            echo "pipeline post changed"        }        always {            echo "pipeline post always"        }        success {            echo "pipeline post success"        }        // 省略其他模块    }}
 ```
 
 ## pipeline支持的指令
@@ -2705,25 +2768,19 @@ Jenkins pipeline支持的指令有：
 * buildDiscarder：保存最近历史构建记录的数量。当pipeline执行完成后，会在硬盘上保存制品和构建执行日志，如果长时间不清理会占用大量空间，设置此选项后会自动清理。此选项只能在pipeline下的options中使用。示例如下：
 
 ```
-options {
-	buildDiscrader(logRotator(numToKeepStr: '10'))
-}
+options {	buildDiscrader(logRotator(numToKeepStr: '10'))}
 ```
 
 * checkoutToSubdirectory：Jenkins从版本控制库拉取源码时，默认检出到工作空间的根目录中，此选项可以指定检出到工作空间的子目录中。示例如下：
 
 ```groovy
-options {
-    checkoutToSubdirectory('subdir')
-}
+options {    checkoutToSubdirectory('subdir')}
 ```
 
 * disableConcurrentBuilds：同一个pipeline，Jenkins默认是可以同时执行多次的，如图3-2所示。此选项是为了禁止pipeline同时执行。示例如下：
 
 ```
-options {
-	disableConcurrentBuilds()
-}
+options {	disableConcurrentBuilds()}
 ```
 
 ![](https://pic.imgdb.cn/item/60d5a224844ef46bb2a3401a.jpg)
@@ -2735,36 +2792,19 @@ options {
 * newContainerPerStage：当agent为docker或dockerfile时，指定在同一个Jenkins节点上，每个stage都分别运行在一个新的容器中，而不是所有stage都运行在同一个容器中。
 
 ```groovy
-options {
-    newContainerPerStage()
-}
+options {    newContainerPerStage()}
 ```
 
 * retry: 当失败发生时进行重试, 可以指定整个pipeline的重试次数需要注意的是，这个次数是指总次数，包括第1次失败。以下例子总共会执行4次。当使用retry选项时，options可以被放在stage块中。
 
 ```groovy
-pipeline {
-    agent any
-    options {
-        retry(4)
-    }
-    stages {
-        stage('build') {
-            steps {
-                echo "ok"
-                error("emm..")
-            }
-        }
-    }
-}
+pipeline {    agent any    options {        retry(4)    }    stages {        stage('build') {            steps {                echo "ok"                error("emm..")            }        }    }}
 ```
 
 * timeout：如果 pipeline 执行时间过长，超出了我们设置的 timeout 时间，Jenkins 将中止pipeline。以下例子中以小时为单位，还可以以 SECONDS（秒）、MINUTES（分钟）为单位。当使用timeout选项时，options可以被放在stage块中。
 
 ```groovy
-options {
-    timeout(time: 10, unit: "HOURS")
-}
+options {    timeout(time: 10, unit: "HOURS")}
 ```
 
 ​	设置此选项后，强迫团队去处理执行时间过长的pipeline，从而优化pipeline的反馈周期。通常将timeout设置为10分钟就可以了。
@@ -2776,21 +2816,7 @@ options {
 ​	Jenkins pipeline专门提供了一个script步骤，你能在script步骤中像写代码一样写pipeline逻辑。比如分别在不同的浏览器上跑测试。
 
 ```groovy
-pipeline {
-    agent any
-    stages {
-        stage('Example') {
-            steps {
-                script {
-                    def browsers = ['chrome', 'firefox']
-                    for (int i = 0; i < browsers.size(); i++) {
-                        echo "Testing the ${browsers[i]} browser"
-                    }
-                }
-            }
-        }
-    }
-}
+pipeline {    agent any    stages {        stage('Example') {            steps {                script {                    def browsers = ['chrome', 'firefox']                    for (int i = 0; i < browsers.size(); i++) {                        echo "Testing the ${browsers[i]} browser"                    }                }            }        }    }}
 ```
 
 ​	可以看出，在script块中的其实就是Groovy代码。大多数时候，我们是不需要使用script步骤的。如果在script步骤中写了大量的逻辑，则说明你应该把这些逻辑拆分到不同的阶段，或者放到共享库中。共享库是一种扩展Jenkins pipeline的技术，我们会在后面的章节中讲到。
@@ -2810,9 +2836,7 @@ pipeline {
 ​	默认pipeline工作在工作空间目录下，dir步骤可以让我们切换到其他目录。使用方法如下：
 
 ```groovy
-dir("/var/logs") {
-    deleteDir()
-}
+dir("/var/logs") {    deleteDir()}
 ```
 
 **fileExists：判断文件是否存在**
@@ -2830,8 +2854,8 @@ dir("/var/logs") {
 **writeFile：将内容写入指定文件中**
 
 *  file：文件路径，可以是绝对路径，也可以是相对路径。
-* text：要写入的文件内容。
-* encoding（可选）：目标文件的编码。如果留空，则使用操作系统默认的编码。如果写的是Base64的数据，则可以使用Base64编码。
+*  text：要写入的文件内容。
+*  encoding（可选）：目标文件的编码。如果留空，则使用操作系统默认的编码。如果写的是Base64的数据，则可以使用Base64编码。
 
 **readFile：读取文件内容**
 
@@ -2855,10 +2879,10 @@ dir("/var/logs") {
 ​	stash步骤的参数列表如下：
 
 *  name：字符串类型，保存文件的集合的唯一标识。
-* allowEmpty：布尔类型，允许stash内容为空。
-* excludes：字符串类型，将哪些文件排除。如果排除多个文件，则使用逗号分隔。留空代表不排除任何文件。
-* includes：字符串类型，stash哪些文件，留空代表当前文件夹下的所有文件。
-* useDefaultExcludes：布尔类型，如果为true，则代表使用Ant风格路径默认排除文件列表。
+*  allowEmpty：布尔类型，允许stash内容为空。
+*  excludes：字符串类型，将哪些文件排除。如果排除多个文件，则使用逗号分隔。留空代表不排除任何文件。
+*  includes：字符串类型，stash哪些文件，留空代表当前文件夹下的所有文件。
+*  useDefaultExcludes：布尔类型，如果为true，则代表使用Ant风格路径默认排除文件列表。
 
 
 
@@ -2879,7 +2903,7 @@ dir("/var/logs") {
 sh步骤支持的参数有：
 
 * script：将要执行的shell脚本，通常在类UNIX系统上可以是多行脚本。
-*  encoding：脚本执行后输出日志的编码，默认值为脚本运行所在系统的编码。
+* encoding：脚本执行后输出日志的编码，默认值为脚本运行所在系统的编码。
 * returnStatus：布尔类型，默认脚本返回的是状态码，如果是一个非零的状态码，则会引发pipeline执行失败。如果returnStatus参数为true，则不论状态码是什么，pipeline的执行都不会受影响。
 * returnStdout：布尔类型，如果为true，则任务的标准输出将作为步骤的返回值，而不是打印到构建日志中（如果有错误，则依然会打印到日志中）。除了script参数，其他参数都是可选的。
 
@@ -2918,8 +2942,8 @@ tool步骤支持的参数有：
 ​	为timeout步骤闭包内运行的代码设置超时时间限制。如果超时，将抛出一个org.jenkinsci.plugins.workflow.steps.FlowInterruptedException异常。timeout步骤支持如下参数：
 
 *  time：整型，超时时间。
-* unit（可选）：时间单位，支持的值有NANOSECONDS、MICROSECONDS、MILLISECONDS、SECONDS、MINUTES（默认）、HOURS、DAYS。
-* activity（可选）：布尔类型，如果值为true，则只有当日志没有活动后，才真正算作超时
+*  unit（可选）：时间单位，支持的值有NANOSECONDS、MICROSECONDS、MILLISECONDS、SECONDS、MINUTES（默认）、HOURS、DAYS。
+*  activity（可选）：布尔类型，如果值为true，则只有当日志没有活动后，才真正算作超时
 
 **waitUntil：等待条件满足**
 
@@ -3016,18 +3040,7 @@ sleep步骤可用于简单地暂停pipeline，其支持的参数有：
 ​	在pipeline执行时，Jenkins通过一个名为env的全局变量，将Jenkins内置环境变量暴露出来。其使用方法有多种，示例如下：
 
 ```groovy
-pipeline {
-    agent any
-    stages {
-        stage('Example') {
-            steps {
-                echo "Runing ${evn.BUILD_NUMBER} on ${evn.JENKINS_URL}"
-                echo "Runing $evn.BUILD_NUMBER on $evn.JENKINS_URL"
-                echo "Runing ${BUILD_NUMBER} on ${JENKINS_URL}"
-            }
-        }
-    }
-}
+pipeline {    agent any    stages {        stage('Example') {            steps {                echo "Runing ${evn.BUILD_NUMBER} on ${evn.JENKINS_URL}"                echo "Runing $evn.BUILD_NUMBER on $evn.JENKINS_URL"                echo "Runing ${BUILD_NUMBER} on ${JENKINS_URL}"            }        }    }}
 ```
 
 ​	默认env的属性可以直接在pipeline中引用。所以，以上方法都是合法的。但是不推荐方法三，因为出现变量冲突时，非常难查问题。
@@ -3050,23 +3063,7 @@ pipeline {
 ​	当pipeline变得复杂时，我们就会有定义自己的环境变量的需求。声明式pipeline提供了environment指令，方便自定义变量。比如：
 
 ```groovy
-pipeline {
-    agent any
-    environment {
-        CC = 'clang'
-    }
-    stages {
-        stage('Example') {
-            environment {
-                DEBUG_FLAGS = '-g'
-            }
-            steps {
-                sh "${CC} ${DEBUG_FLAGS}"
-                sh 'printenv'
-            }
-        }
-    }
-}
+pipeline {    agent any    environment {        CC = 'clang'    }    stages {        stage('Example') {            environment {                DEBUG_FLAGS = '-g'            }            steps {                sh "${CC} ${DEBUG_FLAGS}"                sh 'printenv'            }        }    }}
 ```
 
 ​	另外，environment指令可以在pipeline中定义，代表变量作用域为整个pipeline；也可以在stage中定义，代表变量只在该阶段有效。
@@ -3150,9 +3147,7 @@ pipeline {
 （6）在Jenkins pipeline中使用的方法如下
 
 ```groovy
-configfileProvider([configFile(fileId: 'maven-global-settings', variable: 'MAVEN_GLOBAL_ENV')]) {
-    sh 'mvn -s $MAVEN_GLOBAL_ENV clean install'
-}
+configfileProvider([configFile(fileId: 'maven-global-settings', variable: 'MAVEN_GLOBAL_ENV')]) {    sh 'mvn -s $MAVEN_GLOBAL_ENV clean install'}
 ```
 
 ### Go语言环境搭建
@@ -3166,9 +3161,7 @@ Jenkins支持Golang的构建，只需要以下几步。
 （3）在pipeline中加入tools部分。
 
 ```groovy
-tools {
-    go 'go1.10'
-}
+tools {    go 'go1.10'}
 ```
 
 此时，在环境变量中会增加一个GOROOT变量。
@@ -3364,7 +3357,7 @@ JaCoCo提供了以下几个维度的覆盖率分析。
 * useBztExitCode：布尔类型，是否使用bzt步骤的退出码作为Jenkins项目的构建结果。默认值为true。
 * useSystemSitePackages：布尔类型，是否为virtualenv加上“--system-site-packages”参数。默认值为true。
 * workingDirectory：字符串类型，指定bzt的工作目录。
-*  workspace：字符串类型，已经废弃，请使用workingDirectory。
+* workspace：字符串类型，已经废弃，请使用workingDirectory。
 
 
 
@@ -3426,7 +3419,7 @@ JaCoCo提供了以下几个维度的覆盖率分析。
 ​	withSonarQubeEnv是一个环境变量包装器，读取的是我们在图5-12中所配置的变量。在它的闭包内，我们可以使用以下变量。
 
 *  SONAR_HOST_URL：SonarQube服务的地址。
-* SONAR_AUTH_TOKEN：SonarQube认证所需要的Token。
+*  SONAR_AUTH_TOKEN：SonarQube认证所需要的Token。
 
 
 
