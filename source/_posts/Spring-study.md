@@ -2235,6 +2235,8 @@ sqlMapConfig-spring.xml
 
 ### 安装nexus
 
+https://developer.aliyun.com/article/783695?spm=a2c6h.13813017.0.dArticle738638.6daa2b0bxGGhMV
+
 略
 
 ### 将第3方jar安装到maven私服
@@ -4651,7 +4653,6 @@ channel下列方法可以完成事务控制。
 * NONE值是禁用发布确认模式，是默认值
 * CORRELATED值是发布消息成功到交换器后会触发回调方法。
 * SIMPLE值经测试有两种效果，其一效果和CORRELATED值一样会触发回调方法，其二在发布消息成功后使用rabbitTemplate调用waitForConfirms或waitForConfirmsOrDie方法等待broker节点返回发送结果，根据返回结果来判定下一步的逻辑，要注意的点是waitForConfirmsOrDie方法如果返回false则会关闭channel，则接下来无法发送消息到broker;
-  
 
 ### Consumer ACK
 
@@ -8119,7 +8120,7 @@ java -XX:+DisableExplicitGC -showversion TestJVM
 * `-Xms512m`: 等价于`-XX:InitialHeapSize=512m`, 设置JVM初始堆内存为512M。
 
    ```sh
-java -Xms64m -Xmx128m -showversion TestJVM
+   java -Xms64m -Xmx128m -showversion TestJVM
    ```
 
 ## 查看jvm的运行参数
@@ -8964,7 +8965,7 @@ GC日志解读：
 ​	GC分为两步：
 
 	1. 全局并发标记(global concurrent marking)。
- 	2. 拷贝存活对象(evacuation)。
+	2. 拷贝存活对象(evacuation)。
 
 **全局并发标记**
 
