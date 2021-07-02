@@ -2956,3 +2956,1372 @@ change(a)
 ```
 
 可以看见在调用函数前后，形参和实参指向的是同一个对象（对象 id 相同），在函数内部修改形参后，形参指向的是不同的 id。
+
+# Python3 数据结构
+
+## 列表
+
+​	Python中列表是可变的，这是它区别于字符串和元组的最重要的特点，一句话概括即：列表可以修改，而字符串和元组不能。
+
+以下是 Python 中列表的方法
+
+| 方法              | 描述                                                         |
+| :---------------- | :----------------------------------------------------------- |
+| list.append(x)    | 把一个元素添加到列表的结尾，相当于 a[len(a):] = [x]。        |
+| list.extend(L)    | 通过添加指定列表的所有元素来扩充列表，相当于 a[len(a):] = L。 |
+| list.insert(i, x) | 在指定位置插入一个元素。第一个参数是准备插入到其前面的那个元素的索引，例如 a.insert(0, x) 会插入到整个列表之前，而 a.insert(len(a), x) 相当于 a.append(x) 。 |
+| list.remove(x)    | 删除列表中值为 x 的第一个元素。如果没有这样的元素，就会返回一个错误。 |
+| list.pop([i])     | 从列表的指定位置移除元素，并将其返回。如果没有指定索引，a.pop()返回最后一个元素。元素随即从列表中被移除。（方法中 i 两边的方括号表示这个参数是可选的，而不是要求你输入一对方括号，你会经常在 Python 库参考手册中遇到这样的标记。） |
+| list.clear()      | 移除列表中的所有项，等于del a[:]。                           |
+| list.index(x)     | 返回列表中第一个值为 x 的元素的索引。如果没有匹配的元素就会返回一个错误。 |
+| list.count(x)     | 返回 x 在列表中出现的次数。                                  |
+| list.sort()       | 对列表中的元素进行排序。                                     |
+| list.reverse()    | 倒排列表中的元素。                                           |
+| list.copy()       | 返回列表的浅复制，等于a[:]。                                 |
+
+```python
+>>> a = [66.25, 333, 333, 1, 1234.5]
+>>> print(a.count(333), a.count(66.25), a.count('x'))
+2 1 0
+>>> a.insert(2, -1)
+>>> a.append(333)
+>>> a
+[66.25, 333, -1, 333, 1, 1234.5, 333]
+>>> a.index(333)
+1
+>>> a.remove(333)
+>>> a
+[66.25, -1, 333, 1, 1234.5, 333]
+>>> a.reverse()
+>>> a
+[333, 1234.5, 1, 333, -1, 66.25]
+>>> a.sort()
+>>> a
+[-1, 1, 66.25, 333, 333, 1234.5]
+```
+
+
+
+注意：类似 insert, remove 或 sort 等修改列表的方法没有返回值。
+
+## 将列表当做堆栈使用
+
+​	列表方法使得列表可以很方便的作为一个堆栈来使用，堆栈作为特定的数据结构，最先进入的元素最后一个被释放（后进先出）。用 append() 方法可以把一个元素添加到堆栈顶。用不指定索引的 pop() 方法可以把一个元素从堆栈顶释放出来。例如：
+
+```python
+>>> stack = [3, 4, 5]
+>>> stack.append(6)
+>>> stack.append(7)
+>>> stack
+[3, 4, 5, 6, 7]
+>>> stack.pop()
+7
+>>> stack
+[3, 4, 5, 6]
+>>> stack.pop()
+6
+>>> stack.pop()
+5
+>>> stack
+[3, 4]
+```
+
+
+
+## 将列表当作队列使用
+
+​	也可以把列表当做队列用，只是在队列里第一加入的元素，第一个取出来；但是拿列表用作这样的目的效率不高。在列表的最后添加或者弹出元素速度快，然而在列表里插入或者从头部弹出速度却不快（因为所有其他的元素都得一个一个地移动）。
+
+```python
+>>> from collections import deque
+>>> queue = deque(["Eric", "John", "Michael"])
+>>> queue.append("Terry")           # Terry arrives
+>>> queue.append("Graham")          # Graham arrives
+>>> queue.popleft()                 # The first to arrive now leaves
+'Eric'
+>>> queue.popleft()                 # The second to arrive now leaves
+'John'
+>>> queue                           # Remaining queue in order of arrival
+deque(['Michael', 'Terry', 'Graham'])
+```
+
+## 列表推导式
+
+```python
+>>> vec = [2, 4, 6]
+>>> [3*x for x in vec]
+[6, 12, 18]
+
+>>> [[x, x**2] for x in vec]
+[[2, 4], [4, 16], [6, 36]]
+
+>>> freshfruit = ['  banana', '  loganberry ', 'passion fruit  ']
+>>> [weapon.strip() for weapon in freshfruit]
+['banana', 'loganberry', 'passion fruit']
+```
+
+
+
+以下是一些关于循环和其它技巧的演示：
+
+```python
+>>> vec1 = [2, 4, 6]
+>>> vec2 = [4, 3, -9]
+>>> [x*y for x in vec1 for y in vec2]
+[8, 6, -18, 16, 12, -36, 24, 18, -54]
+>>> [x+y for x in vec1 for y in vec2]
+[6, 5, -7, 8, 7, -5, 10, 9, -3]
+>>> [vec1[i]*vec2[i] for i in range(len(vec1))]
+[8, 12, -54]
+```
+
+列表推导式可以使用复杂表达式或嵌套函数：
+
+```python
+>>> [str(round(355/113, i)) for i in range(1, 6)]
+['3.1', '3.14', '3.142', '3.1416', '3.14159']
+```
+
+## 嵌套列表解析
+
+Python的列表还可以嵌套。
+
+以下实例展示了3X4的矩阵列表：
+
+```python
+>>> matrix = [
+...     [1, 2, 3, 4],
+...     [5, 6, 7, 8],
+...     [9, 10, 11, 12],
+... ]
+# 以下实例将3X4的矩阵列表转换为4X3列表：
+>>> [[row[i] for row in matrix] for i in range(4)]
+[[1, 5, 9], [2, 6, 10], [3, 7, 11], [4, 8, 12]]
+```
+
+另外一种实现方法：
+
+```python
+>>> transposed = []
+>>> for i in range(4):
+...     # the following 3 lines implement the nested listcomp
+...     transposed_row = []
+...     for row in matrix:
+...         transposed_row.append(row[i])
+...     transposed.append(transposed_row)
+...
+>>> transposed
+[[1, 5, 9], [2, 6, 10], [3, 7, 11], [4, 8, 12]]
+```
+
+## del 语句
+
+使用 del 语句可以从一个列表中依索引而不是值来删除一个元素。这与使用 pop() 返回一个值不同。可以用 del 语句从列表中删除一个切割，或清空整个列表（我们以前介绍的方法是给该切割赋一个空列表）。例如：
+
+```python
+>>> a = [-1, 1, 66.25, 333, 333, 1234.5]
+>>> del a[0]
+>>> a
+[1, 66.25, 333, 333, 1234.5]
+>>> del a[2:4]
+>>> a
+[1, 66.25, 1234.5]
+>>> del a[:]
+>>> a
+[]
+```
+
+也可以用 del 删除实体变量：
+
+```python
+>>> del a
+```
+
+## 元组和序列
+
+```python
+>>> t = 12345, 54321, 'hello!'
+>>> t[0]
+12345
+>>> t
+(12345, 54321, 'hello!')
+>>> # Tuples may be nested:
+... u = t, (1, 2, 3, 4, 5)
+>>> u
+((12345, 54321, 'hello!'), (1, 2, 3, 4, 5))
+```
+
+​	如你所见，元组在输出时总是有括号的，以便于正确表达嵌套结构。在输入时可能有或没有括号， 不过括号通常是必须的（如果元组是更大的表达式的一部分）。
+
+## 集合
+
+​	集合是一个无序不重复元素的集。基本功能包括关系测试和消除重复元素。
+
+可以用大括号({})创建集合。注意：如果要创建一个空集合，你必须用 set() 而不是 {} ；后者创建一个空的字典，下一节我们会介绍这个数据结构。
+
+以下是一个简单的演示：
+
+```python
+>>> basket = {'apple', 'orange', 'apple', 'pear', 'orange', 'banana'}
+>>> print(basket)                      # 删除重复的
+{'orange', 'banana', 'pear', 'apple'}
+>>> 'orange' in basket                 # 检测成员
+True
+>>> 'crabgrass' in basket
+False
+
+>>> # 以下演示了两个集合的操作
+...
+>>> a = set('abracadabra')
+>>> b = set('alacazam')
+>>> a                                  # a 中唯一的字母
+{'a', 'r', 'b', 'c', 'd'}
+>>> a - b                              # 在 a 中的字母，但不在 b 中
+{'r', 'd', 'b'}
+>>> a | b                              # 在 a 或 b 中的字母
+{'a', 'c', 'r', 'd', 'b', 'm', 'z', 'l'}
+>>> a & b                              # 在 a 和 b 中都有的字母
+{'a', 'c'}
+>>> a ^ b                              # 在 a 或 b 中的字母，但不同时在 a 和 b 中
+{'r', 'd', 'b', 'm', 'z', 'l'}
+```
+
+集合也支持推导式：
+
+```python
+>>> a = {x for x in 'abracadabra' if x not in 'abc'}
+>>> a
+{'r', 'd'}
+```
+
+## 字典
+
+另一个非常有用的 Python 内建数据类型是字典。
+
+序列是以连续的整数为索引，与此不同的是，字典以关键字为索引，关键字可以是任意不可变类型，通常用字符串或数值。
+
+理解字典的最佳方式是把它看做无序的键=>值对集合。在同一个字典之内，关键字必须是互不相同。
+
+一对大括号创建一个空的字典：{}。
+
+这是一个字典运用的简单例子：
+
+```python
+>>> tel = {'jack': 4098, 'sape': 4139}
+>>> tel['guido'] = 4127
+>>> tel
+{'sape': 4139, 'guido': 4127, 'jack': 4098}
+>>> tel['jack']
+4098
+>>> del tel['sape']
+>>> tel['irv'] = 4127
+>>> tel
+{'guido': 4127, 'irv': 4127, 'jack': 4098}
+>>> list(tel.keys())
+['irv', 'guido', 'jack']
+>>> sorted(tel.keys())
+['guido', 'irv', 'jack']
+>>> 'guido' in tel
+True
+>>> 'jack' not in tel
+False
+```
+
+构造函数 dict() 直接从键值对元组列表中构建字典。如果有固定的模式，列表推导式指定特定的键值对：
+
+```python
+>>> dict([('sape', 4139), ('guido', 4127), ('jack', 4098)])
+{'sape': 4139, 'jack': 4098, 'guido': 4127}
+```
+
+此外，字典推导可以用来创建任意键和值的表达式词典：
+
+```python
+>>> {x: x**2 for x in (2, 4, 6)}
+{2: 4, 4: 16, 6: 36}
+```
+
+如果关键字只是简单的字符串，使用关键字参数指定键值对有时候更方便：
+
+```python
+>>> dict(sape=4139, guido=4127, jack=4098)
+{'sape': 4139, 'jack': 4098, 'guido': 4127}
+```
+
+## 遍历技巧
+
+在字典中遍历时，关键字和对应的值可以使用 items() 方法同时解读出来：
+
+```python
+>>> knights = {'gallahad': 'the pure', 'robin': 'the brave'}
+>>> for k, v in knights.items():
+...     print(k, v)
+...
+gallahad the pure
+robin the brave
+```
+
+在序列中遍历时，索引位置和对应值可以使用 enumerate() 函数同时得到：
+
+```python
+>>> for i, v in enumerate(['tic', 'tac', 'toe']):
+...     print(i, v)
+...
+0 tic
+1 tac
+2 toe
+```
+
+同时遍历两个或更多的序列，可以使用 zip() 组合：
+
+```python
+>>> questions = ['name', 'quest', 'favorite color']
+>>> answers = ['lancelot', 'the holy grail', 'blue']
+>>> for q, a in zip(questions, answers):
+...     print('What is your {0}?  It is {1}.'.format(q, a))
+...
+What is your name?  It is lancelot.
+What is your quest?  It is the holy grail.
+What is your favorite color?  It is blue.
+```
+
+要反向遍历一个序列，首先指定这个序列，然后调用 reversed() 函数：
+
+```python
+>>> for i in reversed(range(1, 10, 2)):
+...     print(i)
+...
+9
+7
+5
+3
+1
+```
+
+要按顺序遍历一个序列，使用 sorted() 函数返回一个已排序的序列，并不修改原值：
+
+```python
+>>> basket = ['apple', 'orange', 'apple', 'pear', 'orange', 'banana']
+>>> for f in sorted(set(basket)):
+...     print(f)
+...
+apple
+banana
+orange
+pear
+```
+
+# Python3 模块
+
+```python
+import sys
+ 
+print('命令行参数如下:')
+for i in sys.argv:
+   print(i)
+ 
+print('\n\nPython 路径为：', sys.path, '\n')
+```
+
+```python
+$ python using_sys.py 参数1 参数2
+命令行参数如下:
+using_sys.py
+参数1
+参数2
+
+
+Python 路径为： ['/root', '/usr/lib/python3.4', '/usr/lib/python3.4/plat-x86_64-linux-gnu', '/usr/lib/python3.4/lib-dynload', '/usr/local/lib/python3.4/dist-packages', '/usr/lib/python3/dist-packages'] 
+```
+
+- 1、import sys 引入 python 标准库中的 sys.py 模块；这是引入某一模块的方法。
+- 2、sys.argv 是一个包含命令行参数的列表。
+- 3、sys.path 包含了一个 Python 解释器自动查找所需模块的路径的列表。
+
+## import 语句
+
+想使用 Python 源文件，只需在另一个源文件里执行 import 语句，语法如下：
+
+```python
+import module1[, module2[,... moduleN]
+```
+
+现在，在解释器的当前目录或者 sys.path 中的一个目录里面来创建一个fibo.py的文件，代码如下：
+
+```python
+# 斐波那契(fibonacci)数列模块
+ 
+def fib(n):    # 定义到 n 的斐波那契数列
+    a, b = 0, 1
+    while b < n:
+        print(b, end=' ')
+        a, b = b, a+b
+    print()
+ 
+def fib2(n): # 返回到 n 的斐波那契数列
+    result = []
+    a, b = 0, 1
+    while b < n:
+        result.append(b)
+        a, b = b, a+b
+    return result
+```
+
+然后进入Python解释器，使用下面的命令导入这个模块：
+
+```python
+>>> import fibo
+```
+
+这样做并没有把直接定义在fibo中的函数名称写入到当前符号表里，只是把模块fibo的名字写到了那里。
+
+可以使用模块名称来访问函数：
+
+```python
+>>>fibo.fib(1000)
+1 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987
+>>> fibo.fib2(100)
+[1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89]
+>>> fibo.__name__
+'fibo'
+```
+
+## from … import 语句
+
+Python 的 from 语句让你从模块中导入一个指定的部分到当前命名空间中，语法如下：
+
+```python
+from modname import name1[, name2[, ... nameN]]
+```
+
+例如，要导入模块 fibo 的 fib 函数，使用如下语句：
+
+```python
+>>> from fibo import fib, fib2
+>>> fib(500)
+1 1 2 3 5 8 13 21 34 55 89 144 233 377
+```
+
+这个声明不会把整个fibo模块导入到当前的命名空间中，它只会将fibo里的fib函数引入进来。
+
+## from … import * 语句
+
+```python
+from modname import *
+```
+
+这提供了一个简单的方法来导入一个模块中的所有项目。然而这种声明不该被过多地使用。
+
+
+
+## 深入模块
+
+```python
+>>> from fibo import *
+>>> fib(500)
+1 1 2 3 5 8 13 21 34 55 89 144 233 377
+```
+
+​	这将把所有的名字都导入进来，但是那些由单一下划线（_）开头的名字不在此例。大多数情况， Python程序员不使用这种方法，因为引入的其它来源的命名，很可能覆盖了已有的定义。
+
+## `__name__`属性
+
+​	一个模块被另一个程序第一次引入时，其主程序将运行。如果我们想在模块被引入时，模块中的某一程序块不执行，我们可以用__name__属性来使该程序块仅在该模块自身运行时执行。
+
+```python
+#!/usr/bin/python3
+# Filename: using_name.py
+
+if __name__ == '__main__':
+   print('程序自身在运行')
+else:
+   print('我来自另一模块')
+```
+
+## dir() 函数
+
+内置的函数 dir() 可以找到模块内定义的所有名称。以一个字符串列表的形式返回:
+
+```python
+>>> import fibo, sys
+>>> dir(fibo)
+['__name__', 'fib', 'fib2']
+>>> dir(sys)  
+['__displayhook__', '__doc__', '__excepthook__', '__loader__', '__name__',
+ '__package__', '__stderr__', '__stdin__', '__stdout__',
+ '_clear_type_cache', '_current_frames', '_debugmallocstats', '_getframe',
+ '_home', '_mercurial', '_xoptions', 'abiflags', 'api_version', 'argv',
+ 'base_exec_prefix', 'base_prefix', 'builtin_module_names', 'byteorder',
+ 'call_tracing', 'callstats', 'copyright', 'displayhook',
+ 'dont_write_bytecode', 'exc_info', 'excepthook', 'exec_prefix',
+ 'executable', 'exit', 'flags', 'float_info', 'float_repr_style',
+ 'getcheckinterval', 'getdefaultencoding', 'getdlopenflags',
+ 'getfilesystemencoding', 'getobjects', 'getprofile', 'getrecursionlimit',
+ 'getrefcount', 'getsizeof', 'getswitchinterval', 'gettotalrefcount',
+ 'gettrace', 'hash_info', 'hexversion', 'implementation', 'int_info',
+ 'intern', 'maxsize', 'maxunicode', 'meta_path', 'modules', 'path',
+ 'path_hooks', 'path_importer_cache', 'platform', 'prefix', 'ps1',
+ 'setcheckinterval', 'setdlopenflags', 'setprofile', 'setrecursionlimit',
+ 'setswitchinterval', 'settrace', 'stderr', 'stdin', 'stdout',
+ 'thread_info', 'version', 'version_info', 'warnoptions']
+```
+
+如果没有给定参数，那么 dir() 函数会罗列出当前定义的所有名称:
+
+```python
+>>> a = [1, 2, 3, 4, 5]
+>>> import fibo
+>>> fib = fibo.fib
+>>> dir() # 得到一个当前模块中定义的属性列表
+['__builtins__', '__name__', 'a', 'fib', 'fibo', 'sys']
+>>> a = 5 # 建立一个新的变量 'a'
+>>> dir()
+['__builtins__', '__doc__', '__name__', 'a', 'sys']
+>>>
+>>> del a # 删除变量名a
+>>>
+>>> dir()
+['__builtins__', '__doc__', '__name__', 'sys']
+>>>
+```
+
+​	Python 本身带着一些标准的模块库，在 Python 库参考文档中将会介绍到（就是后面的"库参考文档"）。
+
+​	有些模块直接被构建在解析器里，这些虽然不是一些语言内置的功能，但是他却能很高效的使用，甚至是系统级调用也没问题。
+
+​	这些组件会根据不同的操作系统进行不同形式的配置，比如 winreg 这个模块就只会提供给 Windows 系统。
+
+​	应该注意到这有一个特别的模块 sys ，它内置在每一个 Python 解析器中。变量 sys.ps1 和 sys.ps2 定义了主提示符和副提示符所对应的字符串:
+
+```python
+>>> import sys
+>>> sys.ps1
+'>>> '
+>>> sys.ps2
+'... '
+>>> sys.ps1 = 'C> '
+C> print('Runoob!')
+Runoob!
+C> 
+```
+
+## 包
+
+包是一种管理 Python 模块命名空间的形式，采用"点模块名称"。
+
+比如一个模块的名称是 A.B， 那么他表示一个包 A中的子模块 B 。
+
+就好像使用模块的时候，你不用担心不同模块之间的全局变量相互影响一样，采用点模块名称这种形式也不用担心不同库之间的模块重名的情况。
+
+这样不同的作者都可以提供 NumPy 模块，或者是 Python 图形库。
+
+不妨假设你想设计一套统一处理声音文件和数据的模块（或者称之为一个"包"）。
+
+现存很多种不同的音频文件格式（基本上都是通过后缀名区分的，例如： .wav，:file:.aiff，:file:.au，），所以你需要有一组不断增加的模块，用来在不同的格式之间转换。
+
+并且针对这些音频数据，还有很多不同的操作（比如混音，添加回声，增加均衡器功能，创建人造立体声效果），所以你还需要一组怎么也写不完的模块来处理这些操作。
+
+这里给出了一种可能的包结构（在分层的文件系统中）:
+
+```python
+sound/                          顶层包
+      __init__.py               初始化 sound 包
+      formats/                  文件格式转换子包
+              __init__.py
+              wavread.py
+              wavwrite.py
+              aiffread.py
+              aiffwrite.py
+              auread.py
+              auwrite.py
+              ...
+      effects/                  声音效果子包
+              __init__.py
+              echo.py
+              surround.py
+              reverse.py
+              ...
+      filters/                  filters 子包
+              __init__.py
+              equalizer.py
+              vocoder.py
+              karaoke.py
+```
+
+```python
+import sound.effects.echo
+```
+
+这将会导入子模块:sound.effects.echo。 他必须使用全名去访问:
+
+```python
+sound.effects.echo.echofilter(input, output, delay=0.7, atten=4)
+```
+
+还有一种导入子模块的方法是:
+
+```python
+from sound.effects import echo
+```
+
+这同样会导入子模块: echo，并且他不需要那些冗长的前缀，所以他可以这样使用:
+
+```python
+echo.echofilter(input, output, delay=0.7, atten=4)
+```
+
+还有一种变化就是直接导入一个函数或者变量:
+
+```python
+from sound.effects.echo import echofilter
+```
+
+同样的，这种方法会导入子模块: echo，并且可以直接使用他的 echofilter() 函数:
+
+```python
+echofilter(input, output, delay=0.7, atten=4)
+```
+
+​	注意当使用 **from package import item** 这种形式的时候，对应的 item 既可以是包里面的子模块（子包），或者包里面定义的其他名称，比如函数，类或者变量。
+
+import 语法会首先把 item 当作一个包定义的名称，如果没找到，再试图按照一个模块去导入。如果还没找到，抛出一个 **:exc:ImportError** 异常。
+
+反之，如果使用形如 **import item.subitem.subsubitem** 这种导入形式，除了最后一项，都必须是包，而最后一项则可以是模块或者是包，但是不可以是类，函数或者变量的名字。
+
+## 从一个包中导入*
+
+如果我们使用 **from sound.effects import \*** 会发生什么呢？
+
+Python 会进入文件系统，找到这个包里面所有的子模块，然后一个一个的把它们都导入进来。
+
+但这个方法在 Windows 平台上工作的就不是非常好，因为 Windows 是一个不区分大小写的系统。
+
+在 Windows 平台平台上，我们无法确定一个叫做 ECHO.py 的文件导入为模块是 echo 还是 Echo，或者是 ECHO。
+
+为了解决这个问题，我们只需要提供一个精确包的索引。
+
+导入语句遵循如下规则：如果包定义文件 **__init__.py** 存在一个叫做 **__all__** 的列表变量，那么在使用 **from package import \*** 的时候就把这个列表中的所有名字作为包内容导入。
+
+
+
+作为包的作者，可别忘了在更新包之后保证 **__all__** 也更新了啊。
+
+以下实例在 file:sounds/effects/__init__.py 中包含如下代码:
+
+```python
+__all__ = ["echo", "surround", "reverse"]
+```
+
+​	这表示当你使用from sound.effects import *这种用法时，你只会导入包里面这三个子模块。
+
+​	如果 **__all__** 真的没有定义，那么使用**from sound.effects import \***这种语法的时候，就不会导入包 sound.effects 里的任何子模块。他只是把包sound.effects和它里面定义的所有内容导入进来（可能运行__init__.py里定义的初始化代码）。
+
+​	这会把 __init__.py 里面定义的所有名字导入进来。并且他不会破坏掉我们在这句话之前导入的所有明确指定的模块。看下这部分代码:
+
+```python
+import sound.effects.echo
+import sound.effects.surround
+from sound.effects import *
+```
+
+​	这个例子中，在执行 from...import 前，包 sound.effects 中的 echo 和 surround 模块都被导入到当前的命名空间中了。（当然如果定义了 __all__ 就更没问题了）
+
+​	通常我们并不主张使用 ***** 这种方法来导入模块，因为这种方法经常会导致代码的可读性降低。不过这样倒的确是可以省去不少敲键的功夫，而且一些模块都设计成了只能通过特定的方法导入。
+
+​	记住，使用 **from Package import specific_submodule** 这种方法永远不会有错。事实上，这也是推荐的方法。除非是你要导入的子模块有可能和其他包的子模块重名。
+
+​	如果在结构中包是一个子包（比如这个例子中对于包sound来说），而你又想导入兄弟包（同级别的包）你就得使用导入绝对的路径来导入。比如，如果模块sound.filters.vocoder 要使用包 sound.effects 中的模块 echo，你就要写成 from sound.effects import echo。
+
+```python
+from . import echo
+from .. import formats
+from ..filters import equalizer
+```
+
+​	无论是隐式的还是显式的相对导入都是从当前模块开始的。主模块的名字永远是"__main__"，一个Python应用程序的主模块，应当总是使用绝对路径引用。
+
+包还提供一个额外的属性__path__。这是一个目录列表，里面每一个包含的目录都有为这个包服务的__init__.py，你得在其他__init__.py被执行前定义哦。可以修改这个变量，用来影响包含在包里面的模块和子包。
+
+这个功能并不常用，一般用来扩展包里面的模块。
+
+# Python3 输入和输出
+
+## 输出格式美化
+
+Python两种输出值的方式: 表达式语句和 print() 函数。
+
+第三种方式是使用文件对象的 write() 方法，标准输出文件可以用 sys.stdout 引用。
+
+如果你希望输出的形式更加多样，可以使用 str.format() 函数来格式化输出值。
+
+如果你希望将输出的值转成字符串，可以使用 repr() 或 str() 函数来实现。
+
+- **str()：** 函数返回一个用户易读的表达形式。
+- **repr()：** 产生一个解释器易读的表达形式。
+
+### 例如
+
+```python
+>>> s = 'Hello, Runoob'
+>>> str(s)
+'Hello, Runoob'
+>>> repr(s)
+"'Hello, Runoob'"
+>>> str(1/7)
+'0.14285714285714285'
+>>> x = 10 * 3.25
+>>> y = 200 * 200
+>>> s = 'x 的值为： ' + repr(x) + ',  y 的值为：' + repr(y) + '...'
+>>> print(s)
+x 的值为： 32.5,  y 的值为：40000...
+>>> #  repr() 函数可以转义字符串中的特殊字符
+... hello = 'hello, runoob\n'
+>>> hellos = repr(hello)
+>>> print(hellos)
+'hello, runoob\n'
+>>> # repr() 的参数可以是 Python 的任何对象
+... repr((x, y, ('Google', 'Runoob')))
+"(32.5, 40000, ('Google', 'Runoob'))"
+```
+
+这里有两种方式输出一个平方与立方的表:
+
+```python
+>>> for x in range(1, 11):
+...     print(repr(x).rjust(2), repr(x*x).rjust(3), end=' ')
+...     # 注意前一行 'end' 的使用
+...     print(repr(x*x*x).rjust(4))
+...
+ 1   1    1
+ 2   4    8
+ 3   9   27
+ 4  16   64
+ 5  25  125
+ 6  36  216
+ 7  49  343
+ 8  64  512
+ 9  81  729
+10 100 1000
+```
+
+```python
+>>> for x in range(1, 11):
+...     print('{0:2d} {1:3d} {2:4d}'.format(x, x*x, x*x*x))
+...
+ 1   1    1
+ 2   4    8
+ 3   9   27
+ 4  16   64
+ 5  25  125
+ 6  36  216
+ 7  49  343
+ 8  64  512
+ 9  81  729
+10 100 1000
+```
+
+​	**注意：**在第一个例子中, 每列间的空格由 print() 添加。
+
+这个例子展示了字符串对象的 rjust() 方法, 它可以将字符串靠右, 并在左边填充空格。
+
+还有类似的方法, 如 ljust() 和 center()。 这些方法并不会写任何东西, 它们仅仅返回新的字符串。
+
+另一个方法 zfill(), 它会在数字的左边填充 0，如下所示：
+
+```python
+>>> '12'.zfill(5)
+'00012'
+>>> '-3.14'.zfill(7)
+'-003.14'
+>>> '3.14159265359'.zfill(5)
+'3.14159265359'
+```
+
+str.format() 的基本使用如下:
+
+```python
+>>> print('{}网址： "{}!"'.format('菜鸟教程', 'www.runoob.com'))
+菜鸟教程网址： "www.runoob.com!"
+```
+
+​	括号及其里面的字符 (称作格式化字段) 将会被 format() 中的参数替换。
+
+​	在括号中的数字用于指向传入对象在 format() 中的位置，如下所示：
+
+```python
+>>> print('{0} 和 {1}'.format('Google', 'Runoob'))
+Google 和 Runoob
+>>> print('{1} 和 {0}'.format('Google', 'Runoob'))
+Runoob 和 Google
+```
+
+​	如果在 format() 中使用了关键字参数, 那么它们的值会指向使用该名字的参数。
+
+```python
+>>> print('{name}网址： {site}'.format(name='菜鸟教程', site='www.runoob.com'))
+菜鸟教程网址： www.runoob.com
+```
+
+位置及关键字参数可以任意的结合:
+
+```python
+>>> print('站点列表 {0}, {1}, 和 {other}。'.format('Google', 'Runoob', other='Taobao'))
+站点列表 Google, Runoob, 和 Taobao。
+```
+
+**!a** (使用 **ascii()**), **!s** (使用 **str()**) 和 **!r** (使用 **repr()**) 可以用于在格式化某个值之前对其进行转化:
+
+```python
+>>> import math
+>>> print('常量 PI 的值近似为： {}。'.format(math.pi))
+常量 PI 的值近似为： 3.141592653589793。
+>>> print('常量 PI 的值近似为： {!r}。'.format(math.pi))
+常量 PI 的值近似为： 3.141592653589793。
+```
+
+​	可选项 **:** 和格式标识符可以跟着字段名。 这就允许对值进行更好的格式化。 下面的例子将 Pi 保留到小数点后三位：
+
+```python
+>>> import math
+>>> print('常量 PI 的值近似为 {0:.3f}。'.format(math.pi))
+常量 PI 的值近似为 3.142。
+```
+
+在 **:** 后传入一个整数, 可以保证该域至少有这么多的宽度。 用于美化表格时很有用。
+
+```python
+>>> table = {'Google': 1, 'Runoob': 2, 'Taobao': 3}
+>>> for name, number in table.items():
+...     print('{0:10} ==> {1:10d}'.format(name, number))
+...
+Google     ==>          1
+Runoob     ==>          2
+Taobao     ==>          3
+```
+
+​	如果你有一个很长的格式化字符串, 而你不想将它们分开, 那么在格式化时通过变量名而非位置会是很好的事情。
+
+最简单的就是传入一个字典, 然后使用方括号 **[]** 来访问键值 :
+
+```python
+>>> table = {'Google': 1, 'Runoob': 2, 'Taobao': 3}
+>>> print('Runoob: {0[Runoob]:d}; Google: {0[Google]:d}; Taobao: {0[Taobao]:d}'.format(table))
+Runoob: 2; Google: 1; Taobao: 3
+```
+
+也可以通过在 table 变量前使用 ***\*** 来实现相同的功能：
+
+```python
+>>> table = {'Google': 1, 'Runoob': 2, 'Taobao': 3}
+>>> print('Runoob: {Runoob:d}; Google: {Google:d}; Taobao: {Taobao:d}'.format(**table))
+Runoob: 2; Google: 1; Taobao: 3
+```
+
+## 旧式字符串格式化
+
+**%** 操作符也可以实现字符串格式化。 它将左边的参数作为类似 **sprintf()** 式的格式化字符串, 而将右边的代入, 然后返回格式化后的字符串. 例如:
+
+```python
+>>> import math
+>>> print('常量 PI 的值近似为：%5.3f。' % math.pi)
+常量 PI 的值近似为：3.142。
+```
+
+​	因为 str.format() 是比较新的函数， 大多数的 Python 代码仍然使用 % 操作符。但是因为这种旧式的格式化最终会从该语言中移除, 应该更多的使用 str.format().
+
+## 读取键盘输入
+
+Python 提供了 [input() 内置函数](https://www.runoob.com/python3/python3-func-input.html)从标准输入读入一行文本，默认的标准输入是键盘。
+
+```python
+#!/usr/bin/python3
+
+str = input("请输入：");
+print ("你输入的内容是: ", str)
+```
+
+这会产生如下的对应着输入的结果：
+
+```python
+请输入：菜鸟教程
+你输入的内容是:  菜鸟教程
+```
+
+## 读和写文件
+
+open() 将会返回一个 file 对象，基本语法格式如下:
+
+```python
+open(filename, mode)
+```
+
+- filename：包含了你要访问的文件名称的字符串值。
+- mode：决定了打开文件的模式：只读，写入，追加等。所有可取值见如下的完全列表。这个参数是非强制的，默认文件访问模式为只读(r)。
+
+不同模式打开文件的完全列表
+
+| 模式 | 描述                                                         |
+| :--- | :----------------------------------------------------------- |
+| r    | 以只读方式打开文件。文件的指针将会放在文件的开头。这是默认模式。 |
+| rb   | 以二进制格式打开一个文件用于只读。文件指针将会放在文件的开头。 |
+| r+   | 打开一个文件用于读写。文件指针将会放在文件的开头。           |
+| rb+  | 以二进制格式打开一个文件用于读写。文件指针将会放在文件的开头。 |
+| w    | 打开一个文件只用于写入。如果该文件已存在则打开文件，并从开头开始编辑，即原有内容会被删除。如果该文件不存在，创建新文件。 |
+| wb   | 以二进制格式打开一个文件只用于写入。如果该文件已存在则打开文件，并从开头开始编辑，即原有内容会被删除。如果该文件不存在，创建新文件。 |
+| w+   | 打开一个文件用于读写。如果该文件已存在则打开文件，并从开头开始编辑，即原有内容会被删除。如果该文件不存在，创建新文件。 |
+| wb+  | 以二进制格式打开一个文件用于读写。如果该文件已存在则打开文件，并从开头开始编辑，即原有内容会被删除。如果该文件不存在，创建新文件。 |
+| a    | 打开一个文件用于追加。如果该文件已存在，文件指针将会放在文件的结尾。也就是说，新的内容将会被写入到已有内容之后。如果该文件不存在，创建新文件进行写入。 |
+| ab   | 以二进制格式打开一个文件用于追加。如果该文件已存在，文件指针将会放在文件的结尾。也就是说，新的内容将会被写入到已有内容之后。如果该文件不存在，创建新文件进行写入。 |
+| a+   | 打开一个文件用于读写。如果该文件已存在，文件指针将会放在文件的结尾。文件打开时会是追加模式。如果该文件不存在，创建新文件用于读写。 |
+| ab+  | 以二进制格式打开一个文件用于追加。如果该文件已存在，文件指针将会放在文件的结尾。如果该文件不存在，创建新文件用于读写。 |
+
+![](https://www.runoob.com/wp-content/uploads/2013/11/2112205-861c05b2bdbc9c28.png)
+
+|    模式    |  r   |  r+  |  w   |  w+  |  a   |  a+  |
+| :--------: | :--: | :--: | :--: | :--: | :--: | :--: |
+|     读     |  +   |  +   |      |  +   |      |  +   |
+|     写     |      |  +   |  +   |  +   |  +   |  +   |
+|    创建    |      |      |  +   |  +   |  +   |  +   |
+|    覆盖    |      |      |  +   |  +   |      |      |
+| 指针在开始 |  +   |  +   |  +   |  +   |      |      |
+| 指针在结尾 |      |      |      |      |  +   |  +   |
+
+以下实例将字符串写入到文件 foo.txt 中：
+
+```python
+#!/usr/bin/python3
+
+# 打开一个文件
+f = open("/tmp/foo.txt", "w")
+
+f.write( "Python 是一个非常好的语言。\n是的，的确非常好!!\n" )
+
+# 关闭打开的文件
+f.close()
+```
+
+- 第一个参数为要打开的文件名。
+- 第二个参数描述文件如何使用的字符。 mode 可以是 'r' 如果文件只读, 'w' 只用于写 (如果存在同名文件则将被删除), 和 'a' 用于追加文件内容; 所写的任何数据都会被自动增加到末尾. 'r+' 同时用于读写。 mode 参数是可选的; 'r' 将是默认值。
+
+
+
+此时打开文件 foo.txt,显示如下：
+
+```python
+$ cat /tmp/foo.txt 
+Python 是一个非常好的语言。
+是的，的确非常好!!
+```
+
+## 文件对象的方法
+
+本节中剩下的例子假设已经创建了一个称为 f 的文件对象。
+
+### f.read()
+
+为了读取一个文件的内容，调用 f.read(size), 这将读取一定数目的数据, 然后作为字符串或字节对象返回。
+
+size 是一个可选的数字类型的参数。 当 size 被忽略了或者为负, 那么该文件的所有内容都将被读取并且返回。
+
+以下实例假定文件 foo.txt 已存在（上面实例中已创建）：
+
+```python
+#!/usr/bin/python3
+
+# 打开一个文件
+f = open("/tmp/foo.txt", "r")
+
+str = f.read()
+print(str)
+
+# 关闭打开的文件
+f.close()
+```
+
+执行以上程序，输出结果为：
+
+```python
+Python 是一个非常好的语言。
+是的，的确非常好!!
+```
+
+### f.readline()
+
+f.readline() 会从文件中读取单独的一行。换行符为 '\n'。f.readline() 如果返回一个空字符串, 说明已经已经读取到最后一行
+
+```python
+#!/usr/bin/python3
+
+# 打开一个文件
+f = open("/tmp/foo.txt", "r")
+
+str = f.readline()
+print(str)
+
+# 关闭打开的文件
+f.close()
+```
+
+执行以上程序，输出结果为：
+
+### f.readlines()
+
+f.readlines() 将返回该文件中包含的所有行。
+
+如果设置可选参数 sizehint, 则读取指定长度的字节, 并且将这些字节按行分割。
+
+```python
+#!/usr/bin/python3
+
+# 打开一个文件
+f = open("/tmp/foo.txt", "r")
+
+str = f.readlines()
+print(str)
+
+# 关闭打开的文件
+f.close()
+```
+
+执行以上程序，输出结果为：
+
+```
+['Python 是一个非常好的语言。\n', '是的，的确非常好!!\n']
+```
+
+另一种方式是迭代一个文件对象然后读取每行:
+
+```python
+#!/usr/bin/python3
+
+# 打开一个文件
+f = open("/tmp/foo.txt", "r")
+
+for line in f:
+    print(line, end='')
+
+# 关闭打开的文件
+f.close()
+```
+
+执行以上程序，输出结果为：
+
+```python
+Python 是一个非常好的语言。
+是的，的确非常好!!
+```
+
+这个方法很简单, 但是并没有提供一个很好的控制。 因为两者的处理机制不同, 最好不要混用。
+
+### f.write()
+
+​	f.write(string) 将 string 写入到文件中, 然后返回写入的字符数。
+
+```python
+#!/usr/bin/python3
+
+# 打开一个文件
+f = open("/tmp/foo.txt", "w")
+
+num = f.write( "Python 是一个非常好的语言。\n是的，的确非常好!!\n" )
+print(num)
+# 关闭打开的文件
+f.close()
+```
+
+执行以上程序，输出结果为：
+
+```
+29
+```
+
+如果要写入一些不是字符串的东西, 那么将需要先进行转换:
+
+```python
+#!/usr/bin/python3
+
+# 打开一个文件
+f = open("/tmp/foo1.txt", "w")
+
+value = ('www.runoob.com', 14)
+s = str(value)
+f.write(s)
+
+# 关闭打开的文件
+f.close()
+```
+
+执行以上程序，打开 foo1.txt 文件：
+
+```python
+$ cat /tmp/foo1.txt 
+('www.runoob.com', 14)
+```
+
+### f.tell()
+
+f.tell() 返回文件对象当前所处的位置, 它是从文件开头开始算起的字节数。
+
+### f.seek()
+
+如果要改变文件当前的位置, 可以使用 f.seek(offset, from_what) 函数。
+
+from_what 的值, 如果是 0 表示开头, 如果是 1 表示当前位置, 2 表示文件的结尾，例如：
+
+
+
+- seek(x,0) ： 从起始位置即文件首行首字符开始移动 x 个字符
+- seek(x,1) ： 表示从当前位置往后移动x个字符
+- seek(-x,2)：表示从文件的结尾往前移动x个字符
+
+from_what 值为默认为0，即文件开头。下面给出一个完整的例子：
+
+```python
+>>> f = open('/tmp/foo.txt', 'rb+')
+>>> f.write(b'0123456789abcdef')
+16
+>>> f.seek(5)     # 移动到文件的第六个字节
+5
+>>> f.read(1)
+b'5'
+>>> f.seek(-3, 2) # 移动到文件的倒数第三字节
+13
+>>> f.read(1)
+b'd'
+```
+
+### f.close()
+
+在文本文件中 (那些打开文件的模式下没有 b 的), 只会相对于文件起始位置进行定位。
+
+当你处理完一个文件后, 调用 f.close() 来关闭文件并释放系统的资源，如果尝试再调用该文件，则会抛出异常。
+
+```python
+>>> f.close()
+>>> f.read()
+Traceback (most recent call last):
+  File "<stdin>", line 1, in ?
+ValueError: I/O operation on closed file
+```
+
+当处理一个文件对象时, 使用 with 关键字是非常好的方式。在结束后, 它会帮你正确的关闭文件。 而且写起来也比 try - finally 语句块要简短:
+
+```python
+>>> with open('/tmp/foo.txt', 'r') as f:
+...     read_data = f.read()
+>>> f.closed
+True
+```
+
+文件对象还有其他方法, 如 isatty() 和 trucate(), 但这些通常比较少用。
+
+## pickle 模块
+
+python的pickle模块实现了基本的数据序列和反序列化。
+
+通过pickle模块的序列化操作我们能够将程序中运行的对象信息保存到文件中去，永久存储。
+
+通过pickle模块的反序列化操作，我们能够从文件中创建上一次程序保存的对象。
+
+基本接口：
+
+```python
+pickle.dump(obj, file, [,protocol])
+```
+
+有了 pickle 这个对象, 就能对 file 以读取的形式打开:
+
+```python
+x = pickle.load(file)
+```
+
+**注解：**从 file 中读取一个字符串，并将它重构为原来的python对象。
+
+**file:** 类文件对象，有read()和readline()接口。
+
+```python
+#!/usr/bin/python3
+import pickle
+
+# 使用pickle模块将数据对象保存到文件
+data1 = {'a': [1, 2.0, 3, 4+6j],
+         'b': ('string', u'Unicode string'),
+         'c': None}
+
+selfref_list = [1, 2, 3]
+selfref_list.append(selfref_list)
+
+output = open('data.pkl', 'wb')
+
+# Pickle dictionary using protocol 0.
+pickle.dump(data1, output)
+
+# Pickle the list using the highest protocol available.
+pickle.dump(selfref_list, output, -1)
+
+output.close()
+```
+
+```python
+#!/usr/bin/python3
+import pprint, pickle
+
+#使用pickle模块从文件中重构python对象
+pkl_file = open('data.pkl', 'rb')
+
+data1 = pickle.load(pkl_file)
+pprint.pprint(data1)
+
+data2 = pickle.load(pkl_file)
+pprint.pprint(data2)
+
+pkl_file.close()
+```
+
+# Python3 File(文件) 方法
+
+### open() 方法
+
+Python open() 方法用于打开一个文件，并返回文件对象，在对文件进行处理过程都需要使用到这个函数，如果该文件无法被打开，会抛出 OSError。
+
+**注意：**使用 open() 方法一定要保证关闭文件对象，即调用 close() 方法。
+
+open() 函数常用形式是接收两个参数：文件名(file)和模式(mode)。
+
+```python
+open(file, mode='r')
+```
+
+完整的语法格式为：
+
+```python
+open(file, mode='r', buffering=-1, encoding=None, errors=None, newline=None, closefd=True, opener=None)
+```
+
+参数说明:
+
+- file: 必需，文件路径（相对或者绝对路径）。
+- mode: 可选，文件打开模式
+- buffering: 设置缓冲
+- encoding: 一般使用utf8
+- errors: 报错级别
+- newline: 区分换行符
+- closefd: 传入的file参数类型
+- opener: 设置自定义开启器，开启器的返回值必须是一个打开的文件描述符。
+
+mode 参数有：
+
+| 模式 | 描述                                                         |
+| :--- | :----------------------------------------------------------- |
+| t    | 文本模式 (默认)。                                            |
+| x    | 写模式，新建一个文件，如果该文件已存在则会报错。             |
+| b    | 二进制模式。                                                 |
+| +    | 打开一个文件进行更新(可读可写)。                             |
+| U    | 通用换行模式（**Python 3 不支持**）。                        |
+| r    | 以只读方式打开文件。文件的指针将会放在文件的开头。这是默认模式。 |
+| rb   | 以二进制格式打开一个文件用于只读。文件指针将会放在文件的开头。这是默认模式。一般用于非文本文件如图片等。 |
+| r+   | 打开一个文件用于读写。文件指针将会放在文件的开头。           |
+| rb+  | 以二进制格式打开一个文件用于读写。文件指针将会放在文件的开头。一般用于非文本文件如图片等。 |
+| w    | 打开一个文件只用于写入。如果该文件已存在则打开文件，并从开头开始编辑，即原有内容会被删除。如果该文件不存在，创建新文件。 |
+| wb   | 以二进制格式打开一个文件只用于写入。如果该文件已存在则打开文件，并从开头开始编辑，即原有内容会被删除。如果该文件不存在，创建新文件。一般用于非文本文件如图片等。 |
+| w+   | 打开一个文件用于读写。如果该文件已存在则打开文件，并从开头开始编辑，即原有内容会被删除。如果该文件不存在，创建新文件。 |
+| wb+  | 以二进制格式打开一个文件用于读写。如果该文件已存在则打开文件，并从开头开始编辑，即原有内容会被删除。如果该文件不存在，创建新文件。一般用于非文本文件如图片等。 |
+| a    | 打开一个文件用于追加。如果该文件已存在，文件指针将会放在文件的结尾。也就是说，新的内容将会被写入到已有内容之后。如果该文件不存在，创建新文件进行写入。 |
+| ab   | 以二进制格式打开一个文件用于追加。如果该文件已存在，文件指针将会放在文件的结尾。也就是说，新的内容将会被写入到已有内容之后。如果该文件不存在，创建新文件进行写入。 |
+| a+   | 打开一个文件用于读写。如果该文件已存在，文件指针将会放在文件的结尾。文件打开时会是追加模式。如果该文件不存在，创建新文件用于读写。 |
+| ab+  | 以二进制格式打开一个文件用于追加。如果该文件已存在，文件指针将会放在文件的结尾。如果该文件不存在，创建新文件用于读写。 |
+
+默认为文本模式，如果要以二进制模式打开，加上 **b** 。
+
+### file 对象
+
+file 对象使用 open 函数来创建，下表列出了 file 对象常用的函数：
+
+| 序号 | 方法及描述                                                   |
+| :--- | :----------------------------------------------------------- |
+| 1    | [file.close()](https://www.runoob.com/python3/python3-file-close.html)关闭文件。关闭后文件不能再进行读写操作。 |
+| 2    | [file.flush()](https://www.runoob.com/python3/python3-file-flush.html)刷新文件内部缓冲，直接把内部缓冲区的数据立刻写入文件, 而不是被动的等待输出缓冲区写入。 |
+| 3    | [file.fileno()](https://www.runoob.com/python3/python3-file-fileno.html)返回一个整型的文件描述符(file descriptor FD 整型), 可以用在如os模块的read方法等一些底层操作上。 |
+| 4    | [file.isatty()](https://www.runoob.com/python3/python3-file-isatty.html)如果文件连接到一个终端设备返回 True，否则返回 False。 |
+| 5    | [file.next()](https://www.runoob.com/python3/python3-file-next.html)**Python 3 中的 File 对象不支持 next() 方法。**返回文件下一行。 |
+| 6    | [file.read([size\])](https://www.runoob.com/python3/python3-file-read.html)从文件读取指定的字节数，如果未给定或为负则读取所有。 |
+| 7    | [file.readline([size\])](https://www.runoob.com/python3/python3-file-readline.html)读取整行，包括 "\n" 字符。 |
+| 8    | [file.readlines([sizeint\])](https://www.runoob.com/python3/python3-file-readlines.html)读取所有行并返回列表，若给定sizeint>0，返回总和大约为sizeint字节的行, 实际读取值可能比 sizeint 较大, 因为需要填充缓冲区。 |
+| 9    | [file.seek(offset[, whence\])](https://www.runoob.com/python3/python3-file-seek.html)移动文件读取指针到指定位置 |
+| 10   | [file.tell()](https://www.runoob.com/python3/python3-file-tell.html)返回文件当前位置。 |
+| 11   | [file.truncate([size\])](https://www.runoob.com/python3/python3-file-truncate.html)从文件的首行首字符开始截断，截断文件为 size 个字符，无 size 表示从当前位置截断；截断之后后面的所有字符被删除，其中 windows 系统下的换行代表2个字符大小。 |
+| 12   | [file.write(str)](https://www.runoob.com/python3/python3-file-write.html)将字符串写入文件，返回的是写入的字符长度。 |
+| 13   | [file.writelines(sequence)](https://www.runoob.com/python3/python3-file-writelines.html)向文件写入一个序列字符串列表，如果需要换行则要自己加入每行的换行符。 |
+
+# Python3 OS 文件/目录方法
+
+**os** 模块提供了非常丰富的方法用来处理文件和目录。常用的方法如下表所示：
+
+| 序号 | 方法及描述                                                   |
+| :--- | :----------------------------------------------------------- |
+| 1    | [os.access(path, mode)](https://www.runoob.com/python3/python3-os-access.html) 检验权限模式 |
+| 2    | [os.chdir(path)](https://www.runoob.com/python3/python3-os-chdir.html) 改变当前工作目录 |
+| 3    | [os.chflags(path, flags)](https://www.runoob.com/python3/python3-os-chflags.html) 设置路径的标记为数字标记。 |
+| 4    | [os.chmod(path, mode)](https://www.runoob.com/python3/python3-os-chmod.html) 更改权限 |
+| 5    | [os.chown(path, uid, gid)](https://www.runoob.com/python3/python3-os-chown.html) 更改文件所有者 |
+| 6    | [os.chroot(path)](https://www.runoob.com/python3/python3-os-chroot.html) 改变当前进程的根目录 |
+| 7    | [os.close(fd)](https://www.runoob.com/python3/python3-os-close.html) 关闭文件描述符 fd |
+| 8    | [os.closerange(fd_low, fd_high)](https://www.runoob.com/python3/python3-os-closerange.html) 关闭所有文件描述符，从 fd_low (包含) 到 fd_high (不包含), 错误会忽略 |
+| 9    | [os.dup(fd)](https://www.runoob.com/python3/python3-os-dup.html) 复制文件描述符 fd |
+| 10   | [os.dup2(fd, fd2)](https://www.runoob.com/python3/python3-os-dup2.html) 将一个文件描述符 fd 复制到另一个 fd2 |
+| 11   | [os.fchdir(fd)](https://www.runoob.com/python3/python3-os-fchdir.html) 通过文件描述符改变当前工作目录 |
+| 12   | [os.fchmod(fd, mode)](https://www.runoob.com/python3/python3-os-fchmod.html) 改变一个文件的访问权限，该文件由参数fd指定，参数mode是Unix下的文件访问权限。 |
+| 13   | [os.fchown(fd, uid, gid)](https://www.runoob.com/python3/python3-os-fchown.html) 修改一个文件的所有权，这个函数修改一个文件的用户ID和用户组ID，该文件由文件描述符fd指定。 |
+| 14   | [os.fdatasync(fd)](https://www.runoob.com/python3/python3-os-fdatasync.html) 强制将文件写入磁盘，该文件由文件描述符fd指定，但是不强制更新文件的状态信息。 |
+| 15   | [os.fdopen(fd[, mode[, bufsize\]])](https://www.runoob.com/python3/python3-os-fdopen.html) 通过文件描述符 fd 创建一个文件对象，并返回这个文件对象 |
+| 16   | [os.fpathconf(fd, name)](https://www.runoob.com/python3/python3-os-fpathconf.html) 返回一个打开的文件的系统配置信息。name为检索的系统配置的值，它也许是一个定义系统值的字符串，这些名字在很多标准中指定（POSIX.1, Unix 95, Unix 98, 和其它）。 |
+| 17   | [os.fstat(fd)](https://www.runoob.com/python3/python3-os-fstat.html) 返回文件描述符fd的状态，像stat()。 |
+| 18   | [os.fstatvfs(fd)](https://www.runoob.com/python3/python3-os-fstatvfs.html) 返回包含文件描述符fd的文件的文件系统的信息，Python 3.3 相等于 statvfs()。 |
+| 19   | [os.fsync(fd)](https://www.runoob.com/python3/python3-os-fsync.html) 强制将文件描述符为fd的文件写入硬盘。 |
+| 20   | [os.ftruncate(fd, length)](https://www.runoob.com/python3/python3-os-ftruncate.html) 裁剪文件描述符fd对应的文件, 所以它最大不能超过文件大小。 |
+| 21   | [os.getcwd()](https://www.runoob.com/python3/python3-os-getcwd.html) 返回当前工作目录 |
+| 22   | [os.getcwdb()](https://www.runoob.com/python3/python3-os-getcwdb.html) 返回一个当前工作目录的Unicode对象 |
+| 23   | [os.isatty(fd)](https://www.runoob.com/python3/python3-os-isatty.html) 如果文件描述符fd是打开的，同时与tty(-like)设备相连，则返回true, 否则False。 |
+| 24   | [os.lchflags(path, flags)](https://www.runoob.com/python3/python3-os-lchflags.html) 设置路径的标记为数字标记，类似 chflags()，但是没有软链接 |
+| 25   | [os.lchmod(path, mode)](https://www.runoob.com/python3/python3-os-lchmod.html) 修改连接文件权限 |
+| 26   | [os.lchown(path, uid, gid)](https://www.runoob.com/python3/python3-os-lchown.html) 更改文件所有者，类似 chown，但是不追踪链接。 |
+| 27   | [os.link(src, dst)](https://www.runoob.com/python3/python3-os-link.html) 创建硬链接，名为参数 dst，指向参数 src |
+| 28   | [os.listdir(path)](https://www.runoob.com/python3/python3-os-listdir.html) 返回path指定的文件夹包含的文件或文件夹的名字的列表。 |
+| 29   | [os.lseek(fd, pos, how)](https://www.runoob.com/python3/python3-os-lseek.html) 设置文件描述符 fd当前位置为pos, how方式修改: SEEK_SET 或者 0 设置从文件开始的计算的pos; SEEK_CUR或者 1 则从当前位置计算; os.SEEK_END或者2则从文件尾部开始. 在unix，Windows中有效 |
+| 30   | [os.lstat(path)](https://www.runoob.com/python3/python3-os-lstat.html) 像stat(),但是没有软链接 |
+| 31   | [os.major(device)](https://www.runoob.com/python3/python3-os-major.html) 从原始的设备号中提取设备major号码 (使用stat中的st_dev或者st_rdev field)。 |
+| 32   | [os.makedev(major, minor)](https://www.runoob.com/python3/python3-os-makedev.html) 以major和minor设备号组成一个原始设备号 |
+| 33   | [os.makedirs(path[, mode\])](https://www.runoob.com/python3/python3-os-makedirs.html) 递归文件夹创建函数。像mkdir(), 但创建的所有intermediate-level文件夹需要包含子文件夹。 |
+| 34   | [os.minor(device)](https://www.runoob.com/python3/python3-os-minor.html) 从原始的设备号中提取设备minor号码 (使用stat中的st_dev或者st_rdev field )。 |
+| 35   | [os.mkdir(path[, mode\])](https://www.runoob.com/python3/python3-os-mkdir.html) 以数字mode的mode创建一个名为path的文件夹.默认的 mode 是 0777 (八进制)。 |
+| 36   | [os.mkfifo(path[, mode\])](https://www.runoob.com/python3/python3-os-mkfifo.html) 创建命名管道，mode 为数字，默认为 0666 (八进制) |
+| 37   | [os.mknod(filename[, mode=0600, device\])](https://www.runoob.com/python3/python3-os-mknod.html) 创建一个名为filename文件系统节点（文件，设备特别文件或者命名pipe）。 |
+| 38   | [os.open(file, flags[, mode\])](https://www.runoob.com/python3/python3-os-open.html) 打开一个文件，并且设置需要的打开选项，mode参数是可选的 |
+| 39   | [os.openpty()](https://www.runoob.com/python3/python3-os-openpty.html) 打开一个新的伪终端对。返回 pty 和 tty的文件描述符。 |
+| 40   | [os.pathconf(path, name)](https://www.runoob.com/python3/python3-os-pathconf.html) 返回相关文件的系统配置信息。 |
+| 41   | [os.pipe()](https://www.runoob.com/python3/python3-os-pipe.html) 创建一个管道. 返回一对文件描述符(r, w) 分别为读和写 |
+| 42   | [os.popen(command[, mode[, bufsize\]])](https://www.runoob.com/python3/python3-os-popen.html) 从一个 command 打开一个管道 |
+| 43   | [os.read(fd, n)](https://www.runoob.com/python3/python3-os-read.html) 从文件描述符 fd 中读取最多 n 个字节，返回包含读取字节的字符串，文件描述符 fd对应文件已达到结尾, 返回一个空字符串。 |
+| 44   | [os.readlink(path)](https://www.runoob.com/python3/python3-os-readlink.html) 返回软链接所指向的文件 |
+| 45   | [os.remove(path)](https://www.runoob.com/python3/python3-os-remove.html) 删除路径为path的文件。如果path 是一个文件夹，将抛出OSError; 查看下面的rmdir()删除一个 directory。 |
+| 46   | [os.removedirs(path)](https://www.runoob.com/python3/python3-os-removedirs.html) 递归删除目录。 |
+| 47   | [os.rename(src, dst)](https://www.runoob.com/python3/python3-os-rename.html) 重命名文件或目录，从 src 到 dst |
+| 48   | [os.renames(old, new)](https://www.runoob.com/python3/python3-os-renames.html) 递归地对目录进行更名，也可以对文件进行更名。 |
+| 49   | [os.rmdir(path)](https://www.runoob.com/python3/python3-os-rmdir.html) 删除path指定的空目录，如果目录非空，则抛出一个OSError异常。 |
+| 50   | [os.stat(path)](https://www.runoob.com/python3/python3-os-stat.html) 获取path指定的路径的信息，功能等同于C API中的stat()系统调用。 |
+| 51   | [os.stat_float_times([newvalue\])](https://www.runoob.com/python3/python3-os-stat_float_times.html) 决定stat_result是否以float对象显示时间戳 |
+| 52   | [os.statvfs(path)](https://www.runoob.com/python3/python3-os-statvfs.html) 获取指定路径的文件系统统计信息 |
+| 53   | [os.symlink(src, dst)](https://www.runoob.com/python3/python3-os-symlink.html) 创建一个软链接 |
+| 54   | [os.tcgetpgrp(fd)](https://www.runoob.com/python3/python3-os-tcgetpgrp.html) 返回与终端fd（一个由os.open()返回的打开的文件描述符）关联的进程组 |
+| 55   | [os.tcsetpgrp(fd, pg)](https://www.runoob.com/python3/python3-os-tcsetpgrp.html) 设置与终端fd（一个由os.open()返回的打开的文件描述符）关联的进程组为pg。 |
+| 56   | os.tempnam([dir[, prefix]]) **Python3 中已删除。**返回唯一的路径名用于创建临时文件。 |
+| 57   | os.tmpfile() **Python3 中已删除。**返回一个打开的模式为(w+b)的文件对象 .这文件对象没有文件夹入口，没有文件描述符，将会自动删除。 |
+| 58   | os.tmpnam() **Python3 中已删除。**为创建一个临时文件返回一个唯一的路径 |
+| 59   | [os.ttyname(fd)](https://www.runoob.com/python3/python3-os-ttyname.html) 返回一个字符串，它表示与文件描述符fd 关联的终端设备。如果fd 没有与终端设备关联，则引发一个异常。 |
+| 60   | [os.unlink(path)](https://www.runoob.com/python3/python3-os-unlink.html) 删除文件路径 |
+| 61   | [os.utime(path, times)](https://www.runoob.com/python3/python3-os-utime.html) 返回指定的path文件的访问和修改的时间。 |
+| 62   | [os.walk(top[, topdown=True[, onerror=None[, followlinks=False\]]])](https://www.runoob.com/python3/python3-os-walk.html) 输出在文件夹中的文件名通过在树中游走，向上或者向下。 |
+| 63   | [os.write(fd, str)](https://www.runoob.com/python3/python3-os-write.html) 写入字符串到文件描述符 fd中. 返回实际写入的字符串长度 |
+| 64   | [os.path 模块](https://www.runoob.com/python3/python3-os-path.html) 获取文件的属性信息。 |
+| 65   | [os.pardir()](https://www.runoob.com/python3/python3-os-pardir.html) 获取当前目录的父目录，以字符串形式显示目录名。 |
+
