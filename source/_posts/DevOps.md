@@ -4168,3 +4168,357 @@ JaCoCo提供了以下几个维度的覆盖率分析。
 
 ​	在一些特殊情况下，比如外网的代码仓库无法调用内网的Jenkins，或者反过来，则会采用这种方式。
 
+## 事件触发
+
+### 由上游任务触发：upstream
+
+​	upstream的作用就是能让B pipeline自行决定依赖哪些上游任务。示例如下：
+
+![](https://pic.imgdb.cn/item/60dffef95132923bf8267a90.jpg)
+
+当upstreamProjects参数接收多个任务时，使用，分隔。threshold参数是指上游任务的执行结果是什么值时触发。hudson.model.Result是一个枚举，包括以下值：
+
+* ABORTED：任务被手动中止。
+* FAILURE：构建失败。
+* SUCCESS：构建成功。
+* UNSTABLE：存在一些错误，但不至于构建失败。
+* NOT_BUILT：在多阶段构建时，前面阶段的问题导致后面阶段无法执行。
+
+注意：需要手动触发一次任务，让Jenkins加载pipeline后，trigger指令才会生效。
+
+### GitLab通知触发
+
+GitLab通知触发是指当GitLab发现源代码有变化时，触发Jenkins执行构建。示意图如图6-1所示。
+
+![](https://pic.imgdb.cn/item/60e000bb5132923bf836005f.jpg)
+
+​	通过以下几步就可以实现提交代码后，GitLab触发Jenkins上相应的pipeline执行构建。
+
+​	（1）安装Jenkins插件。
+
+​	• GitLab插件（https：//plugins.jenkins.io/gitlab-plugin）。
+
+​	• git插件（https：//plugins.jenkins.io/git）。
+
+​	需要再次提醒的是，本书使用的GitLab版本是10.5.4，使用的是GitLab插件，不是GitLab Hook插件（已废弃）。在安装插件时需要留意。
+
+​	（2）在GitLab上创建项目。我们在jenkins-book这个group下创建一个名为“hello-world-pipeline”的项目，地址为：http：//192.168.0.100：8091/jenkins-book/hello-world-pipeline
+
+​	（3）在Jenkins上创建pipeline项目（注意是单分支的pipeline项目，而不是多分支的pipeline项目）。使用的git地址就是上一步创建的git@192.168.0.100：jenkins-book/hello-world-pipeline.git。Jenkins将使用SSH方式拉取，所以需要提前将SSH的公钥放到GitLab上。
+
+​	（4）在Jenkins上配置hello-world-pipeline。在项目的配置页中找到“Build Triggers”部分，勾选“Build when a change is pushed toGitLab”复选框，就可以看到如图6-2所示的配置。
+
+![](https://pic.imgdb.cn/item/60e003d65132923bf85200b1.jpg)
+
+​	可以看到Jenkins会暴露一个webhook：http：//192.168.23.11：8667/jenkins/project/hello-world-pipeline。
+
+​	这里需要提醒读者朋友，不论是单分支的pipeline项目还是多分支的pipeline项目，它们暴露的webhook的地址格式都是：/project/＜项目名＞，而不是/job/＜项目名＞。
+
+​	那是不是说任何人都可以请求这个webhook？这取决于你在Jenkins上的权限设置。总的来说，这个webhook调用权限取决于以下两个设置项：
+
+* Jenkins全局权限设置。
+* 该pipeline是否设置了“Secret token”。
+
+​	不论Jenkins全局权限如何设置，基于安全的考虑，我们一般都会为该pipeline生成一个Secrettoken，只有带上Secret token的请求才会被处理。Secret token的生成也很简单。单击如图6-2所示页面上的“Advanced”按钮，我们就可以看到一个“Secret token”输入框，推荐单击其右下角的“Generate”按钮自动生成Secret token，而不是手动输入，如图6-3所示。
+
+
+
+![](https://pic.imgdb.cn/item/60e004a95132923bf85946c5.jpg)
+
+​	我们需要将所生成的Secret token复制下来，在接下来的步骤中会使用到。
+
+（5）GitLab：配置通知Jenkins。
+
+进入hello-world-pipeline在GitLab上的配置页，找到Settings→Integrations（注意不同版本的GitLab，界面可能不同），如图6-4所示。
+
+![](https://pic.imgdb.cn/item/60e004c95132923bf85a624d.jpg)
+
+​	在Integrations配置页的相应输入框中粘贴上一步中Jenkins暴露的webhook及相应的Secrettoken，如图6-5所示。
+
+​	在Integrations配置页的相应输入框中粘贴上一步中Jenkins暴露的webhook及相应的Secrettoken，如图6-5所示。
+
+![](https://pic.imgdb.cn/item/60e004e25132923bf85b3deb.jpg)
+
+（6）测试整个链路是否通了。
+
+​	在GitLab上添加好这个webhook后，可以跳到表单下方，有一个已添加的webhook列表，找到我们刚刚创建的webbook。单击“Test”按钮，选择“Push events”，GitLab就会向该webhook发送一个event，如图6-6所示。
+
+![](https://pic.imgdb.cn/item/60e005265132923bf85d9841.jpg)
+
+​	再回到Jenkins上该项目的详情页，在构建历史中，我们可以看到被GitLab触发的构建都会被标记为“Started by GitLab push byAdministrator”，如图6-7所示。这就说明链路已经通了。
+
+![](https://pic.imgdb.cn/item/60e005325132923bf85e0732.jpg)
+
+### 在pipeline中实现GitLab trigger
+
+​	我们也希望通过修改Jenkinsfile就能实现。
+
+![](https://pic.imgdb.cn/item/60e005895132923bf8610f74.jpg)
+
+​	secretToken使用随机字符串生成器生成即可。如果Jenkins在内网使用，并且安全性有一定的保障，我们可以将secretToken定义为一个Jenkins全局变量，供所有的项目使用。这样做就不用为每个项目重新生成token了。
+
+GitLab trigger方法有很多参数可配置，下面简单介绍一些常用的参数。
+
+* triggerOnPush：当GitLab触发push事件时，是否执行构建。
+* triggerOnMergeRequest：当GitLab触发mergeRequest事件时，是否执行构建。
+* branchFilterType：只有符合条件的分支才会被触发。必选，否则无法实现触发。可以设置的值有：
+  * NameBasedFilter：基于分支名进行过滤，多个分支名使用逗号分隔。
+  * RegexBasedFilter：基于正则表达对分支名进行过滤。
+  * All：所有分支都会被触发。
+* includeBranchesSpec：基于branchFilterType值，输入期望包括的分支的规则。
+* excludeBranchesSpec：基于branchFilterType值，输入期望排除的分支的规则。
+
+
+
+​	想了解更多的参数，可以在GitLab plugin的GitHub页面中查看。
+
+## 将构建状态信息推送到**GitLab**
+
+（1）进入Jenkins→Configure System页，找到“Gitlab”选项，填入GitLab地址，如图6-8所示。
+
+![](https://pic.imgdb.cn/item/60e009595132923bf88357bc.jpg)
+
+2）根据提示，我们需要设置它的Credentials（凭证）。单击“Add”按钮，在弹出的对话框中输入之前保存的API token，如图6-9所示。单击“Add”按钮确定添加。
+
+![](https://pic.imgdb.cn/item/60e0096a5132923bf883f20c.jpg)
+
+在Credentials下拉列表中选择“GitLab APItoken”后，单击“Test Connection”按钮，如果返回Success，就说明集成成功了，如图6-10所示。有关凭证的更多内容，将在第9章中进行介绍。
+
+![](https://pic.imgdb.cn/item/60e009765132923bf88460d1.jpg)
+
+（3）在pipeline的post部分，将构建结果更新到GitLab的相应commit记录上。除此之外，还需要在options部分加入gitLabConnection配置，同时传入“gitlab”参数。“gitlab”就是上文中提醒读者注意的“Connection name”的值。
+
+![](https://pic.imgdb.cn/item/60e009895132923bf8850ebb.jpg)
+
+提交代码后，需要手动触发一次构建，pipeline才会生效。
+
+笔者做了一次成功构建、一次失败构建的实验。在GitLab上的项目的commit列表中，显示了最近两次commit的构建状态，如图6-11所示。
+
+![](https://pic.imgdb.cn/item/60e0099b5132923bf885adec.jpg)
+
+## 使用Generic Webhook Trigger插件实现触发
+
+​	前文中，我们讲到安装GitLab插件后，GitLab系统就可以发送Webhook触发Jenkins项目的执行。那是不是说其他系统想触发Jenkins项目执行，也需要找一个插件或者开发一个插件来实现呢？有了Generic Webhook Trigger插件（https：//plugins.jenkins.io/generic-webhook-trigger）就不需要了。
+
+​	安装 Generic Webhook Trigger 插件（下文使用GWT 简称）后，Jenkins 会暴露一个 API：＜JENKINS URL>/generic-webhook-trigger/invoke，即由GWT插件来处理此API的请求。
+
+​	GWT插件接收到JSON或XML的HTTP POST请求后，根据我们配置的规则决定触发哪个Jenkins项目。基本原理就这么简单。下面我们先感受一下，然后再详细介绍GWT各参数的含义。现在，我们创建一个普通的pipeline项目。代码如下：
+
+![](https://pic.imgdb.cn/item/60e00b1e5132923bf8935096.jpg)
+
+​	注意：在创建完成后，需要手动运行一次，这样pipeline的触发条件才会生效。
+
+​	然后，我们发起一次HTTP POST请求。
+
+![](https://pic.imgdb.cn/item/60e00b765132923bf8966763.jpg)
+
+​	GenericTrigger触发条件由GWT插件提供。此触发条件可以说是GWT的所有内容。
+
+​	笔者将GenericTrigger触发条件分为5部分，这样更易于理解各参数的作用。
+
+*  从HTTP POST请求中提取参数值。
+* token，GWT插件用于标识Jenkins项目的唯一性。
+* 根据请求参数值判断是否触发Jenkins项目的执行。
+* 根据请求参数值判断是否触发Jenkins项目的执行。
+* 日志打印控制。
+* Webhook响应控制。
+
+### 从Webhook请求中提取参数值
+
+​	一个HTTP POST请求可以从三个维度提取参数，即POST body、URL参数和header。GWT插件提供了三个参数分别对这三个维度的数据进行提取。
+
+​	（1）genericVariables：提取POST body中的参数。
+
+![](https://pic.imgdb.cn/item/60e00bde5132923bf89a374a.jpg)
+
+* value：JSONPath表达式，或者XPath表达式，取决于expressionType参数值，用于从POSTbody中提取值。
+* key：从POST body中提取出的值的新变量名，可用于pipeline其他步骤。
+* expressionType：可选，value的表达式类型，默认为JSONPath。当请求为XML内容时，必须指定XPath值。
+* defaultValue：可选，当提取不到值，且defaultValue不为空时，则使用defaultValue作为返回值。
+* regexpFilter：可选，过滤表达式，对提取出来的值进行过滤。regexpFilter做的事情其实就是string.replaceAll（regexpFilter，""）；。string是从HTTP请求中提取出来的值。
+
+（2）genericRequestVariables：从URL参数中提取值。
+
+![](https://pic.imgdb.cn/item/60e00c1b5132923bf89c4f94.jpg)
+
+* key：提取出的值的新变量名，可用于pipeline其他步骤。
+* regexpFilter：对提取出的值进行过滤。
+
+（3）genericHeaderVariables：从HTTPheader中提取值。
+
+![](https://pic.imgdb.cn/item/60e00c9c5132923bf8a0b4ca.jpg)
+
+### 触发具体某个Jenkins项目
+
+​	上文中，我们看到GenericTrigger方法有一个token参数。
+
+![](https://pic.imgdb.cn/item/60e069295132923bf8ab7c3d.jpg)
+
+​	token参数的作用是标识一个pipeline在Jenkins中的唯一性（当然，没有人阻止你让所有的pipeline使用同一个token）。为什么需要这个参数呢？这要从GWT插件的原理说起。
+
+​	当Jenkins接收到generic-webhook-trigger/invoke接口的请求时，会将请求代理给GWT插件处理。GWT插件内部会从Jenkins实例对象中取出所有的参数化Jenkins项目，包括pipeline，然后进行遍历。如果在参数化项目中GenericTrigger配置的token的值与Webhook请求时的token的值一致，则触发此参数化项目。
+
+​	如果多个参数化项目的token值一样，则它们都会被触发。
+
+​	小技巧：pipeline的token可以被设置为Jenkins的项目名。比如：
+
+![](https://pic.imgdb.cn/item/60e0694b5132923bf8ac59e9.jpg)
+
+### 根据请求参数值判断是否触发Jenkins项目执行
+
+GWT并不只是根据token值来判断是否触发，还可以根据我们提取出的值进行判断。示例如下：
+
+![](https://pic.imgdb.cn/item/60e069635132923bf8aceebb.jpg)
+
+* regexpFilterText：需要进行匹配的key。例子中，我们使用从POST body中提取出的refValue变量值。
+* regexpFilterExpression：正则表达式。
+
+
+
+​	如果regexpFilterText参数的值符合regexpFilterExpression参数的正则表达式，则触发执行。
+
+### 控制打印内容
+
+​	打印日志有助于调试。GWT插件提供了三个参数。
+
+* printPostContent：布尔值，将Webhook请求信息打印到日志上。
+* printContributedVariables：布尔值，将提取后的变量名及变量值打印出来。
+* causeString：字符串类型，触发原因，可以直接引用提取后的变量，如causeString：'Triggered on $msg'。
+
+### 控制响应
+
+​	GWT插件最近（写本书时）才加入的一个参数：
+
+* silentResponse：布尔类型，在正常情况下，当Webhook请求成功后，GWT插件会返回HTTP200状态码和触发结果给调用方。但是当silentResponse设置为true时，就只返回HTTP200状态码，不返回触发结果。
+
+## 小结
+
+略
+
+# 多分支构建
+
+## 创建多分支pipeline
+
+​	幸好Jenkins支持多分支pipeline（Multibranch Pipeline）。在创建此类项目时，就需要选择“MultibranchPipeline”，如图7-1所示。
+
+![](https://pic.imgdb.cn/item/60e1ace35132923bf8f2591d.jpg)
+
+（1）设置代码仓库地址，如图7-2所示。
+
+![](https://pic.imgdb.cn/item/60e1acf85132923bf8f2df01.jpg)
+
+（2）设置分支扫描触发策略。
+
+​	分支扫描是指Jenkins根据一定的策略去代码仓库扫描分支，如果有新分支就创建一个以分支名命名的任务，如果发现有分支被删除了，就删除相应的Jenkins任务。如图7-3所示的就是创建完成后的任务页面。
+
+![](https://pic.imgdb.cn/item/60e1b2265132923bf8118d0e.jpg)
+
+​	在“Scan Multibranch Pipeline Triggers”下就只有一个可选项：Periodically if not otherwiserun （没有手动触发，就定期扫描分支）。勾选此选项，设置扫描的间隔时长，如图7-4所示。
+
+![](https://pic.imgdb.cn/item/60e1b2365132923bf811ec84.jpg)
+
+​	读者可根据项目建立分支的频繁程度设置周期的长短。越频繁建立分支，扫描周期应越短。当然，我们也可以单击任务页面左侧的“ScanMultibranch Pipeline Now”项，手动触发Jenkins去扫描分支。
+
+（3）孤儿任务（Orphaned Item）处理策略。
+
+​	如果在代码仓库中删除了release分支，那么在多分支任务页面上，该分支在Jenkins上的任务也应该被删除。至于什么时候删除，取决于下次分支扫描的时间。如果代码仓库中的分支被删除了，而Jenkins上的相应任务没有被删除，那么这个任务就被称为孤儿任务。
+
+​	对于分支任务上的历史记录，保存多长时间是可以设置的，如图7-5所示。
+
+![](https://pic.imgdb.cn/item/60e1b2665132923bf81308a9.jpg)
+
+两个参数的含义分别是：
+
+* Days to keep old items：保留多少天。
+*  Max＃of old items to keep：最多保留多少个孤儿任务。
+
+## 根据分支部署到不同的环境
+
+​	如何根据不同的分支做不同的事情，比如根据不同的分支部署到不同的环境。类似这样的事情可以使用if-else来实现。
+
+![](https://pic.imgdb.cn/item/60e1b2c05132923bf8152826.jpg)
+
+
+
+​	但是这样的代码不够优雅，而且不是声明式的。使用when指令可以让pipeline看起来更优雅。
+
+![](https://pic.imgdb.cn/item/60e1b2ce5132923bf8157da0.jpg)
+
+## when指令的用法
+
+​	when指令必须至少包含一个条件。when指令除了支持branch判断条件，还支持多种判断条件。
+
+* changelog：如果版本控制库的changelog符合正则表达式，则执行
+
+![](https://pic.imgdb.cn/item/60e1b7ce5132923bf835b5c4.jpg)
+
+* changeset：如果版本控制库的变更集合中包含一个或多个文件符合给定的Ant风格路径表达式，则执行
+
+![](https://pic.imgdb.cn/item/60e1b85f5132923bf8396eae.jpg)
+
+*  environment：如果环境变量的值与给定的值相同，则执行
+
+![](https://pic.imgdb.cn/item/60e1b8755132923bf83a1e01.jpg)
+
+* equals：如果期望值与给定的值相同，则执行
+
+![](https://pic.imgdb.cn/item/60e1b9155132923bf83e7eb8.jpg)
+
+* expression：如果Groovy表达式返回的是true，则执行
+
+![](https://pic.imgdb.cn/item/60e1b9325132923bf83f4042.jpg)
+
+​	当表达式返回的是字符串时，它必须转换成布尔类型或null；否则，所有的字符串都被当作true处理。
+
+* buildingTag：如果pipeline所执行的代码被打了tag，则执行
+
+![](https://pic.imgdb.cn/item/60e1b9785132923bf841251c.jpg)
+
+* tag：如果pipeline所执行的代码被打了tag，且tag名称符合规则，则执行
+
+![](https://pic.imgdb.cn/item/60e1b98f5132923bf841bf47.jpg)
+
+​	如果tag的参数为空，即tag（），则表示不论tag名称是什么都执行，与buildingTag的效果相同。
+
+​	tag条件支持comparator参数，支持的值如下。
+
+* EQUALS：简单的文本比较。
+
+![](https://pic.imgdb.cn/item/60e1b9ab5132923bf8427bd7.jpg)
+
+* GLOB （默认值）：Ant风格路径表达式。由于是默认值，所以使用时一般省略。完整写法如下：
+
+![](https://pic.imgdb.cn/item/60e1b9b95132923bf842e015.jpg)
+
+* REGEXP：正则表达式。使用方法如下：
+
+![](https://pic.imgdb.cn/item/60e1b9d15132923bf84384c9.jpg)
+
+​	tag条件块非常适合根据tag进行发布的发布模式。
+
+​	以上介绍的都是单条件判断，when指令还可以进行多条件组合判断。
+
+* allOf：所有条件都必须符合。下例表示当分支为master且环境变量DEPLOY_TO的值为production时，才符合条件。
+
+![](https://pic.imgdb.cn/item/60e1b9f05132923bf8445a79.jpg)
+
+* anyOf：其中一个条件为true，就符合。下例表示master分支或staging分支都符合条件。
+
+![](https://pic.imgdb.cn/item/60e1bc925132923bf856bf91.jpg)
+
+## GitLab trigger对多分支pipeline的支持
+
+​	对于多分支pipeline，JenkinsGitLab插件只监听push事件，不监听mergerequest事件。
+
+​	而在Jenkins多分支pipeline项目的设置页面中，是找不到GitLab配置项的。只能通过修改Jenkinsfile来实现，在triggers指令中加入gitlab配置。
+
+
+
+![](https://pic.imgdb.cn/item/60e1bcc75132923bf8583328.jpg)
+
+## Generic Webhook Trigger插件在多分支pipeline场景下的应用
+
+​	在多分支pipeline场景下，我们希望触发某个分支的构建执行，GenericTrigger可以这么传参：
+
+![](https://pic.imgdb.cn/item/60e1bdb65132923bf85edb3d.jpg)
+
