@@ -2238,3 +2238,6 @@ The [`DiskUsage`](https://docs.oracle.com/javase/tutorial/essential/io/examples/
 | `File.mkdir` and `mkdirs`                                    | `Files.createDirectory`                                      | [Creating a Directory](https://docs.oracle.com/javase/tutorial/essential/io/dirs.html#create) |
 | `File.listRoots`                                             | `FileSystem.getRootDirectories`                              | [Listing a File System's Root Directories](https://docs.oracle.com/javase/tutorial/essential/io/dirs.html#listall) |
 | `File.getTotalSpace`, `File.getFreeSpace`, `File.getUsableSpace` | `FileStore.getTotalSpace`, `FileStore.getUnallocatedSpace`, `FileStore.getUsableSpace`, `FileStore.getTotalSpace` | [File Store Attributes](https://docs.oracle.com/javase/tutorial/essential/io/fileAttr.html#store) |
+
+
+
