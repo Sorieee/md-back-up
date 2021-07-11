@@ -699,6 +699,53 @@ SimpleDavaFileObject、JavaFileObject之间的关系属于JDK中的知识，因�
 
 ​	略。
 
+# Dubbo启停原理分析
+
+## 配置解析
+
+​	目前Dubbo框架同时提供了 3种配置方式:XML配置、注解、属性文件(properties和ymal)配置，最常用的还是XML和注解两种方式。Dubbo 2.5.8以后重写了注解的逻辑，解决了一些遗留的bug,同时能更好地支持dubbo-spring-boot。
+
+### 基于schema设计解析
+
+​	Dubbo配置约束文件在dubbo-conf ig/dubbo-configspring/src/main/resources/dubbo.xsd 中，在 IntelliD IDEA 中能够自动查找这个文件，当用户使用属性时进行自动提示。
+
+​	dubbo.xsd文件用来约束使用XML配置时的标签和对应的属性，比如Dubbo中的`＜dubbo:service＞和〈dubbo:reference〉`标签等。Spring 在解析到自定义的 namespace 标签时（比如＜dubbo:service＞标签），会查找对应的spring.schemas和spring.handlers文件，最终触发Dubbo的DubboNamespaceHandler类来进行初始化和解析。我们先看以下两个文件的内容：
+
+![](https://pic.imgdb.cn/item/60eadb215132923bf800f423.jpg)
+
+​	Dubbo设计的粒度很多都是针对方法级别设计的，比如方法级别的timeout、retries和mock特性。这里包含的模块详细用法可以参考文档：http://dubbo.apache.org/zh-cn/docs/user/references/xml/introduction.htmlo 在图 5-1 中，左边代表 schema 有继承关系的类型，右边是独立的类型。
+
+![](https://pic.imgdb.cn/item/60eadb4c5132923bf8018fe1.jpg)
+
+​	接下来我们看一个dubbo.xsd的真实的配置，以protocolType模块为例，如代码清单5-1所示。
+
+![](https://pic.imgdb.cn/item/60eadc8a5132923bf8060e60.jpg)
+
+​	在代码清单5-1中，我们可以简单理解其为协议定义约束字段，只有在这里定义的属性才会在Dubbo的XML配置文件中智能提示，当我们基于Dubbo做二次开发时，应该在schema中添加合适的字段，同时应该在dubbo-config-api对应的Config类中添加属性和get & set方法，这样用户在配置属性框架时会自动注入这个值。只有属性定义是不够的，为了让Spring正确解析标签，我们要定义element标签，与代码清单5-1中的protocolType进行绑定，这里以protocolType示例展示，如代码清单5-2所示。
+
+![](https://pic.imgdb.cn/item/60eadc8a5132923bf8060e60.jpg)
+
+![](https://pic.imgdb.cn/item/60eadd435132923bf808bb99.jpg)
+
+​	目前绝大多数场景使用默认的Dubbo配置就足够了，如果新增特性，比如增加epoll特性，则只需要在 providerType> consumerType> ProviderConfig 和 ConsumerConfig 中增加 epoll属性和方法即可。如果使用已经存在schema类型(比如说protocolType),则只需要添加新属性即可，也不需要定义新的element标签。如果接口是级别通用的，一般我们只需要在
+interfaceType中增加属性即可，继承自interfaceType的类型会拥有该字段。同理，在Dubbo对应类AbstractInterfaceConfig中增加属性和方法即可。
+
+### 基于XML配置原理解析
+
+![](https://pic.imgdb.cn/item/60eaddff5132923bf80b188f.jpg)
+
+​	DubboNamespaceHandler主要把不同的标签关联至U解析实现类中o registerBeanDef initionParser方法约定了在Dubbo框架中遇到标签application> module和registry等都会委托给DubboBeanDefinitionParser处理。需要注意的是，在新版本中重写了注解实现，主要解决了以前实现的很多缺陷（比如无法处理AOP等），相关重写注解的逻辑会在后面讲解。
+
+![](https://pic.imgdb.cn/item/60eade695132923bf80ca168.jpg)
+
+​	前面的逻辑主要负责把标签解析成对应的Bean定义并注册到Spring ±下文中，同时保证了 Spring容器中相同id的Bean不会被覆盖。
+
+接下来分析具体的标签是如何解析的，我们依次分析`<dubbo:service>>` `<dubbo:provider>`和`<dubbo:consumer>`标签，如代码清单5-5所示。
+
+![](https://pic.imgdb.cn/item/60eb01135132923bf8bbf164.jpg)
+
+​	通过对ServiceBean的解析我们可以看到只是特殊处理了 class属性取值，并且在解析过程中调用了 parseProperties方法，这个方法主要解析〈dubbo:service〉标签中的name、class和ref等属性。parseProperties方法会把key-value键值对提取出来放到BeanDefinition中，运行时Spring会自动处理注入值，因此ServiceBean就会包含用户配置的属性值了。
+
 # 语雀
 
 https://item.jd.com/12545055.html
