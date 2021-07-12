@@ -744,7 +744,87 @@ interfaceType中增加属性即可，继承自interfaceType的类型会拥有该
 
 ![](https://pic.imgdb.cn/item/60eb01135132923bf8bbf164.jpg)
 
-​	通过对ServiceBean的解析我们可以看到只是特殊处理了 class属性取值，并且在解析过程中调用了 parseProperties方法，这个方法主要解析〈dubbo:service〉标签中的name、class和ref等属性。parseProperties方法会把key-value键值对提取出来放到BeanDefinition中，运行时Spring会自动处理注入值，因此ServiceBean就会包含用户配置的属性值了。
+​	通过对ServiceBean的解析我们可以看到只是特殊处理了 class属性取值，并且在解析过程中调用了 parseProperties方法，这个方法主要解析`〈dubbo:service〉`标签中的name、class和ref等属性。parseProperties方法会把key-value键值对提取出来放到BeanDefinition中，运行时Spring会自动处理注入值，因此ServiceBean就会包含用户配置的属性值了。
+
+​	其中`〈dubbo:provider〉`和`〈dubbo:consumer〉`标签复用了解析代码(parseNested),主要逻辑是处理内部嵌套的标签，比如＜dubbo:provider＞内部可能嵌套了`〈dubbo:service〉`，如果使用了嵌套标签，则内部的标签对象会自动持有外层标签的对象，例如`＜dubbo:provider＞`内部定义了`＜dubbo:service＞`,解析内部的service并生成Bean的时候，会把外层provider实例对象注入service,这种设计方式允许内部标签直接获取外部标签属性。
+
+​	当前标签的attribute是如何提取的呢？主要分为两种场景：
+
+* 查找配置对象的get、set和is前缀方法，如果标签属性名和方法名称相同，则通过反射调用存储标签对应值。
+* 如果没有和get、set和is前缀方法匹配，则当作parameters参数存储，parameters是一个Map对象。
+
+![](https://pic.imgdb.cn/item/60ec4c005132923bf819eeea.jpg)
+
+![](https://pic.imgdb.cn/item/60ec4c185132923bf81a90b2.jpg)
+
+![](https://pic.imgdb.cn/item/60ec4c385132923bf81b7017.jpg)
+
+
+
+Dubbo框架生成的BeanDefinition最终还是会委托Spring创建对应的Java对象,dubbo.xsd中定义的类型都会有与之对应的POJO, Dubbo承载对象和继承关系如图5-2所示。
+
+![](https://pic.imgdb.cn/item/60ec4d355132923bf8224587.jpg)
+
+### 基于注解配置原理解析
+
+​	重启开源后,Dubbo的注解己经完全重写了，因为原来注解是基于AnnotationBean实现的，主要存在以下几个问题：
+
+* 注解支持不充分，需要XML配置＜dubbo:annotation＞；
+* @ServiceBean 不支持 Spring AOP；
+* @Reference不支持字段继承性。
+
+
+
+​	在原来实现思路的基础上无法解决历史遗留问题，但采用另外一种思路实现可以很好地修复并改进遗留问题。
+
+​	详细原因和分析可以参考以下文章：
+
+(1)https://github.com/mercyblitz/mercyblitz.github.io/blob/master/java/dubbo/Dubbo-Annotation-Driven.md
+
+(2)https://zonghaishang.github.io/2018/10/01/Spring%E6%9D%82%E8%B0%88-%E5%BE%AA%E7%8E%AF%E4%BE%9D%E8%B5%96%E5%AF%BC%E8%87%B4Dubbo%E6%9C%8D%E5%8A%A1%E6%97%A0%E6%B3%95%E8%A2%AB%E6%AD%A3%E7%A1%AE%E4%BB%A3%E7%90%86/
+
+​	注解处理逻辑主要包含3部分内容，第一部分是如果用户使用了配置文件，则框架按需生成对应Bean,第二部分是要将所有使用Dubbo的注解^Service的class提升为Bean,第三部分要为使用@Reference注解的字段或方法注入代理对象。我们先看一下@EnableDubbo注解，如代码清单5-7所示
+
+![](https://pic.imgdb.cn/item/60ec4fcc5132923bf835cda7.jpg)
+
+![](https://pic.imgdb.cn/item/60ec4fe15132923bf836765a.jpg)
+
+​	当Spring容器启动的时候，如果注解上面使用.Import,则会触发其注解方法selectimports,
+比如 EnableDubboConfig 注解中指定的 DubboConfigConfigurationSelector.class,会自动触发 DubboConfigConfigurationSelector#selectImports 方法。如果业务方配置了 Spring 的@PropertySource 或 XML 等价的配置(比如配置了框架 dubbo. registry .address 和
+dubbo. application 等属性)，则 Dubbo 框架会在DubboConfigConfigurationSelector#selectlmports中自动生成相应的配置承载对象，比如Applicationconfig等。细心的读者可能发现DubboConfigConfiguration 里面标注了@EnableDubboConfigBindings, @EnableDubboConfigBindings同样指定了@Import(DubboConfigBindingsRegistrar.class)。因为@EnableDubboConfigBindings
+允许指定多个@EnableDubboConfigBinding注解,Dubbo会根据用户配置属性自动填充这些承载的对象，如代码清单5.8所示。
+
+![](https://pic.imgdb.cn/item/60ec51685132923bf842b2e8.jpg)
+
+​	可以发现处理用户指定配置代码的逻辑比较简单，在DubboConfigBindingRegistrar实现中做了下面几件事情：
+
+(1)如果用户配置了属性，比如dubbo.application.name,则会自动创建对应Spring Bean到容器。
+
+(2)注册和配置对象Bean属性绑定处理器DubboConfigBindingBeanPostProcessor,委托
+Spring做属性值绑定。
+
+​	接下来我们看一下是如何对服务提供者通过注^Service进行暴露的，注解扫描也委托给Spring,本质上使用asm库进行字节码扫描注解元数据，感兴趣的读者可以参考Spring源代码
+SimpleMetadataReadero 当用户使用注解旧DubboComponentScan 时，会激活DubboComponentScan-
+Registrar, 同时生成 ServiceAnnotationBeanPostProcessor 和ReferenceAnnotationBeanPostProcessor两种处理器，通过名称很容易知道分别是处理服务注解和消费注解。我们首先分析服务注解逻辑，因为 ServiceAnnotationBeanPostProcessor 处理器实现了BeanDefinitionRegistryPostProcessor接口，Spring容器中所有Bean注册之后回调postProcessBeanDefinitionRegistry方法开始扫描旧Service注解并注入容器，如代码清单5-9所示。
+
+![](https://pic.imgdb.cn/item/60ec52205132923bf8488c29.jpg)
+
+![](https://pic.imgdb.cn/item/60ec52425132923bf8499f3a.jpg)
+
+​	①：Dubbo框架首先会提取用户配置的扫描包名称，因为包名可能使用${...}占位符，因
+此框架会调用Spring的占位符解析做进一步解码。②：开始真正的注解扫描，委托Spring对所有符合包名的.class文件做字节码分析，最终通过③配置扫描@Service注解作为过滤条件。在④中将仞Service标注的服务提升为不同的Bean,这里并没有设置beanClasso在⑤中主要根据注册的普通Bean生成ServiceBean的占位符，用于后面的属性注入逻辑。在⑥中会提取普通Bean上标注的Service注解生成新的RootBeanDefinition,用于Spring启动后的服务暴露，具体服务暴露的逻辑会在后面详细解析。
+
+​	在实际使用过程中，我们会在旧Service注解的服务中注入旧Reference注解，这样就可以很方便地发起远程服务调用，Dubbo中做属性注入是通过ReferenceAnnotationBeanPost-Processor处理的，主要做以下几种事情(参考代码清单5-10处理引用注解)：
+
+​	(1) 获取类中标注的@Reference注解的字段和方法。
+
+​	(2) 反射设置字段或方法对应的引用。
+
+![](https://pic.imgdb.cn/item/60ec53a55132923bf85501a3.jpg)
+
+![](https://pic.imgdb.cn/item/60ec53b85132923bf855a050.jpg)
+
+​	因为处理器 ReferenceAnnotationBeanPostProcessor 实现了InstantiationAwareBeanPostProcessor接口，所以在Spring的Bean中初始化前会触postProcessPropertyValues方法，该方法允许我们做进一步处理，比如增加属性和属性值修改等。在①中主要利用这个扩展点查找服务引用的字段或方法。在②中触发字段或反射方法值的注入，字段处理会调用findFieldReferenceMetadata方法，在③中会遍历类所有字段，因为篇幅的原因，方法级别注入最终会调用findMethodReferenceMetadata方法处理上面的注解。在②中会触发字段或方法inject方法，使用泛化调用的开发人员可能用过ReferenceConfig创建引用对象，这里做注入用的是ReferenceBean类，它同样继承自ReferenceConfig,在此基础上增加了 Spring初始化等生命周期方法，比如触发afterPropertiesSet从容器中获取一些配置(protocol)等，当设置字段值的时候仅调用referenceBean.getObject()获取远程代理即可，具体服务消费会在5.3节讲解。
 
 # 语雀
 
