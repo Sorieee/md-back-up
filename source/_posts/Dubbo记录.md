@@ -1,3 +1,11 @@
+# 语雀
+
+https://item.jd.com/12545055.html
+
+https://www.yuque.com/apache-dubbo/dubbo3/pyrcyr
+
+https://www.yuque.com/apache-dubbo
+
 # 架构图
 
 ![](https://pic.imgdb.cn/item/60dd67ed5132923bf88c418f.jpg)
@@ -824,13 +832,199 @@ Registrar, 同时生成 ServiceAnnotationBeanPostProcessor 和ReferenceAnnotatio
 
 ![](https://pic.imgdb.cn/item/60ec53b85132923bf855a050.jpg)
 
-​	因为处理器 ReferenceAnnotationBeanPostProcessor 实现了InstantiationAwareBeanPostProcessor接口，所以在Spring的Bean中初始化前会触postProcessPropertyValues方法，该方法允许我们做进一步处理，比如增加属性和属性值修改等。在①中主要利用这个扩展点查找服务引用的字段或方法。在②中触发字段或反射方法值的注入，字段处理会调用findFieldReferenceMetadata方法，在③中会遍历类所有字段，因为篇幅的原因，方法级别注入最终会调用findMethodReferenceMetadata方法处理上面的注解。在②中会触发字段或方法inject方法，使用泛化调用的开发人员可能用过ReferenceConfig创建引用对象，这里做注入用的是ReferenceBean类，它同样继承自ReferenceConfig,在此基础上增加了 Spring初始化等生命周期方法，比如触发afterPropertiesSet从容器中获取一些配置(protocol)等，当设置字段值的时候仅调用referenceBean.getObject()获取远程代理即可，具体服务消费会在5.3节讲解。
+​	因为处理器 ReferenceAnnotationBeanPostProcessor 实现了InstantiationAwareBeanPostProcessor接口，所以在Spring的Bean中初始化前会触postProcessPropertyValues方法，该方法允许我们做进一步处理，比如增加属性和属性值修改等。在①中主要利用这个扩展点查找服务引用的字段或方法。在②中触发字段或反射方法值的注入，字段处理会调用findFieldReferenceMetadata方法，在③中会遍历类所有字
 
-# 语雀
+段，因为篇幅的原因，方法级别注入最终会调用findMethodReferenceMetadata方法处理上面的注解。在②中会触发字段或方法inject方法，使用泛化调用的开发人员可能用过ReferenceConfig创建引用对象，这里做注入用的是ReferenceBean类，它同样继承自ReferenceConfig,在此基础上增加了 Spring初始化等生命周期方法，比如触发afterPropertiesSet从容器中获取一些配置(protocol)等，当设置字段值的时候仅调用referenceBean.getObject()获取远程代理即可，具体服务消费会在5.3节讲解。
 
-https://item.jd.com/12545055.html
+## 服务暴露的实现原理
 
-https://www.yuque.com/apache-dubbo/dubbo3/pyrcyr
+### 配置承载初始化
 
-https://www.yuque.com/apache-dubbo
+​	不管在服务暴露还是服务消费场景下，Dubbo框架都会根据优先级对配置信息做聚合处理,目前默认覆盖策略主要遵循以下几点规则：
 
+(1) -D 传递给 JVM 参数优先级最高，比如-Ddubbo. protocol.port=20880
+
+(2) 代码或XML配置优先级次高，比如Spring中XML文件指定`<dubbo:protocolport="20880">`
+
+3) 配置文件优先级最低，比如 dubbo.properties 文件指定 dubbo.protocol.port=20880。
+
+一般推荐使用dubbo.properties作为默认值，只有XML没有配置时，dubbo.properties配置项才会生效，通常用于共享公共配置，比如应用名等。
+
+Dubbo的配置也会受到provider的影响，这个属于运行期属性值影响，同样遵循以下几点规则：
+
+(1) 如果只有provider端指定配置，则会自动透传到客户端(比如timeout)
+
+(2) 如果客户端也配置了相应属性，则服务端配置会被覆盖(比如timeout)
+
+### 远程服务的暴露机制
+
+​	我们先看一下整体RPC的暴露原理，如图5-4所示。
+
+![](https://pic.imgdb.cn/item/60ed87a45132923bf8ea8746.jpg)
+
+在整体上看，Dubbo框架做服务暴露分为两大部分，第一步将持有的服务实例通过代理转换成Invoker,第二步会把Invoker通过具体的协议（比如Dubbo）转换成Exporter,框架做了
+这层抽象也大大方便了功能扩展。这里的Invoker可以简单理解成一个真实的服务对象实例，是Dubbo框架实体域，所有模型都会向它靠拢，可向它发起invoke调用。它可能是一个本地的实现，也可能是一个远程的实现，还可能是一个集群实现。
+
+Dubbo支持多注册中心同时写，如果配置了服务同时注册多个注册中心，则会在ServiceConfig#doExportUrls中依次暴露，如代码清单5-11所示。
+
+![](https://pic.imgdb.cn/item/60ed88785132923bf8eed7cb.jpg)
+
+Dubbo也支持相同服务暴露多个协议，比如同时暴露Dubbo和REST协议，框架内部会依次对使用的协议都做一次服务暴露，每个协议注册元数据都会写入多个注册中心。在①中会自动获取用户配置的注册中心，如果没有显示指定服务注册中心，则默认会用全局配置的注册中心。在②中处理多协议服务暴露的场景，真实服务暴露逻辑是在doExportUrlsForlProtocol方法中实现的，如代码清单5-12所示。
+
+![](https://pic.imgdb.cn/item/60ed8a8b5132923bf8fa230d.jpg)
+
+![](https://pic.imgdb.cn/item/60ed8a9d5132923bf8fa886e.jpg)
+
+为了更容易地理解服务暴露与注册中心的关系，以下列表项分别展示有注册中心和无注册中心的URL：
+
+* registry://host:port/com.alibaba.dubbo.registry.RegistryService?protocol=zo
+  okeeper&export=dubbo://ip:port/xxx?..。
+* dubbo://ip:host/xxx.Service?timeout=1000&..。
+
+protocol实例会自动根据服务暴露URL自动做适配，有注册中心场景会取出具体协议，比如ZooKeeper,首先会创建注册中心实例，然后取出export对应的具体服务URL,最后用服务URL对应的协议(默认为Dubbo)进行服务暴露，当服务暴露成功后把服务数据注册到ZooKeeper。如果没有注册中心，则在⑦中会自动判断URL对应的协议(Dubbo)并直接暴露服务，从而有经过注册中心。
+
+在将服务实例ref转换成Invoker之后，如果有注册中心时，则会通过RegistryProtocol#export进行更细粒度的控制，比如先进行服务暴露再注册服务元数据。注册中心在做服务暴露时依次做了以下几件事情(逻辑如代码清单5.13所示)。
+
+(1) 委托具体协议(Dubbo)进行服务暴露，创建NettyServer监听端口和保存服务实例。
+
+(2) 创建注册中心对象，与注册中心创建TCP连接。
+
+(3) 注册服务元数据到注册中心。
+
+(4) 订阅configurators节点，监听服务动态属性变更事件。
+
+(5) 服务销毁收尾工作，比如关闭端口、反注册服务信息等。
+
+![](https://pic.imgdb.cn/item/60ed8b7d5132923bf8ff517d.jpg)
+
+![](https://pic.imgdb.cn/item/60ed8b8c5132923bf8ffa4a7.jpg)
+
+通过代码清单5-13可以清楚地看到服务暴露的各个流程，当服务真实调用时会触发各种拦截器Filter,这个是在哪里初始化的呢？在①中进行服务暴露前，框架会做拦截器初始化Dubbo在加载 protocol 扩展点时会自动注入 Protocol Listenerwrapper 和ProtocolFilterWrapper。真实暴露时会按照图5-5所示的流程执行。
+
+![](https://pic.imgdb.cn/item/60ed8bae5132923bf80061cd.jpg)
+
+![](https://pic.imgdb.cn/item/60ed8bc55132923bf800df6d.jpg)
+
+在构造调用拦截器之后会调用Dubbo协议进行服务暴露，请参考DubboProtocol#export（如代码清单5.15所示）实现。
+
+![](https://pic.imgdb.cn/item/60ed8bf85132923bf801fed5.jpg)
+
+### 本地服务的暴露机制
+
+​	5.2.2节主要讲解了服务远程暴露的主流程，很多使用Dubbo框架的应用可能存在同一个JVM暴露了远程服务，同时同一个JVM内部又引用了自身服务的情况，Dubbo默认会把远程服务用injvm协议再暴露一份，这样消费方直接消费同一个JVM内部的服务，避免了跨网络进行远程通信
+
+![](https://pic.imgdb.cn/item/60ed8c3d5132923bf803855a.jpg)
+
+通过exportLocal实现可以发现，在①中显示Dubbo指定用injvm协议暴露服务，这个协议比较特殊，不会做端口打开操作，仅仅把服务保存在内存中而已。在②中会提取URL中的协议，在InjvmProtocol类中存储服务实例信息，它的实现也是非常直截了当的，直接返回InjvmExporter实例对象，构造函数内部会把当前Invoker加入exporterMap,如代码清单5-17
+所示。
+
+![](https://pic.imgdb.cn/item/60ed8c605132923bf8044bad.jpg)
+
+## 服务消费的实现原理
+
+### 单注册中心消费原理
+
+![](https://pic.imgdb.cn/item/60ed8d135132923bf80845ee.jpg)
+
+​	在整体上看，Dubbo框架做服务消费也分为两大部分，第一步通过持有远程服务实例生成Invoker,这个Invoker在客户端是核心的远程代理对象。第二步会把Invoker通过动态代理转换成实现用户接口的动态代理引用。这里的Invoker承载了网络连接、服务调用和重试等功能，在客户端，它可能是一个远程的实现，也可能是一个集群实现。
+
+​	Dubbo支持多注册中心同时消费，如果配置了服务同时注册多个注册中心，则会在ReferenceConfig#createProxy 中合并成一个 Invoker,如代码清单 5-18 。
+
+![](https://pic.imgdb.cn/item/60ed8d505132923bf8099ca9.jpg)
+
+![](https://pic.imgdb.cn/item/60ed8d5e5132923bf809ecca.jpg)
+
+​	当经过注册中心消费时，主要通过RegistryProtocol#refer触发数据拉取、订阅和服务Invoker转换等操作，其中最核心的数据结构是RegistryDirectory,如代码清单5-19所示。
+
+![](https://pic.imgdb.cn/item/60ed8d985132923bf80b40f5.jpg)
+
+![](https://pic.imgdb.cn/item/60ed8de75132923bf80d0f76.jpg)
+
+
+
+​	具体远程Invoker是在哪里创建的呢？客户端调用拦截器又是在哪里构造的呢？当在⑦中第一次发起订阅时会进行一次数据拉取操作，同时触发RegistryDirectory#notify方法，这里的通知数据是某一个类别的全量数据，比如providers和routers类别数据。当通知providers数据时，在RegistryDirectory#toInvokers方法内完成Invoker转换。下面是具体细节，如代码清单5-20所示。
+
+![](https://pic.imgdb.cn/item/60ed8e2a5132923bf80e916e.jpg)
+
+![](https://pic.imgdb.cn/item/60ed8e385132923bf80ee647.jpg)
+
+Dubbo框架允许在消费方配置只消费指定协议的服务，具体协议过滤在①中进行处理，支持消费多个协议，允许消费多个协议时，在配置Protocol值时用逗号分隔即可。在②中消费信息是客户端处理的，需要合并服务端相关信息，比如远程IP和端口等信息，通过注册中心获取这些信息，解耦了消费方强绑定配置。在③中消除重复推送的服务列表，防止重复引用。在④中使用具体的协议发起远程连接等操作。在真实远程连接建立后也会发起拦截器构建操作，可参考5.2.2节的图5-4,处理机制类似，只不过处理逻辑在ProtocolFilterWrapper#refer中触发链式构造。
+
+​	DubboProtocol#refer内部会调用DubboProtocol#initClient负责建立客户端连接和初始化Handler,如代码清单5-21所示。
+
+![](https://pic.imgdb.cn/item/60ed8e745132923bf8104464.jpg)
+
+### 多注册中心消费原理
+
+​	在实际使用过程中，我们更多遇到的是单注册中心场景，但是当跨机房消费时，Dubbo框架允许同时消费多个机房服务。默认Dubbo消费机房的服务顺序是按照配置注册中心的顺序决定的，配置靠前优先消费。
+
+![](https://pic.imgdb.cn/item/60ed8e995132923bf81120b7.jpg)
+
+### 直连服务消费原理
+
+​	Dubbo可以绕过注册中心直接向指定服务(直接指定目标IP和端口)发起RPC调用，使用直连模式可以方便在某些场景下使用，比如压测指定机器等。Dubbo框架也支持同时指定直连多台机器进行服务调用，如代码清单5-23所示。
+
+![](https://pic.imgdb.cn/item/60ed8eb85132923bf811d059.jpg)
+
+![](https://pic.imgdb.cn/item/60ed8ec65132923bf8121e3c.jpg)
+
+
+
+## 优雅停机原理解析
+
+![](https://pic.imgdb.cn/item/60ed8cb65132923bf8063537.jpg)
+
+Dubbo中实现的优雅停机机制主要包含6个步骤：
+
+1)收到kill 9进程退出信号，Spring容器会触发容器销毁事件。
+
+2) provider端会取消注册服务元数据信息。
+
+3) consumer端会收到最新地址列表（不包含准备停机的地址）。
+
+4) Dubbo协议会发送readonly事件报文通知consumer服务不可用。
+
+5)服务端等待已经执行的任务结束并拒绝新任务执行。
+
+# Dubbo远程调用
+
+## Dubbo调用介绍
+
+​	在讲解Dubbo中的RPC调用细节之前，我们先回顾一次调用过程经历了哪些处理步骤。如果我们动手写简单的RPC调用，则需要把服务调用信息传递到服务端，每次服务调用的一些用的信息包括服务调用接口、方法名、方法参数类型和方法参数值等，在传递方法参数值时需要先序列化对象并经过网络传输到服务端，在服务端需要按照客户端序列化顺序再做一次反序列化来读取信息，然后拼装成请求对象进行服务反射调用，最终将调用结果再传给客户端。
+
+![](https://pic.imgdb.cn/item/60ed8f4e5132923bf8153e8a.jpg)
+
+​	首先在客户端启动时会从注册中心拉取和订阅对应的服务列表，Cluster会把拉取的服务列表聚合成一个Invoker,每次RPC调用前会通过Directory#list获取providers地址（已经生成好的Invoker列表），获取这些服务列表给后续路由和负载均衡使用。对应图6.1,在①中主要是将多个服务提供者做聚合。在框架内部另外一个实现Directory接口是RegistryDirectory类，它和接口名是一对一的关系（每一个接口都有一个RegistryDirectory实例），主要负责拉取和订阅服务提供者、动态配置和路由项。
+
+​	在Dubbo发起服务调用时，所有路由和负载均衡都是在客户端实现的。客户端服务调用首先会触发路由操作，然后将路由结果得到的服务列表作为负载均衡参数，经过负载均衡后会选出一台机器进行RPC调用，这3个步骤依次对应于②、③和④。客户端经过路由和负载均衡后，会将请求交给底层I/O线程池（比如Netty）处理，I/O线程池主要处理读写、序列化和反序列化等逻辑，因此这里一定不能阻塞操作，Dubbo也提供参数控制（decode.in.io）参数，在处理反序列化对象时会在业务线程池中处理。在⑤中包含两种类似的线程池，一种是I/O线程池（Netty）,另一种是Dubbo业务线程池（承载业务方法调用）。
+
+​	目前Dubbo将服务调用和Telnet调用做了端口复用，在编解码层面也做了适配。在Telnet调用时，会新建立一个TCP连接，传递接口、方法和JSON格式的参数进行服务调用，在编解码层面简单读取流中的字符串（因为不是Dubbo标准头报文），最终交给Telnet对应的Handler去解析方法调用。如果是非Telnet调用，则服务提供方会根据传递过来的接口、分组和版本信息查找Invoker对应的实例进行反射调用。在⑦中进行了端口复用，如果是Telnet调用，则先找到对应的Invoker进行方法调用。Telnet和正常RPC调用不一样的地方是序列化和反序列化使用的不是Hessian方式，而是直接使用fastjson进行处理。如果读者对目前的流程没有完全理解也没有关系，后面会逐渐深入讲解。
+
+## Dubbo协议详解
+
+​	本节我们讲解Dubbo协议设计，其协议设计参考了现有TCP/IP协议。
+
+![](https://pic.imgdb.cn/item/60ed90b65132923bf81da95c.jpg)
+
+​	理解协议本身的内容对后面的编码器和解码器的实现非常重要，我们先逐字节、逐比特位
+讲解协议内容(具体内容参考表6-l)。
+
+
+
+![](https://pic.imgdb.cn/item/60ed90d75132923bf81e76f5.jpg)
+
+![](https://pic.imgdb.cn/item/60ed90ef5132923bf81f0cb1.jpg)
+
+​	在消息体中，客户端严格按照序列化顺序写入消息，服务端也会遵循相同的顺序读取消息，客户端发起请求的消息体依次保存下列内容：Dubbo版本号、服务接口名、服务接口版本、方法名、参数类型、方法参数值和请求额外参数(attachment)。
+
+![](https://pic.imgdb.cn/item/60ed910c5132923bf81fc58f.jpg)
+
+​	主要根据以下标记判断返回值，如表6-3所示。
+
+![](https://pic.imgdb.cn/item/60ed91315132923bf820aac5.jpg)
+
+​	我们知道在网络通信中（基于TCP）需要解决网络粘包/解包的问题，一些常用解决办法比如用回车、换行、固定长度和特殊分隔符等进行处理，通过对前面协议的理解，我们很容易发现Dubbo其实就是用特殊符号0xdabb魔法数来分割处理粘包问题的。
+
+![](https://pic.imgdb.cn/item/60ed916b5132923bf8221810.jpg)
+
+​	当客户端多个线程并发请求时，框架内部会调用DefaultFuture对象的get方法进行等待。在请求发起时，框架内部会创建Request对象，这个时候会被分配一个唯一 id, DefaultFuture可以从Request对象中获取id,并将关联关系存储到静态HashMap中，就是图6-3中的Futures集合。当客户端收到响应时，会根据Response对象中的id,从Futures集合中查找对应DefaultFuture对象，最终会唤醒对应的线程并通知结果。客户端也会启动一个定时扫描线程去探测超时没有返回的请求。

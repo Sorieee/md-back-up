@@ -2181,4 +2181,418 @@ Sentinel Dashboard的安装步骤如下。
 
 * 订单服务创建新的订单，把订单状态设置为待支付，并发布一个ORDER_CREATE_EVENT事件。
 * 库存服务监听到ORDER_CREATE_EVENT事件后，执行本地的库存冻结方法，如果执行成功，则发布一个ORDER_PREPARED_EVENT事件。
+* 支付服务监听ORDER_PREPARED_EVENT事件后，执行账户扣款方法，并发布PAY_ORDER_EVENT事件。
+* 最后，积分服务监听PAY_ORDER_EVENT事件，增加账户积分，并更新订单状态为成功。
 
+**命令/协同式**
+
+​	命令/协同式需要定义一个Saga协调器，负责告诉每一个参与者该做什么，Saga协调器以命令/回复的方式与每项服务进行通信，如图8-14所示。
+
+![](https://pic.imgdb.cn/item/60ed93455132923bf82dcdb5.jpg)
+
+命令/协同式的实现步骤如下：
+
+* 订单服务首先创建一个订单，然后创建一个订单Saga协调器，启动订单事务。
+* Saga协调器向库存服务发送冻结库存命令，库存服务通过Order Saga Reply Queue回复执行结果。
+* 接着，Saga协调器继续向支付服务发起账户扣款命令，支付服务通过Order Saga Reply Queue回复执行结果。
+* 最后，Saga协调器向积分服务发起增加积分命令，积分服务回复执行结果。
+
+## Seata的安装
+
+​	Seata是一个需要独立部署的中间件，除直接部署外，它还支持多种部署方式，比如Docker、Kubernetes、Helm。本节主要讲解直接安装的方式。
+
+* 在Seata官网下载1.0.0版本的安装包，1.0.0是笔者写作时最新的发布版本。
+* 进入${SEATA_HOME}\bin目录，根据系统类型执行相应的启动脚本，在Linux/Max下的执行命令如下。
+
+```
+sh seata-server.sh
+```
+
+seata-server.sh支持设置启动参数，完整的参数列表如表8-1所示。
+
+![](https://pic.imgdb.cn/item/60ed93ae5132923bf8308206.jpg)
+
+### file存储模式
+
+​	Server端存储模式（store.mode）有file、db两种（后续将引入Raft实现Seata的高可用机制），file存储模式无须改动，直接启动即可。
+
+​	file存储模式为单机模式，全局事务会话信息持久化在本地文件${SEATA_HOME}\bin\sessionStore\root.data中，性能较高，启动命令如下：
+
+![](https://pic.imgdb.cn/item/60ed9a035132923bf85cbfb0.jpg)
+
+### db存储模式
+
+​	db存储模式为高可用模式，全局事务会话信息通过db共享，性能相对差一些。操作步骤如下。
+
+* 创建表结构。Seata全局事务会话信息由全局事务、分支事务、全局锁构成，对应表globaltable、branchtable、lock_table。
+
+
+
+```mysql
+- -------------------------------- The script used when storeMode is 'db' --------------------------------
+-- the table to store GlobalSession data
+CREATE TABLE IF NOT EXISTS `global_table`
+(
+    `xid`                       VARCHAR(128) NOT NULL,
+    `transaction_id`            BIGINT,
+    `status`                    TINYINT      NOT NULL,
+    `application_id`            VARCHAR(32),
+    `transaction_service_group` VARCHAR(32),
+    `transaction_name`          VARCHAR(128),
+    `timeout`                   INT,
+    `begin_time`                BIGINT,
+    `application_data`          VARCHAR(2000),
+    `gmt_create`                DATETIME,
+    `gmt_modified`              DATETIME,
+    PRIMARY KEY (`xid`),
+    KEY `idx_gmt_modified_status` (`gmt_modified`, `status`),
+    KEY `idx_transaction_id` (`transaction_id`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8;
+
+-- the table to store BranchSession data
+CREATE TABLE IF NOT EXISTS `branch_table`
+(
+    `branch_id`         BIGINT       NOT NULL,
+    `xid`               VARCHAR(128) NOT NULL,
+    `transaction_id`    BIGINT,
+    `resource_group_id` VARCHAR(32),
+    `resource_id`       VARCHAR(256),
+    `branch_type`       VARCHAR(8),
+    `status`            TINYINT,
+    `client_id`         VARCHAR(64),
+    `application_data`  VARCHAR(2000),
+    `gmt_create`        DATETIME(6),
+    `gmt_modified`      DATETIME(6),
+    PRIMARY KEY (`branch_id`),
+    KEY `idx_xid` (`xid`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8;
+
+-- the table to store lock data
+CREATE TABLE IF NOT EXISTS `lock_table`
+(
+    `row_key`        VARCHAR(128) NOT NULL,
+    `xid`            VARCHAR(128),
+    `transaction_id` BIGINT,
+    `branch_id`      BIGINT       NOT NULL,
+    `resource_id`    VARCHAR(256),
+    `table_name`     VARCHAR(32),
+    `pk`             VARCHAR(36),
+    `gmt_create`     DATETIME,
+    `gmt_modified`   DATETIME,
+    PRIMARY KEY (`row_key`),
+    KEY `idx_branch_id` (`branch_id`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8;
+```
+
+* 设置事务日志存储方式，进入${SEATA_HOME}\conf\file.conf，修改store.mode="db"。
+
+* 修改数据库连接：
+
+![](https://pic.imgdb.cn/item/60ed9ac25132923bf8625b83.jpg)
+
+* 启动seata-server：
+
+![](https://pic.imgdb.cn/item/60ed9af95132923bf8640dda.jpg)
+
+参数说明如下。
+
+-h：注册到注册中心的IP地址，Seata-Server可以把自己注册到注册中心，支持Nacos、Eureka、Redis、ZooKeeper、Consul、Etcd3、Sofa。
+
+-p：Server RPC监听端口。
+
+-m：全局事务会话信息存储模式，包括file、db，优先读取启动参数。
+
+-n：Server node，有多个Server时，需区分各自节点，用于生成不同区间的transactionId，以免冲突。
+
+### Seata服务端配置中心说明
+
+在${SEATA_HOME}\conf目录下有两个配置文件，分别是registry.conf和file.conf。
+
+#### registry.conf配置说明
+
+**registry**
+
+registry.conf中包含两项配置：registry、config，完整的配置内容如下。
+
+![](https://pic.imgdb.cn/item/60ed9bb25132923bf8699a0b.jpg)
+
+![](https://pic.imgdb.cn/item/60ed9bc25132923bf86a155d.jpg)
+
+![](https://pic.imgdb.cn/item/60ed9bd45132923bf86aa44b.jpg)
+
+​	registry表示配置Seata服务注册的地址，支持目前市面上所有主流的注册中心组件。它的配置非常简单，通过type指定注册中心的类型，然后根据指定的类型配置对应的服务地址信息，比如当type=nacos时，则匹配到Nacos的配置项如下。
+
+![](https://pic.imgdb.cn/item/60ed9bef5132923bf86b736d.jpg)
+
+**config**
+
+​	config配置用于配置Seata服务端的配置文件地址，也就是可以通过config配置指定Seata服务端的配置信息的加载位置，它支持从远程配置中心读取和本地文件读取两种方式。如果配置为远程配置中心，可以使用type指定，配置形式和registry相同。
+
+![](https://pic.imgdb.cn/item/60ed9c0a5132923bf86c46d7.jpg)
+
+### file.conf配置说明
+
+​	file.conf存储的是Seata服务端的配置信息，完整配置如下。它包含transport、server、metrics，分别表示协议配置、服务端配置、监控。
+
+![](https://pic.imgdb.cn/item/60ed9c525132923bf86e8709.jpg)
+
+![](https://pic.imgdb.cn/item/60ed9c5e5132923bf86ee299.jpg)
+
+![](https://pic.imgdb.cn/item/60ed9c6f5132923bf86f719b.jpg)
+
+​	Seata服务端启动时会加载file.conf中的配置参数，这些参数读者不需要记，只需要知道这些参数可以优化即可，在Seata官网上对参数有非常详细的说明。
+
+#### 从配置中心加载配置
+
+​	从前面的分析过程中我们知道，Seata服务在启动时可以将自己注册到注册中心上，并且file.conf文件中的配置同样可以保存在配置中心，接下来我们尝试把配置信息存储到Nacos上。
+
+**将配置上传到Nacos**
+
+​	在GitHub的官方代码托管平台下载Seata的源码，在源码包中有一个script文件夹（目前只在源码包中存在），目录结构如下：
+
+* client：存放客户端的SQL脚本，参数配置。
+* config-center：各个配置中心参数导入脚本，config.txt（包含server和client）为通用参数文件。
+* server：服务端数据库脚本及各个容器配置。
+
+
+
+​	进入config-center目录，包含config.txt和不同配置中心的目录（该目录下包含shell脚本和py脚本）。其中config.txt存放的是Seata客户端和服务端的所有配置信息。
+
+​	在config-center\nacos目录下，执行如下脚本：
+
+![](https://pic.imgdb.cn/item/60ed9d2b5132923bf8755122.jpg)
+
+​	该脚本的作用是把config.txt中的配置信息上传到Nacos配置中心。由于config.txt中提供的是默认配置，在实际使用时可以先修改该文件中的内容，再执行上传操作（当然，也可以上传完成之后在Nacos控制台上根据实际需求修改对应的配置项）。
+
+![](https://pic.imgdb.cn/item/60ed9d485132923bf876314f.jpg)
+
+**Seata服务端修改配置加载位置**
+
+​	进入${SEATA_HOME}\conf目录，修改registry.conf文件中的config段，完整配置如下：
+
+![](https://pic.imgdb.cn/item/60ed9dba5132923bf879d0b4.jpg)
+
+## AT模式Dubbo集成Seata
+
+​	本节中，我们仍然通过一个电商平台的购买逻辑，基于Dubbo集成Seata实现一个分布式事务的解决方案。在整个业务流程中，会涉及如下三个服务。
+
+* 订单服务：用于创建订单。
+* 账户服务：从账户中扣除余额。
+* 库存服务：扣减指定商品的库存数量。
+
+![](https://pic.imgdb.cn/item/60ed9ed15132923bf882d544.jpg)
+
+### 项目准备
+
+​	使用第5章构建的基于Spring Boot+Nacos+Dubbo的项目结构，分别构建以下服务。
+
+* sample-order-service，订单服务。
+* sample-repo-service，库存服务。
+* sample-account-service，账户服务。
+* sample-seata-common，公共服务组件。
+* sample-rest-web，提供统一业务的REST接口服务。
+
+
+
+​	其中sample-order-service、sample-repo-service、sample-account-service是基于Spring Boot+Dubbo构建的微服务，sample-rest-web提供统一的业务服务入口，sample-seata-common提供公共组件。
+
+> 注意，在当前演示的项目中用到了Nacos，所以需要提前启动Nacos服务。
+
+### 数据库准备
+
+​	创建三个数据库：seata_order、seata_repo、seata_account，并分别在这三个数据库中创建对应的业务表。
+
+![](https://pic.imgdb.cn/item/60ed9fb55132923bf88a7bdb.jpg)
+
+![](https://pic.imgdb.cn/item/60ed9fc25132923bf88aee7a.jpg)
+
+### 核心方法说明
+
+​	sample-order-service、sample-repo-service、sample-account-service这三个服务需要集成MyBatis，用于和数据库交互，集成的过程比较简单，笔者不做过多阐述。
+
+**sample-account-service**
+
+​	账户服务提供余额扣减的功能，具体代码如下。
+
+> 注意，这个案例只是为了演示分布式事务的场景，并没有考虑到高并发情况下的数据安全问题。
+
+![](https://pic.imgdb.cn/item/60eda0aa5132923bf892e499.jpg)
+
+**sample-order-service**
+
+​	订单服务负责创建订单，并且在创建订单之前先基于Dubbo协议调用账户服务的资金扣减接口。
+
+![](https://pic.imgdb.cn/item/60eda0c75132923bf893ecba.jpg)
+
+![](https://pic.imgdb.cn/item/60eda0d55132923bf89471c8.jpg)
+
+**sample-repo-service**
+
+​	库存服务提供库存扣减功能，同样这里也没有处理高并发场景下的性能及安全问题。
+
+![](https://pic.imgdb.cn/item/60eda1005132923bf895f3ab.jpg)
+
+**sample-rest-web**
+
+​	sample-rest-web是基于Spring Boot的Web项目，主要用于对外提供以业务为维度的REST接口，它会分别调用库存服务和订单服务，实现库存扣减及订单创建功能。
+
+![](https://pic.imgdb.cn/item/60eda1255132923bf8974436.jpg)
+
+![](https://pic.imgdb.cn/item/60eda1385132923bf897f475.jpg)
+
+### 项目启动顺序及访问
+
+​	这几个项目彼此之间存在依赖关系，服务与服务之间的依赖可以参考图8-16，服务的启动顺序为：
+
+* sample-seata-common为公共组件，需要先通过mvn。
+* install安装到本地仓库，给其他服务依赖。
+* 接下来启动账户服务sample-account-service，它会被订单服务调用。
+* 启动订单服务sample-order-service。
+* 启动库存服务sample-repo-service。
+* 启动sample-rest-web，它作为REST的业务入口，最后启动。
+
+
+
+​	通过如下curl命令进行整体下单流程的测试，并监控数据库表中对应数据的变化，确保整个调用链路是正常的。
+
+![](https://pic.imgdb.cn/item/60eda1ac5132923bf89c0f5a.jpg)
+
+###  整合Seata实现分布式事务
+
+​	在上述流程中，假设库存扣减成功了，但是在创建订单时如果由于账户资金不足导致失败，就会出现数据不一致的场景。按照正常的流程来说，被扣减的库存需要加回去，这就是一个分布式事务的场景。接下来我们在项目中整合Seata来解决该问题。
+
+#### 添加Seata Jar包依赖
+
+![](https://pic.imgdb.cn/item/60eda2025132923bf89f15b1.jpg)
+
+#### 添加Seata配置项目
+
+​	同样分别在4个项目中的application.yml文件中添加Seata的配置项，具体配置明细如下。
+
+![](https://pic.imgdb.cn/item/60eda21e5132923bf8a01118.jpg)
+
+![](https://pic.imgdb.cn/item/60eda22f5132923bf8a0a7af.jpg)
+
+![](https://pic.imgdb.cn/item/60eda2415132923bf8a147f3.jpg)
+
+上述配置中有几个配置项需要注意：
+
+* seata.support.spring.datasource-autoproxy：true属性表示数据源自动代理开关，在sample-order-service、sample-account-service、sample-repo-service中设置为true，在sample-rest-web中设置为false，因为该项目并没有访问数据源，不需要代理。
+* 如果注册中心为file，seata.service.grouplist需要填写Seata服务端连接地址。在默认情况下，注册中心配置为file，如果需要从注册中心上进行服务发现，可以增加如下配置。
+
+![](https://pic.imgdb.cn/item/60eda3245132923bf8a95a65.jpg)
+
+​	tx-service-group表示指定服务所属的事务分组，如果没有指定，默认使用spring.application.name加上字符串-seata-service-group。需要注意这两项配置必须要配置一项，否则会报错。
+
+#### 添加回滚日志表
+
+​	分别在3个数据库seata-account、seata-repo、seata-order中添加一张回滚日志表，用于记录每个数据库表操作的回滚日志，当某个服务的事务出现异常时会根据该日志进行回滚。
+
+![](https://pic.imgdb.cn/item/60eda3475132923bf8aaa076.jpg)
+
+#### sample-rest-web增加全局事务控制
+
+​	修改sample-rest-web工程的RestOrderServiceImpl，做两件事情：
+
+* 增加＠GlobalTransactional全局事务注解。
+* 模拟一个异常处理，当商品编号等于某个指定的值时抛出异常，触发整个事务的回滚。
+
+![](https://pic.imgdb.cn/item/60eda3685132923bf8abd510.jpg)
+
+![](https://pic.imgdb.cn/item/60eda3755132923bf8ac52ec.jpg)
+
+#### 启动服务进行测试
+
+![](https://pic.imgdb.cn/item/60eda38b5132923bf8ad2402.jpg)
+
+​	从异常触发的位置来看，如果没有引入分布式事务，那么即便出现了异常，由于库存扣减、订单创建、账户资金扣减等操作都已经生效，所以数据无法被回滚。在引Seata之后，在异常出现后会触发各个事务分支的数据回滚，保证数据的正确性，如果配置正常，在3个Dubbo服务的控制台中会获得如下输出，完成事务回滚操作。
+
+![](https://pic.imgdb.cn/item/60eda3a45132923bf8ae0b2f.jpg)
+
+## Spring Cloud Alibaba Seata
+
+### Spring Cloud项目准备
+
+​	构建4个项目，实现逻辑及核心代码与8.5节完全一致，只增加了Greenwich.SR2版本的Spring Cloud依赖。项目名称如下：
+
+* spring-cloud-seata-account.
+* spring-cloud-seata-repo.
+* spring-cloud-seata-order.
+* spring-cloud-seata-rest.
+
+### 集成Spring Cloud Alibaba Seata
+
+​	在上述的4个服务中分别集成Spring Cloud Alibaba Seata，步骤如下。
+
+* 添加依赖包。
+
+![](https://pic.imgdb.cn/item/60eda3fc5132923bf8b13484.jpg)
+
+* spring-cloud-alibaba-seata不支持yml形式，所以只能使用file.conf和registry.conf文件来描述客户端的配置信息。可以直接将${SEATA_HOME}\conf目录下的这两个文件复制到项目的resource目录中。同样，如果希望从配置中心加载这些配置项，在registry.conf中指定配置中心地址即可。file.conf完整配置项如下。
+
+![](https://pic.imgdb.cn/item/60eda4115132923bf8b1f7ac.jpg)
+
+![](https://pic.imgdb.cn/item/60eda4225132923bf8b2963a.jpg)
+
+![](https://pic.imgdb.cn/item/60eda42e5132923bf8b307b7.jpg)
+
+​	在上述配置中，vgroup_mapping.${txServiceGroup}="default"表示事务群组，其中${txServiceGroup}表示事务服务分组，它的值要设置为spring.cloud.alibaba.seata.tx-service-group或者spring.application.name+"seata.tx-service-group"。
+
+​	在上述配置中，vgroup_mapping.${txServiceGroup}="default"表示事务群组，其中${txServiceGroup}表示事务服务分组，它的值要设置为spring.cloud.alibaba.seata.tx-service-group或者spring.application.name+"seata.tx-service-group"。
+
+* 在spring-cloud-seata-account、spring-cloud-seata-repo、spring-cloud-seata-order这3个服务中添加一个配置类SeataAutoConfig，主要做两件事：
+  * 配置数据源代理DataSourceProxy。
+  * 初始化GlobalTransactionScanner，装载到Spring IoC容器。
+
+![](https://pic.imgdb.cn/item/60eda4855132923bf8b6343f.jpg)
+
+![](https://pic.imgdb.cn/item/60eda4955132923bf8b6cd71.jpg)
+
+![](https://pic.imgdb.cn/item/60eda4a65132923bf8b77079.jpg)
+
+​	在8.5节演示的过程中是不存在上述这个配置类的，原因是seata-spring-boot-starter主动完成了这些功能，并且Seata自动实现了数据源的代理。而这里演示的过程是通过手动配置来完成的。其中，GlobalTransactionScanner中的两个参数分别是applicationId（应用名称）和txServiceGroup（事务分组），事务分组会在后续的章节中详细说明。
+
+![](https://pic.imgdb.cn/item/60eda4b85132923bf8b81b52.jpg)
+
+​	需要注意的是，2.1.1.RELEASE版本内嵌的seata-all版本是0.9.0，所以它无法和seata-spring-boot-starter兼容。
+
+​	如果采用上述自定义配置类SeataAutoConfig，需要在＠SpringBootApplication注解内exclude掉spring-cloud-alibaba-seata内的GlobalTransactionAutoConfiguration，否则两个配置类会产生冲突。
+
+​	@SpringBootApplication(exclude=GlobalTransactionAutoConfiguration.class)
+
+* spring-cloud-seata-rest项目中的配置类如下，由于它并没有关联数据源，所以只需要装载GlobalTransactionScanner即可，它主要自动扫描包含GlobalTransactional注解的代码逻辑。
+
+![](https://pic.imgdb.cn/item/60eda4f15132923bf8ba36e1.jpg)
+
+​	至此，基于Spring Cloud生态下的Seata框架整合就配置完成了。实际上，由于Spring Cloud并没有提供分布式事务处理的标准，所以它不像配置中心那样插拔式地集成各种主流的解决方案。Spring Cloud Alibaba Seata本质上还是基于Spring Boot自动装配来集成的，在没有提供标准化配置的情况下只能根据不同的分布式事务框架进行配置和整合。
+
+### 关于事务分组的说明
+
+​	在Seata Client端的file.conf配置中有一个属性vgroup_mapping，它表示事务分组映射，是Seata的资源逻辑，类似于服务实例，它的主要作用是根据分组来获取Seata Server的服务实例。
+
+**服务分组的工作机制**
+
+首先，在应用程序中需要配置事务分组，也就是使用GlobalTransactionScanner构造方法中的txServiceGroup参数，这个参数有如下几种赋值方式。
+
+* 默认情况下，获取spring.application.name的值+"-seata-service-group"。
+* 在Spring Cloud Alibaba Seata中，可以使用spring.cloud.alibaba.seata.tx-service-group赋值。
+* 在Seata-Spring-Boot-Starter中，可以使用seata.tx-service-group赋值。
+
+
+
+​	然后，Seata客户端会根据应用程序的txServiceGroup去指定位置（file.conf或者远程配置中心）查找service.vgroup_mapping.${txServiceGroup}对应的配置值，该值代表TC集群（Seata Server）的名称。
+
+​	最后，程序会根据集群名称去配置中心或者file.conf中获得对应的服务列表，也就是clusterName.grouplist对应的TC集群真实的服务列表。实现原理如图8-17所示，具体步骤描述如下。
+
+* 获取事务分组spring-cloud-seata-repo配置的值Agroup。
+* 拿到事务分组的值Agroup，拼接成service.vgroup_mapping.Agroup，去配置中心查找集群名，得到default。
+* 拼接service.default.grouplist，查找集群名对应的Seata Server服务地址：192.168.1.1：8091。
+
+![](https://pic.imgdb.cn/item/60eda5525132923bf8bdc15f.jpg)
+
+**思考事务分组设计**
+
+​	通过上述分析可以发现，在客户端获取服务器地址并没有直接采用服务名称，而是增加了一层事务分组映射到集群的配置。这样做的好处在于，事务分组可以作为资源的逻辑隔离单位，当某个集群出现故障时，可以把故障缩减到服务级别，实现快速故障转移，只需要切换对应的分组即可。
