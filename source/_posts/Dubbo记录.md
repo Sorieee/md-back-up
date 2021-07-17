@@ -1028,3 +1028,4 @@ Dubbo中实现的优雅停机机制主要包含6个步骤：
 ![](https://pic.imgdb.cn/item/60ed916b5132923bf8221810.jpg)
 
 ​	当客户端多个线程并发请求时，框架内部会调用DefaultFuture对象的get方法进行等待。在请求发起时，框架内部会创建Request对象，这个时候会被分配一个唯一 id, DefaultFuture可以从Request对象中获取id,并将关联关系存储到静态HashMap中，就是图6-3中的Futures集合。当客户端收到响应时，会根据Response对象中的id,从Futures集合中查找对应DefaultFuture对象，最终会唤醒对应的线程并通知结果。客户端也会启动一个定时扫描线程去探测超时没有返回的请求。
+
