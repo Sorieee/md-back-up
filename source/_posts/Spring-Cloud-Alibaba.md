@@ -2596,3 +2596,61 @@ registry.conf中包含两项配置：registry、config，完整的配置内容�
 **思考事务分组设计**
 
 ​	通过上述分析可以发现，在客户端获取服务器地址并没有直接采用服务名称，而是增加了一层事务分组映射到集群的配置。这样做的好处在于，事务分组可以作为资源的逻辑隔离单位，当某个集群出现故障时，可以把故障缩减到服务级别，实现快速故障转移，只需要切换对应的分组即可。
+
+# RocketMQ分布式消息通信
+
+## 什么是RocketMQ
+
+​	RocketMQ是一个低延迟、高可靠、可伸缩、易于使用的分布式消息中间件（也称消息队列），经过阿里巴巴多年双11的验证，是由阿里巴巴开源捐献给Apache的顶级项目。
+
+### RocketMQ的应用场景
+
+* 削峰填谷：诸如秒杀、抢红包、企业开门红等大型活动皆会带来较高的流量脉冲，很可能因没做相应的保护而导致系统超负荷甚至崩溃，或因限制太过导致请求大量失败而影响用户体验，RocketMQ可提供削峰填谷的服务来解决这些问题。
+* 异步解耦：交易系统作为淘宝/天猫主站最核心的系统，每笔交易订单数据的产生会引起几百个下游业务系统的关注，包括物流、购物车、积分、流计算分析等，整体业务系统庞大而且复杂，RocketMQ可实现异步通信和应用解耦，确保主站业务的连续性。
+* 顺序收发：细数一下，日常需要保证顺序的应用场景非常多，例如证券交易过程中的时间优先原则，交易系统中的订单创建、支付、退款等流程，航班中的旅客登机消息处理等。与先进先出（First In First Out，缩写FIFO）原理类似，RocketMQ提供的顺序消息即保证消息的FIFO。
+* 分布式事务一致性：交易系统、红包等场景需要确保数据的最终一致性，大量引入RocketMQ的分布式事务，既可以实现系统之间的解耦，又可以保证最终的数据一致性。
+* 大数据分析：数据在“流动”中产生价值，传统数据分析大都基于批量计算模型，无法做到实时的数据分析，利用RocketMQ与流式计算引擎相结合，可以很方便地实现对业务数据进行实时分析。
+* 分布式缓存同步：天猫双11大促，各个分会场琳琅满目的商品需要实时感知价格的变化，大量并发访问会导致会场页面响应时间长，集中式缓存因为带宽瓶颈限制商品变更的访问流量，通过RocketMQ构建分布式缓存，可实时通知商品数据的变化。
+
+### RocketMQ的安装
+
+略
+
+### RocketMQ如何发送消息
+
+​	Spring Cloud Alibaba已集成RocketMQ，使用Spring Cloud Stream对RocketMQ发送和接收消息。
+
+* 第1步，在pom.xml中引入Jar包。
+
+![](https://pic.imgdb.cn/item/60f544465132923bf8f749b1.jpg)
+
+* 第2步，配置application.properties。
+
+![](https://pic.imgdb.cn/item/60f544e25132923bf8fa6b2f.jpg)
+
+​	name-server指定RocketMQ的NameServer地址，将指定名称为output的Binding消息发送到TopicTest。
+
+* 第3步，使用Binder发送消息。
+
+![](https://pic.imgdb.cn/item/60f545105132923bf8fb53c3.jpg)
+
+​	＠EnableBinding（{Source.class}）表示绑定配置文件中名称为output的消息通道Binding，Source类中定义的消息通道名称为output。发送HTTP请求http://localhost:8081/send?msg=tcever将消息发送到RocketMQ中。
+
+​	在实际开发场景中会存在多个发送消息通道，可以自定义消息通道的名称，参考Source类自定义一个接口，修改通道名称和相关配置即可。
+
+![](https://pic.imgdb.cn/item/60f5456b5132923bf8fd11c2.jpg)
+
+​	到此，就可以添加一个自定义发送消息通道，使用orderOutput消息发送到TopicOrder中了。
+
+### RocketMQ如何消费消息
+
+​	RocketMQ消费消息的步骤如下。
+
+* 第1步，pom.xml中引入Jar包。
+
+![](https://pic.imgdb.cn/item/60f545b55132923bf8fe8764.jpg)
+
+* 第2步，配置application.properties。
+
+![](https://pic.imgdb.cn/item/60f545ce5132923bf8ff0079.jpg)
+
