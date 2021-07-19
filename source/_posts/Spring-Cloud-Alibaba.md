@@ -1,8 +1,6 @@
----
 ![](https://pic.imgdb.cn/item/60bed7a7844ef46bb2884323.jpg)title: Spring Cloud Alibaba
 date: 2021-06-07 11:18:14
 tags:
----
 
 # 微服务解决方案之Spring Cloud
 
@@ -2653,4 +2651,276 @@ registry.conf中包含两项配置：registry、config，完整的配置内容�
 * 第2步，配置application.properties。
 
 ![](https://pic.imgdb.cn/item/60f545ce5132923bf8ff0079.jpg)
+
+​	name-server指定RocketMQ的NameServer地址，destination指定Topic名称，指定名称为input的Binding接收TopicTest的消息。
+
+* 第3步，定义消息监听。
+
+![](https://pic.imgdb.cn/item/60f5462e5132923bf800dca0.jpg)
+
+​	＠EnableBinding（{Sink.class}）表示绑定配置文件中名称为input的消息通道Binding，Sink类中定义的消息通道的名称为input，＠StreamListener表示定义一个消息监听器，接收RocketMQ中的消息。
+
+​	在实际开发场景中同样会存在多个接收消息通道，可以自定义消息通道的名称，参考Sink类自定义一个接口，修改通道名称和相关配置即可。
+
+![](https://pic.imgdb.cn/item/60f546905132923bf802b866.jpg)
+
+![](https://pic.imgdb.cn/item/60f546aa5132923bf803352e.jpg)
+
+##  Spring Cloud Alibaba RocketMQ
+
+​	Spring Cloud Stream是Spring Cloud体系内的一个框架，用于构建与共享消息传递系统连接的高度可伸缩的事件驱动微服务，其目的是简化消息业务在Spring Cloud应用程序中的开发。
+
+​	Spring Cloud Stream的架构图如图9-1所示，应用程序通过Spring Cloud Stream注入的输入通道inputs和输出通道outputs与消息中间件Middleware通信，消息通道通过特定的中间件绑定器Binder实现连接到外部代理。
+
+![](https://pic.imgdb.cn/item/60f547bb5132923bf8086c26.jpg)
+
+​	Spring Cloud Stream的实现基于发布/订阅机制，核心由四部分构成：Spring Framework中的Spring Messaging和Spring Integration，以及Spring Cloud Stream中的Binders和Bindings。
+
+​	**Spring Messaging**：Spring Framework中的统一消息编程模型，其核心对象如下。
+
+* Message：消息对象，包含消息头Header和消息体Payload。
+* MessageChannel：消息通道接口，用于接收消息，提供send方法将消息发送至消息通道。
+* MessageHandler：消息处理器接口，用于处理消息逻辑。
+
+
+
+​	**Spring Integration**：Spring Framework中用于支持企业集成的一种扩展机制，作用是提供一个简单的模型来构建企业集成解决方案，对Spring Messaging进行了扩展。
+
+* MessageDispatcher：消息分发接口，用于分发消息和添加删除消息处理器。
+* MessageRouter：消息路由接口，定义默认的输出消息通道。
+* Filter：消息的过滤注解，用于配置消息过滤表达式。
+* Aggregator：消息的聚合注解，用于将多条消息聚合成一条。
+* Splitter：消息的分割，用于将一条消息拆分成多条。
+
+
+
+**Binders**：目标绑定器，负责与外部消息中间件系统集成的组件。
+
+**Bindings**：外部消息中间件系统与应用程序提供的消息生产者和消费者（由Binders创建）之间的桥梁。
+
+​	Spring Cloud Stream官方提供了Kafka Binder和RabbitMQ Binder，用于集成Kafka和RabbitMQ，Spring Cloud Alibaba中加入了RocketMQ Binder，用于将RocketMQ集成到Spring Cloud Stream。
+
+### Spring Cloud Alibaba RocketMQ架构图
+
+​	Spring Cloud Alibaba RocketMQ的架构图如图9-2所示，总体分为四部分。
+
+![](https://pic.imgdb.cn/item/60f5487f5132923bf80c25b3.jpg)
+
+
+
+* MessageChannel（output）：消息通道，用于发送消息，Spring Cloud Stream的标准接口。
+* MessageChannel（input）：消息通道，用于订阅消息，Spring Cloud Stream的标准接口。
+* Binder bindProducer：目标绑定器，将发送通道发过来的消息发送到RocketMQ消息服务器，由Spring Cloud Alibaba团队按照Spring Cloud Stream的标准协议实现。
+* Binder bindConsumer：目标绑定器，将接收到RocketMQ消息服务器的消息推送给订阅通道，由Spring Cloud Alibaba团队按照Spring Cloud Stream的标准协议实现。
+  后面将以代码为例，通过源码深入分析Spring Cloud Alibaba RocketMQ。
+
+### Spring Cloud Stream消息发送流程
+
+​	Spring Cloud Stream消息发送流程如图9-3所示，包括发送、订阅、分发、委派、消息处理等，具体实现如下。
+
+![](https://pic.imgdb.cn/item/60f548e55132923bf80e0e5f.jpg)
+
+
+
+* 在业务代码中调用MessageChannel接口的Send（）方法，例如source.output（）.send（message）。
+
+![](https://pic.imgdb.cn/item/60f5492f5132923bf80f7a64.jpg)
+
+​	AbstractMessageChannel是消息通道的基本实现类，提供发送消息和接收消息的公用方法。
+
+![](https://pic.imgdb.cn/item/60f5495b5132923bf8104a2e.jpg)
+
+* 消息发送到AbstractSubscribableChannel类实现的doSend（）方法如下。
+
+![](https://pic.imgdb.cn/item/60f549cf5132923bf81272be.jpg)
+
+* 通过消息分发类MessageDispatcher把消息分发给MessageHandler。
+
+![](https://pic.imgdb.cn/item/60f549e55132923bf812e013.jpg)
+
+* 通过消息分发类MessageDispatcher把消息分发给MessageHandler。
+
+![](https://pic.imgdb.cn/item/60f549fb5132923bf8134630.jpg)
+
+
+
+​	AbstractSubscribableChannel的实现类DirectChannel得到MessageDispatcher的实现类UnicastingDispatcher。
+
+![](https://pic.imgdb.cn/item/60f54a1b5132923bf813df89.jpg)
+
+调用dispatch（）方法把消息分发给各个MessageHandler。
+
+![](https://pic.imgdb.cn/item/60f54a385132923bf8146bc5.jpg)
+
+![](https://pic.imgdb.cn/item/60f54a495132923bf814bda5.jpg)
+
+​	遍历所有MessageHandler，调用handleMessage（）处理消息。
+
+![](https://pic.imgdb.cn/item/60f54a985132923bf816285a.jpg)
+
+​	查看MessageHandler是从哪里来的，也就是handlers列表中的MessageHandler是如何添加的。
+
+![](https://pic.imgdb.cn/item/60f54ae05132923bf817859e.jpg)
+
+* AbstractMessageChannelBinder在初始化Binding时，会创建并初始化SendingHandler，调用subscribe（）添加到handlers列表。
+
+![](https://pic.imgdb.cn/item/60f54bbb5132923bf81b7d08.jpg)
+
+![](https://pic.imgdb.cn/item/60f54bd05132923bf81bdb6c.jpg)
+
+### RocketMQ Binder集成消息发送
+
+​	AbstractMessageChannelBinder类提供了创建MessageHandler的规范，createProducerMessageHandler方法在初始化Binder的时候会加载。
+
+![](https://pic.imgdb.cn/item/60f54bf75132923bf81c8d40.jpg)
+
+​	RocketMQMessageChannelBinder类根据规范完成RocketMQMessageHandler的创建和初始化，RocketMQMessageHandler是消息处理器MessageHandler的具体实现，RocketMQMessageHandler在RocketMQBinder中的作用是转化消息格式并发送消息。
+
+![](https://pic.imgdb.cn/item/60f54c275132923bf81d7213.jpg)
+
+![](https://pic.imgdb.cn/item/60f54c425132923bf81deaf0.jpg)
+
+​	RocketMQMessageHandler中持有RocketMQTemplate对象，RocketMQTemplate是对RocketMQ客户端API的封装，Spring Boot中已经支持RocketMQTemplate，Spring Cloud Stream对其兼容。
+
+​	DefaultMQProducer是由RocketMQ客户端提供的API，发送消息到RocketMQ消息服务器都是由它来完成的。
+
+![](https://pic.imgdb.cn/item/60f54c7a5132923bf81ee363.jpg)
+
+​	RocketMQMessageHandler是消息发送的处理逻辑，解析Message对象头中的参数，调用RocketMQTemplate中不同的发送消息接口。
+
+![](https://pic.imgdb.cn/item/60f54ca65132923bf81fa159.jpg)
+
+![](https://pic.imgdb.cn/item/60f54cb45132923bf81fee79.jpg)
+
+​	发送普通消息、事务消息、定时消息还是顺序消息，由Message对象的消息头Header中的属性决定，在业务代码创建Message对象时设置。
+
+### RocketMQ Binder集成消息订阅
+
+​	AbstractMessageChannelBinder类中提供了创建MessageProducer的协议，在初始化Binder的时候会加载createConsumerEndpoint方法。
+
+![](https://pic.imgdb.cn/item/60f54cd95132923bf8209704.jpg)
+
+​	同样，由RocketMQMessageChannelBinder类根据协议完成RocketMQInboundChannelAdapter的创建和初始化。
+
+​	![](https://pic.imgdb.cn/item/60f54d1a5132923bf821b5c7.jpg)
+
+​	RocketMQInboundChannelAdapter是适配器，需要适配Spring Framework中的重试和回调机制，它在RocketMQ Binder中的作用是订阅消息并转化消息格式。RocketMQListenerBindingContainer是对RocketMQ客户端API的封装，适配器中持有它的对象。
+
+![](https://pic.imgdb.cn/item/60f54d395132923bf8224adf.jpg)
+
+![](https://pic.imgdb.cn/item/60f54d695132923bf823296f.jpg)
+
+![](https://pic.imgdb.cn/item/60f54d9d5132923bf824089d.jpg)
+
+​	RocketMQ提供了两种消费模式：顺序消费和并发消费。RocketMQ客户端API中顺序消费的默认监听器是DefaultMessageListenerOrderly类，并发消费的默认监听器是DefaultMessageListenerConcurrently类。无论哪种消费模式，监听器收到消息后都会回调RocketMQListener。
+
+![](https://pic.imgdb.cn/item/60f54db55132923bf8247c9f.jpg)
+
+​	RocketMQListener也是Spring Boot中已支持的RocketMQ组件，Spring Cloud Stream对其兼容。
+
+​	在适配器RocketMQInboundChannelAdapter中创建和初始化RocketMQListener的实现类。
+
+![](https://pic.imgdb.cn/item/60f54e715132923bf827c4d9.jpg)
+
+​	DefaultMessageListenerOrderly对象在收到RocketMQ消息后，会先回调BindingRocketMQListener的onMessage方法，再调用RocketMQInboundChannelAdapter父类中的sendMessage方法将消息发送到DirectChannel。
+
+### Spring Cloud Stream消息订阅流程
+
+​	在Spring Cloud Stream中接收消息和发送消息的消息模型是一致的，Binder中接收到的消息先发送到MessageChannel，由订阅的MessageChannel通过Dispatcher转发到对应的MessageHandler进行处理。
+
+​	Spring Cloud Stream消息接收流程如图9-4所示。
+
+![](https://pic.imgdb.cn/item/60f54f085132923bf82a66fc.jpg)
+
+​	RocketMQInboundChannelAdapter调用sendMessage（）发送消息。
+
+![](https://pic.imgdb.cn/item/60f54f5f5132923bf82bddc6.jpg)
+
+​	getOutputChannel（）得到的MessageChannel是在初始化RocketMQ Binder时传入的DirectChannel，对应例子中的Input通道。
+
+​	MessagingTemplate继承了GenericMessagingTemplate类，实际执行了doSend（）方法发送消息。
+
+​	![](https://pic.imgdb.cn/item/60f54f7a5132923bf82c5713.jpg)
+
+​	由于MessageChannel的实例是DirectChannel对象，就复用了前面讲Spring Cloud Stream消息发送流程中提到的流程，通过消息分发类MessageDispatcher把消息分发给MessageHandler。
+
+​	DirectChannel对应的消息处理器是StreamListenerMessageHandler，在消息处理器中回调使用了＠StreamListener注解的业务方法。
+
+![](https://pic.imgdb.cn/item/60f54f915132923bf82cbca3.jpg)
+
+​	InvocableHandlerMethod中持有BeanFactory、Method、MethodParameter等对象，使用Java反射机制完成回调。那么，StreamListenerMessageHandler是怎么和使用＠StreamListener注解的业务方法关联上的呢？
+
+![](https://pic.imgdb.cn/item/60f54fa65132923bf82d15f8.jpg)\
+
+​	在Spring容器管理的所有单例对象初始化完成之后，遍历StreamListenerHandlerMethodMapping，进行StreamListenerMessageHandler和InvocableHandlerMethod的创建和初始化。
+
+​	从类名看显而易见，StreamListenerHandlerMethodMapping保存了StreamListener和HandlerMethod的映射关系。根据代码逐渐往上找，创建映射关系也是在StreamListenerAnnotationBeanPostProcessor类中完成的。
+
+![](https://pic.imgdb.cn/item/60f54fc15132923bf82d8c0d.jpg)
+
+​	StreamListenerAnnotationBeanPostProcessor找到所有使用＠StreamListener的Method，并创建StreamListenerHandlerMethodMapping对象，将映射关系保存到集合中。
+
+![](https://pic.imgdb.cn/item/60f54fdb5132923bf82dfd11.jpg)
+
+![](https://pic.imgdb.cn/item/60f54ff35132923bf82e6279.jpg)
+
+看到MethodMapping，大家是否会想起Spring MVC中的HandlerMapping？Spring中许多模块的技术原理是相同的，在具体功能实现上会有一些差异。
+
+到此，Spring Cloud Stream RocketMQ的相关知识介绍完了，其他内容不再展开，总结一下前面的内容：
+
+* Spring Cloud Stream提供了简单易用的消息编程模型，内部基于发布/订阅模型实现。
+* Spring Cloud Stream的Binder提供标准协议，不同的消息中间件都可以按照标准协议接入。
+* Binder提供bindConsumer和bindProducer接口协议，分别用于构造生产者和消费者。
+
+
+
+​	除了使用Spring Cloud Stream的消息模型来使用RocketMQ的消息功能，还可以使用Spring Boot中集成的RocketMQ组件，Spring Cloud Alibaba对其做了兼容，例如常见的RocketMQTemplate，相关资料在网上非常多，读者可自行查阅。
+
+​	接下来笔者将为大家重点讲解RocketMQ的架构设计、RocketMQ中常见的功能和场景、在Spring Cloud Stream中如何使用RocketMQ，并深入讲解RocketMQ的技术原理。
+
+## RocketMQ集群管理
+
+​	在分布式服务SOA架构中，任何中间件或者应用都不允许单点存在，服务发现机制是必备的。服务实例有多个，且数量是动态变化的。注册中心会提供服务管理能力，服务调用方在注册中心获取服务提供者的信息，从而进行远程调用。
+
+​	下面介绍RocketMQ的整体架构设计、集群管理，涉及RocketMQ中一些重要的概念。
+
+### 整体架构设计
+
+​	说到RocketMQ的架构设计，不得不说一下它与Kafka的渊源。Kafka是一款高性能的消息中间件，在大数据场景中经常使用，但由于Kafka不支持消费失败重试、定时消息、事务消息，顺序消息也有明显缺陷，难以支撑淘宝交易、订单、充值等复杂业务场景。淘宝中间件团队参考Kafka重新设计并用Java编写了RocketMQ，因此在RocketMQ中会有一些概念和Kafka相似。
+
+​	常见的消息中间件Kafka、RabbitMQ、RocketMQ等都基于发布/订阅机制，消息发送者（Producer）把消息发送到消息服务器，消息消费者（Consumer）从消息服务器订阅感兴趣的消息。这个过程中消息发送者和消息消费者是客户端，消息服务器是服务端，客户端与服务端双方都需要通过注册中心感知对方的存在。
+
+​	RocketMQ部署架构主要分为四部分，如图9-5所示。
+
+* Producer：消息发布的角色，主要负责把消息发送到Broker，支持分布式集群方式部署。
+* Consumer：消息消费者的角色，主要负责从Broker订阅消息消费，支持分布式集群方式部署。
+* Broker：消息存储的角色，主要负责消息的存储、投递和查询，以及服务高可用保证，支持分布式集群方式部署。
+* NameServer：服务管理的角色，主要负责管理Broker集群的路由信息，支持分布式集群方式部署。
+
+![](https://pic.imgdb.cn/item/60f5536b5132923bf83d10af.jpg)
+
+​	NameServer是一个非常简单的Topic路由注册中心，其角色类似于Dubbo中依赖的ZooKeeper，支持Broker的动态注册与发现。主要包括如下两个功能。
+
+* 服务注册：NameServer接收Broker集群的注册信息，保存下来作为路由信息的基本数据，并提供心跳检测机制，检查Broker是否还存活。
+* 路由信息管理：NameServer保存了Broker集群的路由信息，用于提供给客户端查询Broker的队列信息。Producer和Consumer通过NameServer可以知道Broker集群的路由信息，从而进行消息的投递和消费。
+
+### 基本概念
+
+* Message：消息，系统所传输信息的物理载体，生产和消费数据的最小单位。每条消息必须属于一个Topic，RocketMQ中每条消息拥有唯一的MessageID，且可以携带具有业务标识的Key。
+* Topic：主题，表示一类消息的集合，每个主题都包含若干条消息，每条消息都只能属于一个主题，Topic是RocketMQ进行消息订阅的基本单位。
+* Queue：消息队列，组成Topic的最小单元。默认情况下一个Topic会对应多个Queue，Topic是逻辑概念，Queue是物理存储，在Consumer消费Topic消息时底层实际则拉取Queue的消息。
+* Tag：为消息设置的标志，用于同一主题下区分不同类型的消息。来自同一业务单元的消息，可以根据不同业务目的在同一主题下设置不同标签。标签能够有效地保持代码的清晰度和连贯性，并优化RocketMQ提供的查询系统。消费者可以根据Tag实现对不同子主题的不同消费的处理逻辑，实现更好的扩展性。
+* UserProperties：用户自定义的属性集合，属于Message的一部分。
+* ProducerGroup：同一类Producer的集合，这类Producer发送同一类消息且发送逻辑一致。如果发送的是事务消息且原始生产者在发送之后崩溃，则Broker服务器会联系同一生产者组的其他生产者实例以提交或回溯消费。
+* ConsumerGroup：同一类Consumer的集合，这类Consumer通常消费同一类消息且消费逻辑一致。消费者组使得在消息消费方面，实现负载均衡和容错的目标变得非常容易。要注意的是，消费者组的消费者实例必须订阅完全相同的Topic。
+
+### 为什么放弃ZooKeeper而选择NameServer
+
+​	在Kafka中的服务注册与发现通常是用ZooKeeper来完成的，RocketMQ早期也使用了ZooKeeper做集群的管理，但后来放弃了转而使用自己开发的NameServer。说到这里，大家可能会有个疑问，这些能力ZooKeeper早就有了，为什么要重复“造轮子”自己再写一个服务注册中心呢？带着这个疑问我们先来看一下两者部署拓扑图的对比。
+
+​	在Kafka中，Topic是逻辑概念，分区（Partition）是物理概念。1个Topic可以设置多个分区，每个分区可以设置多个副本（Replication），即有1个Master分区、多个Slave分区。
+
+​	Kafka的部署拓扑图如图9-6所示。
+
+![](https://pic.imgdb.cn/item/60f553cb5132923bf83ea08e.jpg)
 
