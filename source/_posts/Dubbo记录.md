@@ -1638,6 +1638,168 @@ doList抽象方法则是返回所有的Invoker列表，由于是抽象方法，�
 
 ### LeastActive 负载均衡
 
+​	LeastActive负载均衡称为最少活跃调用数负载均衡，即框架会记下每个Invoker的活跃数，每次只从活跃数最少的Invoker里选一个节点。这个负载均衡算法需要配合ActiveLimitFilter过滤器来计算每个接口方法的活跃数。最少活跃负载均衡可以看作Random负载均衡的“加强版”，因为最后根据权重做负载均衡的时候，使用的算法Random的一样。我们现在配合一些代码来看一下具体的运行逻辑，不重要的代码直接使用省略，如代码清单7-16所示。
+
+![](https://pic.imgdb.cn/item/610167385132923bf8bbc5d0.jpg)
+
+​	从代码清单7-16中我们可以得知其逻辑：遍历所有Invoker,不断寻找最小的活跃数(leastActive),如果有多个Invoker的活跃数都等于least Active,则把它们保存到同一个集合中，最后在这个Invoker集合中再通过随机的方式选出一个Invoker。
+
+​	那最少活跃的计数又是如何知道的呢？
+
+​	在ActiveLimitFilter中，只要进来一个请求，该方法的调用的计数就会原子性+1。整个Invoker调用过程会包在try-catch-finally中，无论调用结束或出现异常，finally中都会把计数原子-1。该原子计数就是最少活跃数。
+
+### 一致性Hash负载均衡
+
+​	一致性Hash负载均衡可以让参数相同的请求每次都路由到相同的机器上。这种负载均衡的方式可以让请求相对平均，相比直接使用Hash而言，当某些节点下线时，请求会平摊到其他服务提供者，不会引起剧烈变动。普通一致性Hash的简单示例如图7-12所示。
+
+![](https://pic.imgdb.cn/item/610168e55132923bf8c32f97.jpg)
+
+​	普通一致性Hash会把每个服务节点散列到环形上，然后把请求的客户端散列到环上，顺时针往前找到的第一个节点就是要调用的节点。假设客户端落在区域2,则顺时针找到的服务C就是要调用的节点。当服务C宕机下线，则落在区域2部分的客户端会自动迁移到服务D上。这样就避免了全部重新散列的问题。
+
+​	普通的一致性Hash也有一定的局限性，它的散列不一定均匀，容易造成某些节点压力大。因此Dubbo框架使用了优化过的Ketama 一致性Hash。这种算法会为每个真实节点再创建多个虚拟节点，让节点在环形上的分布更加均匀，后续的调用也会随之更加均匀。
+
+​	下面我们来看下一致性Hash的实现原理，如代码清单7-17所示。
+
+![](https://pic.imgdb.cn/item/61016b565132923bf8ce651d.jpg)
+
+整个逻辑的核心在ConsistentHashSelector中，因此我们继续来看ConsistentHashSelector是如何初始化的。ConsistentHashSelector初始化的时候会对节点进行散列，散列的环形是使用一个TreeMap实现的，所有的真实、虚拟节点都会放入TreeMapo把节点的IP+递增数字做“MD5”，以此作为节点标识，再对标识做“Hash”得到TreeMap的key,最后把可以调用的节点作为TreeMap的value,如代码清单7-18所示。
+
+![](https://pic.imgdb.cn/item/61016dc45132923bf8d9acc3.jpg)
+
+​	TreeMap实现一致性Hash：在客户端调用时候，只要对请求的参数也做“MD5”即可。虽然此时得到的MD5值不一定能对应到TreeMap中的一个key,因为每次的请求参数不同。但是由于TreeMap是有序的树形结构，所以我们可以调用TreeMap的ceilingEntry方法，用于返回一个至少大于或等于当前给定key的Entry,从而达到顺时针往前找的效果。如果找不到，则使用firstEntry返回第一个节点。
+
+## Merger的实现
+
+​	当一个接口有多种实现，消费者又需要同时引用不同的实现时，可以用group来区分不同的实现，如下所示。
+
+![](https://pic.imgdb.cn/item/61016f5a5132923bf8e0dfa4.jpg)
+
+​	框架中有一些默认的合并实现。Merger接口上有@SPI注解，没有默认值，属于SPI扩展点。用户可以基于Merger扩展点接口实现自己的自定义类型合并器。本节主要介绍现有抽象逻辑及已有实现。
+
+### 总体结构
+
+​	MergerCluster也是Cluster接口的一种实现，因此也遵循Cluster的设计模式，在invoke方法中完成具体逻辑。整个过程会使用Merger接口的具体实现来合并结果集。在使用的时候，通过MergerFactory获得各种具体的Merger实现oMerger的12种默认实现的关系如图7-14所示。
+
+![](https://pic.imgdb.cn/item/61016fd85132923bf8e30b85.jpg)
+
+​	如果开启了 Merger特性，并且未指定合并器(Merger的具体实现)，则框架会根据接口的返回类型自动匹配合并器。我们可以扩展属于自己的合并器，MergerFactory在加载具体实现的时候，会用ExtensionLoader把所有SPI的实现都加载到缓存中。后续使用时直接从缓存中读取，如果读不到则会重新全量加载一次SPIo内置的合并我们可以分为四类：Array、Set、List、Map,实现都比较简单，我们只列举MapMerger的实现，如代码清单7-19所示。
+
+![](https://pic.imgdb.cn/item/610170455132923bf8e4f091.jpg)
+
+​	整个实现的思路就是，在Merge中新建了一个Map,把返回的多个Map合并成一个。其他类型的合并器实现都是类似的，因此不再赘述。
+
+### MergeableClusterlnvoker 机制
+
+​	MergeableClusterlnvoker串起了整个合并器逻辑，在讲解MergeableClusterlnvoker的机制之前，我们先回顾一下整个调用的过程：MergeableCluster#join方法中直接生成并返回了MergeableClusterlnvoker, MergeableClusterInvoker#invoke 方法又通过 MergerFactory 工厂获取不同的Merger接口实现，完成了合并的具体逻辑。
+
+​	MergeableCluster并没有继承抽象的Cluster实现，而是独立完成了自己的逻辑。因此，它的整个逻辑和之前的Failover等机制不同，其步骤如下：
+
+​	(1) 前置准备。通过directory获取所有Invoker列表。
+
+​	(2) 合并器检查。判断某个方法是否有合并器，如果没有，则不会并行调用多个group,找到第一个可以调用的Invoker直接调用就返回了。如果有合并器，则进入第3步。
+
+​	(3) 获取接口的返回类型。通过反射获得返回类型，后续要根据这个返回值查找不同的合并器。
+
+​	(4) 并行调用。把Invoker的调用封装成一个个Callable对象，放到线程池中执行，保存
+线程池返回的future对象到HashMap中，用于等待后续结果返回。
+
+​	(5) 等待fixture对象的返回结果。获取配置的超时参数，遍历(4)中得到的fixture对象，设置Future#get的超时时间，同步等待得到并行调用的结果。异常的结果会被忽略，正常的结果会被保存到list中。如果最终没有返回结果，则直接返回一个空的RpcResult；如果只有一个结果，那么也直接返回，不需要再做合并；如果返回类型是void,则说明没有返回值，也直接返回。
+
+​	(6) 合并结果集。如果配置的是merger=".addAll",则直接通过反射调用返回类型中的.addAll方法合并结果集。例如：返回类型是Set,则调用Set.addAll来合并结果，如代码清单7.20所示。
+
+![](https://pic.imgdb.cn/item/610171ae5132923bf8eb74a3.jpg)
+
+![](https://pic.imgdb.cn/item/610171bb5132923bf8ebb4f6.jpg)
+
+​	对于要调用合并器来合并的结果集，则使用以下逻辑，如代码清单7.21所示。
+
+![](https://pic.imgdb.cn/item/610171ec5132923bf8ec947b.jpg)
+
+## Mock
+
+​	在Cluster中，还有最后一个MockClusterWrapper,由它实现了 Dubbo的本地伪装。这个功能的使用场景较多，通常会应用在以下场景中：服务降级；部分非关键服务全部不可用，希望主流程继续进行；在下游某些节点调用异常时，可以以Mock的结果返回。
+
+### Mock常见的使用方式
+
+​	Mock只有在拦截到RpcException的时候会启用，属于异常容错方式的一种。业务层面其实也可以用try-catch来实现这种功能，如果使用下沉到框架中的Mock机制，则可以让业务的实现更优雅。常见配置如下：
+![](https://pic.imgdb.cn/item/6101731a5132923bf8f21c86.jpg)
+
+​	当接口配置了 Mock,在RPC调用抛出RpcException时就会执行Mock方法。最后一种return null的配置方式通常会在想直接忽略异常的时候使用。
+
+​	服务的降级是在dubbo-admin中通过override协议更新Invoker的Mock参数实现的。如果Mock参数设置为mock=force: return+null,则表明是强制Mock,强制Mock会让消费者对该服务的调用直接返回null,不再发起远程调用。通常使用在非重要服务己经不可用的时候，可以屏蔽下游对上游系统造成的影响。此外，还能把参数设置为印ock=fail:retupn+null,这样消费者还是会发起远程调用，不过失败后会返回null,但是不抛出异常。
+
+​	最后，如果配置的参数是以throw开头的，即mock= throw,则直接抛出RpcException,不会发起远程调用。
+
+### Mock的总体结构
+
+​	Mock涉及的接口比较多,整个流程贯穿Cluster和Protocol层，接口之间的逻辑关系如图7-15所示。
+
+![](https://pic.imgdb.cn/item/610174255132923bf8f719ed.jpg)
+
+​	从图7-15我们可以得知，主要流程分为Cluster层和Protocol层。
+
+* MockClusterWrapper是一个包装类，包装类会被自动注入合适的扩展点实现，它的逻辑很简单，只是把被包装扩展类作为初始化参数来创建并返回一个MockClusterlnvoker,因此本节就不再详细讲解。
+
+* MockClusterlnvoker和其他的Clusterinvoker 一样,在Invoker方法中完成了主要逻辑。
+
+* MocklnvokersSelector 是 Router 接口 的一种实现，用于过滤出 Mock 的 Invoker。
+
+* MockProtocol根据用户传入的URL和类型生成一个Mockinvoker0
+
+* Mockinvoker实现最终的Invoker逻辑。
+
+  Mockinvoker与MockClusterlnvoker看起来都是Invoker,它们之间有什么区别呢？
+
+
+
+​	首先，强制Mock、失败后返回Mock结果等逻辑是在MockClusterlnvoker里处理的；其次，MockClusterlnvoker在某些逻辑下，会生成Mockinvoker并进行调用；然后，在Mockinvoker里会处理 mock=,,return null"> mock="throw xxx"或 mock=com.xxService 这些配置逻辑。最后，Mockinvoker还会被 MockProtocol在引用远程服务的时候创建。我们可以认为，MockClusterlnvoker会处理一些Class级别的Mock逻辑，例如：选择调用哪些Mock类。Mockinvoker处理的是方法级别的Mock逻辑，如返回值。
+
+### Mock的实现**原理**
+
+**1. MockClusterlnvoker 的实现原理**
+
+​	MockClusterWrapper是一个包装类，它在创建 MockClusterlnvoker的时候会把被包装的Invoker传入构造方法，因此MockClusterlnvoker内部天生就含有一个Invoker的引用。MockClusterlnvoker的invoke方法处理了主要逻辑，步骤如下：
+
+​	(1) 获取Invoker的Mock参数。前面已经说过，该Invoker是在构造方法中传入的。如果该Invoker根本就没有配置Mock,则直接调用Invoker的invoke方法并把结果返回；如果配置了 Mock参数，则进入下一步。
+
+​	(2) 判断参数是否以force开头，即判断是否强制Mock。如果是强制Mock,则进入doMocklnvoke逻辑，这部分逻辑在后面统一讲解。如果不以force开头，则进入失败后Mock的逻辑。
+
+​	(3) 失败后调用doMocklnvoke逻辑返回结果。在try代码块中直接调用Invoker的invoke方法，如果抛出了异常，则在catch代码块中调用doMocklnvoke逻辑。
+
+​	强制Mock和失败后Mock都会调用doMocklnvoke逻辑，其步骤如下：
+
+​	(1) 通过 selectMocklnvoker 获得所有 Mock 类型的 Invoker。selectMocklnvoker 在对象的attachment属性中偷偷放进一个invocation.need.mock=true的标识。directory在list方法中列出所有Invoker的时候，如果检测到这个标识，则使用Mockinvokers Selector来过滤Invoker,而不是使用普通route实现，最后返回Mock类型的Invoker列表。如果一个Mock类型的Invoker都没有返回，则通过directory的URL新创建一个Mockinvoker；如果有Mock类型的Invoker,则使用第一个。
+
+​	(2) 调用Mockinvoker的invoke方法。在try-catch中调用invoke方法并返回结果。如果出现了异常，并且是业务异常，则包装成一个RpcResult返回，否则返回RpcException异常。
+
+**2. MocklnvokersSelector 的实现原理**
+
+​	在 doMocklnvoke 的第 1 步中，directory 会使用 MocklnvokersSelector 来过滤出 Mock 类型的Invoker。MocklnvokersSelector是Router接口的其中一种实现。它路由时的具体逻辑如下：
+
+​	(1) 判断是否需要做Mock过滤。如果attachment为空，或者没有invocation.need.mock=true的标识，'则认为不需要做Mock过滤，进入步骤2；如果找到这个标识，则进入步骤3。
+
+​	(2) 获取非Mock类型的Invoker。遍历所有的Invoker,如果它们的protocol中都没有Mock参数，则整个列表直接返回。否则，把protocol中所有没有Mock标识的取出来并返回。
+
+​	(3) 获取Mock类型的Invokero遍历所有的Invoker,如果它们的protocol中都没有Mock参数，则直接返回null。否则，把protocol中所有含有Mock标识的取出来并返回。
+
+**3. MockProtocol 与 Mockinvoker 的实现原理**
+
+​	MockProtocol也是协议的一种,主要是把注册中心的Mock URL转换为Mockinvoker对象。URL可以通过dubbo.admin或其他方式写入注册中心，它被定义为只能引用，不能暴露，如代码清单7-22所示。
+
+![](https://pic.imgdb.cn/item/6101762c5132923bf800aca5.jpg)
+
+​	例如，我们在注册中心/dubbo/com.test.xxxService/providers这个服务提供者的目录下，写入一个 Mock 的 URL： mock:// 192.168.0.123/com.test.xxxService。
+
+​	在Mockinvoker的invoke方法中，主要处理逻辑如下：
+
+​	(1) 获取Mock参数值。通过URL获取Mock配置的参数，如果为空则抛出异常。优先会获取方法级的Mock参数，例如：以methodName.mock为key去获取参数值；如果取不到，则尝试以mock为key获取对应的参数值。
+
+​	(2) 处理参数值是return的配置。如果只配置了一个return,即mock=return,则返回一个空的RpcResult；如果return后面还跟了别的参数，则首先解析返回类型，然后结合Mock参数和返回类型，返回Mock值。现支持以下类型的参数：Mock参数值等于empty,根据返回类型返回new xxx()空对象；如果参数值是null> true> false,则直接返回这些值；如果是其他字符串，则返回字符串；如果是数字、List、Map类型，则返回对应的JSON串；如果都没匹配上，则直接返回Mock的参数值。
+
+​	(3) 处理参数值是throw的配置。如果throw后面没有字符串，则包装成一个RpcException异常，直接抛出；如果throw后面有自定义的异常类，则使用自定义的异常类，并包装成一个RpcException 异常抛出。
+
+​	(4) 处理Mock实现类。先从缓存中取，如果有则直接返回。如果缓存中没有，则先获取接口的类型，如果Mock的参数配置的是true或default,则尝试通过“接口名+Mock”查找Mock实现类，例如：TestService会查找Mock实现TestServiceMock0如果是其他配置方式，则通过Mock的参数值进行查找，例如：配置了 mock=com.xxx.testservice ,则会查找com.xxx.testservice。
+
 
 
 # 个人源码阅读
