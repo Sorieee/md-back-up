@@ -6,6 +6,10 @@ https://www.yuque.com/apache-dubbo/dubbo3/pyrcyr
 
 https://www.yuque.com/apache-dubbo
 
+# XSD教程
+
+https://www.w3school.com.cn/schema/schema_intro.asp1
+
 # 架构图
 
 ![](https://pic.imgdb.cn/item/60dd67ed5132923bf88c418f.jpg)
@@ -1198,3 +1202,798 @@ Dubbo中实现的优雅停机机制主要包含6个步骤：
 ![](https://pic.imgdb.cn/item/60f3027e5132923bf837c0c5.jpg)
 
 ​	①：遍历所有的Channel,在服务端对应的是所有客户端连接，在客户端对应的是服务端连接。②：主要忽略已经关闭的Socket连接。®：判断当前TCP连接是否空闲，如果空闲就发送心跳报文。目前判断是否是空闲的，根据Channel是否有读或写来决定，比如1分钟内没有读或写就发送心跳报文。④：处理客户端超时重新建立TCP连接，目前的策略是检查是否在3分钟内(用户可以设置)都没有成功接收或发送报文。如果在服务端监测则会通过⑤主动关闭远程客户端连接。
+
+# Dubbo集群容错
+
+集群容错总体实现；
+
+* 普通容错策略的实现；
+* Directory的实现原理；
+* Router的实现原理；
+* LoadBalance的实现原理；
+* Merger的实现原理；
+* Mock的实现原理。
+
+## Cluster 层概述
+
+​	我们可以把Cluster看作一个集群容错层，该层中包含Cluster、Directory、Router、LoadBalance几大核心接口。注意这里要区分Cluster层和Cluster接口，Cluster层是抽象概念，表示的是对外的整个集群容错层；Cluster是容错接口，提供Failover、Failfast等容错策略。
+
+​	由于Cluster层的实现众多，因此本节介绍的流程是一个基于Abstractclusterinvoker的全量流程，某些实现可能只使用了该流程的一小部分。Cluster的总体工作流程可以分为以下几步:
+
+（1） 生成Invoker对象。不同的Cluster实现会生成不同类型的Clusterinvoker对象并返回。然后调用Clusterinvoker的Invoker方法，正式开始调用流程。
+
+（2） 获得可调用的服务列表。首先会做前置校验，检查远程服务是否已被销毁。然后通过Directory#list方法获取所有可用的服务列表。接着使用Router接口处理该服务列表，根据路由规则过滤一部分服务，最终返回剩余的服务列表。
+
+（3） 做负载均衡。在第2步中得到的服务列表还需要通过不同的负载均衡策略选出一个服务，用作最后的调用。首先框架会根据用户的配置，调用ExtensionLoader获取不同负载均衡策略的扩展点实现（具体负载均衡策略会在后面讲解）。然后做一些后置操作，如果是异步调用则设置调用编号。接着调用子类实现的dolnvoke方法（父类专门留了这个抽象方法让子类实现），子类会根据具体的负载均衡策略选出一个可以调用的服务。
+
+（4） 做RPC调用。首先保存每次调用的Invoker到RPC上下文，并做RPC调用。然后处理调用结果，对于调用出现异常、成功、失败等情况，每种容错策略会有不同的处理方式。7.2节将介绍Cluster接口下不同的容错策略实现。
+
+![](https://pic.imgdb.cn/item/60fe5a765132923bf82e6564.jpg)
+
+## 容错机制的实现
+
+​	Cluster接口一共有9种不同的实现，每种实现分别对应不同的Clusterlnvokero本节会介绍继承了 Abstractclusterinvoker 的 7 种 Clusterinvoker 实现,Merge 和Mock属于特殊机制，会在其他章节讲解。
+
+### 容错机制概述
+
+​	Dubbo容错机制能增强整个应用的鲁棒性，容错过程对上层用户是完全透明的，但用户也可以通过不同的配置项来选择不同的容错机制。每种容错机制又有自己个性化的配置项。Dubbo中现有 Failover> Failfast> Failsafe> Fallback> Forking> Broadcast 等容错机制，容错机制的特性如表7-1所示。
+
+![](https://pic.imgdb.cn/item/60fe5c435132923bf8350419.jpg)
+
+![](https://pic.imgdb.cn/item/60fe5cab5132923bf8367b39.jpg)
+
+​	Cluseter的具体实现:用户可以在`<dubbo :service>><dubbo:reference>><dubbo:consumer>><dubbo:provider>`标签上通过cluster属性设置。
+
+​	对于Failover容错模式，用户可以通过retries属性来设置最大重试次数。可以设置在dubbo: reference标签上，也可以设置在细粒度的方法标签dubbo:method上。
+
+​	对于Forking容错模式，用户可通过forks="ft大并行数”属性来设置最大并行数。假设设置的forks数为们 可用的服务数为v,当n < v时，即可用的服务数大于配置的并行数，则并行请求n个服务；当n>v时，即可用的服务数小于配置的并行数，则请求所有可用的服务v。
+
+​	对于Mergeable容错模式，用可以在dubbo:reference标签中通过merger="true"开启，合并时可以通过group="*"属性指定需要合并哪些分组的结果。默认会根据方法的返回值自动匹配合并器，如果同一个类型有两个不同的合并器实现，则需要在参数中指定合并器的名字（merger-“合并器名“）。例如:用户根据某List类型的返回结果实现了多个合并器，则需要手动指定合并器名称，否则框架不知道要用哪个。如果想调用返回结果的指定方法进行合并（如返回了一个Set,想调用Set#addAll方法），则可以通过merger=" .addAll'1配置来实现。官方Mergeable配置示例如代码清单7-1所示。
+
+![](https://pic.imgdb.cn/item/60fe5fb25132923bf843a0a5.jpg)
+
+### Cluster 接口关系
+
+​	在微服务环境中，可能多个节点同时都提供同一个服务。当上层调用Invoker时，无论实际存在多少个Invoker,只需要通过Cluster层，即可完成整个调用的容错逻辑，包括获取服务列表、路由、负载均衡等，整个过程对上层都是透明的。当然，Cluster接口只是串联起整个逻辑，其中Clusterlnvokep只实现了容错策略部分，其他逻辑则是调用了 Directory、Router >LoadBalance 等接口 实现。
+
+​	容错的接口主要分为两大类，第一类是Cluster类，第二类是Clusterinvoker类。Cluster和Clusterinvoker之间的关系也非常简单：Cluster接口下面有多种不同的实现，每种实现中都需要实现接口的join方法，在方法中会“new”一个对应的Clusterinvoker实现。我们以FailoverCluster实现为例进行说明，如代码清单7-2所示。
+
+![](https://pic.imgdb.cn/item/60fe605b5132923bf846007b.jpg)
+
+
+
+​	FailoverCluster是Cluster的其中一种实现，FailoverCluster中直接创建了一个新的FailoverClusterlnvoker 并返回。FailoverClusterlnvoker 继承的接口是Invoker。光看文字描述还是比较难懂。因此，在理解集群容错的详细原理之前，我们先从“上帝视角”看一下整个集群容错的接口关系。Cluster接口的类图关系如图7-2所示。
+
+​	Cluster是最上层的接口，下面一共有9个实现类。Cluster接口上有SPI注解，也就是说，实现类是通过第4章中介绍的扩展机制动态生成的。每个实现类里都只有一个join方法，实现也很简单，直接“new” 一个对应的Clusterinvokero其中AvailableCluster例外，直接使用匿名内部类实现了所有功能。
+
+![](https://pic.imgdb.cn/item/60fe60be5132923bf8475b1c.jpg)
+
+![](https://pic.imgdb.cn/item/60fe60ce5132923bf84791f8.jpg)
+
+​	Invoker 接口是最上层的接口，它下面分别有 AbstractClusterlnvoker> MockClusterlnvoker和 MergeableClusterlnvoker H个类。其中，AbstractClusterlnvoker 是一个抽象类，其封装了通用的模板逻辑，如获取服务列表、负载均衡、调用服务提供者等，并预留了一个dolnvoke方法需要子类自行实现。AbstractClusterlnvoker T面有7个子类，分别实现了不同的集群容错机制。
+
+​	MockClusterlnvoker和MergeableClusterlnvoker由于并不适用于正常的集群容错逻辑，因此没有挂在AbstractClusterlnvoker下面，而是直接继承了 Invoker接口。
+
+​	以上就是容错的接口，Directory、Router和LoadBalance的接口会在对应的章节讲解。
+
+### Failover 策略
+
+​	Cluster 接口上有 SPI 注W@SPI(FailoverCluster.NAME),即默认实现是 Failover。该策略的代码逻辑如下：
+
+(1) 校验。校验从AbstractClusterlnvoker传入的Invoker列表是否为空。
+
+(2) 获取配置参数。从调用URL中获取对应的retries重试次数。
+
+(3) 初始化一些集合和对象。用于保存调用过程中出现的异常、记录调用了哪些节点(这个会在负载均衡中使用，在某些配置下，尽量不要一直调用同一个服务)。
+
+(4) 使用for循环实现重试，for循环的次数就是重试的次数。成功则返回，否则继续循环。如果for循环完，还没有一个成功的返回，则抛出异常，把(3)中记录的信息抛出去。
+
+​	前3步都是做一些校验、数据准备的工作。第4步开始真正的调用逻辑。以下步骤是for循环中的逻辑：
+
+* 校验。如果for循环次数大于1，即有过一次失败，则会再次校验节点是否被销毁、传入的Invoker列表是否为空。
+* 负载均衡。调用select方法做负载均衡，得到要调用的节点，并记录这个节点到步骤3的集合里，再把己经调用的节点信息放进RPC上下文中。
+* 远程调用。调用invoker#invoke方法做远程调用，成功则返回，异常则记录异常信息，再做下次循环。
+
+
+
+​	Failover流程如图7-4所示。
+
+![](https://pic.imgdb.cn/item/60fe61c35132923bf84b1ee7.jpg)
+
+### Failfast 策略
+
+Failfast会在失败后直接抛出异常并返回，实现非常简单，步骤如下：
+
+（1） 校验。校验从AbstractClusterlnvoker传入的Invoker列表是否为空。
+（2） 负载均衡。调用select方法做负载均衡，得到要调用的节点。
+（3） 进行远程调用。在try代码块中调用invoker#invoke方法做远程调用。如果捕获到异常，则直接封装成RpcException抛出。整个过程非常简短，也不会做任何中间信息的记录。
+
+### Failsafe 策略
+
+Failsafe调用时如果出现异常，则会直接忽略。实现也非常简单，步骤如下：
+（1） 校验传入的参数。校验从AbstractClusterlnvoker传入的Invoker列表是否为空。
+
+（2） 负载均衡。调用select方法做负载均衡，得到要调用的节点。
+
+   (3)    远程调用。在try代码块中调用invoker#invoke方法做远程调用，“catch”到任何异
+常都直接“吞掉”，返回一个空的结果集。
+
+![](https://pic.imgdb.cn/item/60fe63905132923bf851e631.jpg)
+
+### Fallback 策略
+
+​	Fallback如果调用失败，则会定期重试。FailbackClusterlnvoker里面定义了一个ConcurrentHashMap,专门用来保存失败的调用。另外定义了一个定时线程池，默认每5秒把所有失败的调用拿出来，重试一次。如果调用重试成功，则会从ConcurrentHashMap中移除。dolnvoke的调用逻辑如下：
+
+(1) 校验传入的参数。校验从AbstractClusterlnvoker传入的Invoker列表是否为空。
+(2) 负载均衡。调用select方法做负载均衡，得到要调用的节点。
+(3) 远程调用。在try代码块中调用invoker#invoke方法做远程调用，“catch”到异常后直接把invocation保存到重试的ConcurrentHashMap中，并返回一个空的结果集。
+(4) 定时线程池会定时把ConcurrentHashMap中的失败请求拿出来重新请求，请求成功则从ConcurrentHashMap中移除。如果请求还是失败，则异常也会被“catch”住，不会影响ConcurrentHashMap中后面的重试。
+
+![](https://pic.imgdb.cn/item/60fe64355132923bf854532c.jpg)
+
+
+
+### Available 策略
+
+​	Available是找到第一个可用的服务直接调用，并返回结果。步骤如下：
+
+(1) 遍历从AbstractClusterlnvoker传入的Invoker列表，如果Invoker是可用的，则直接调用并返回。
+
+(2) 如果遍历整个列表还没找到可用的Invoker,则抛出异常。
+
+### Broadcast 策略
+
+​	Broadcast会广播给所有可用的节点，如果任何一个节点报错，则返回异常。步骤如下：
+
+​	(1) 前置操作。校验从AbstractClusterlnvoker传入的Invoker列表是否为空；在RPC上下文中设置Invoker列表；初始化一些对象，用于保存调用过程中产生的异常和结果信息等。
+
+​	(2) 循环遍历所有Invoker,直接做RPC调用。任何一个节点调用出错，并不会中断整个广播过程，会先记录异常，在最后广播完成后再抛出。如果多个节点异常，则只有最后一个节点的异常会被抛出，前面的异常会被覆盖。
+
+### Forking 策略
+
+​	Forking可以同时并行请求多个服务，有任何一个返回，则直接返回。相对于其他调用策略，Forking的实现是最复杂的。其步骤如下：
+
+(1) 准备工作。校验传入的Invoker列表是否可用；初始化一个Invoker集合，用于保存真正要调用的Invoker列表；从URL中得到最大并行数、超时时间。
+
+(2) 获取最终要调用的Invoker列表。假设用户设置最大的并行数为n 实际可以调用的最大服务数为v。如果n<0或n>v,则说明可用的服务数小于用户的设置，因此最终要调用的Invoker H能有v个；如果n<v,则会循环调用负载均衡方法，不断得到可调用的Invoker,加入步骤1中的Invoker集合里。
+
+​	这里有一点需要注意：在Invoker加入集合时，会做去重操作。因此，如果用户设置的负载均衡策略每次返回的都是同一个Invoker,那么集合中最后只会存在一个Invoker,也就是只会调用一个节点。
+
+(3) 调用前的准备工作。设置要调用的Invoker列表到RPC上下文；初始化一个异常计数器；初始化一个阻塞队列，用于记录并行调用的结果。
+
+(4) 执行调用。循环使用线程池并行调用，调用成功，则把结果加入阻塞队列；调用失败，则失败计数+1。如果所有线程的调用都失败了，即失败计数>所有可调用的Invoker时，则把异常信息加入阻塞队列。
+
+​	这里有一点需要注意：并行调用是如何保证个别调用失败不返回异常信息，只有全部失败才返回异常信息的呢？因为有判断条件，当失败计数N所有可调用的Invoker时，才会把异常信息放入阻塞队列，所以只有当最后一个Invoker也调用失败时才会把异常信息保存到阻塞队列，从而达到全部失败才返回异常的效果。
+
+(5) 同步等待结果。由于步骤4中的步骤是在线程池中执行的，因此主线程还会继续往下执行，主线程中会使用阻塞队列的poll(-超时时间“)方法，同步等待阻塞队列中的第一个结果，如果是正常结果则返回，如果是异常则抛出。
+
+​	从上面步骤可以得知,Forking的超时是通过在阻塞队列的poll方法中传入超时时间实现的；线程池中的并发调用会获取第一个正常返回结果。只有所有请求都失败了，Forking才会失败。Forking调用流程如图7-5所示。
+
+![](https://pic.imgdb.cn/item/60fe66c15132923bf860b941.jpg)
+
+## Directory 的实现
+
+​	整个容错过程中首先会使用Directory#list来获取所有的Invoker列表。Directory也有多种实现子类，既可以提供静态的Invoker列表，也可以提供动态的Invoker列表。静态列表是用户自己设置的Invoker列表；动态列表根据注册中心的数据动态变化，动态更新Invoker列表的数据，整个过程对上层透明
+
+### 总体实现
+
+![](https://pic.imgdb.cn/item/60fe68d45132923bf867f03b.jpg)
+
+​	又是熟悉的“套路”，使用了模板模式。Directory是顶层的接口。AbstractDirectory封装了通用的实现逻辑。抽象类包含RegistryDirectory和StaticDirectory两个子类。下面分别介绍每个类的职责和工作：
+
+(1) AbstractDirectoryo封装了通用逻辑，主要实现了四个方法：检测Invoker是否可用，销毁所有Invoker, list方法，还留了一个抽象的doList方法给子类自行实现。list方法是最主要的方法，用于返回所有可用的list,逻辑分为两步：
+
+* 调用抽象方法doList获取所有Invoker列表，不同子类有不同的实现；
+* 遍历所有的router,进行Invoker的过滤，最后返回过滤好的Invoker列表。
+
+
+
+doList抽象方法则是返回所有的Invoker列表，由于是抽象方法，子类继承后必须要有自己的实现。
+
+(2) RegistryDirectoryo属于Directory的动态列表实现，会自动从注册中心更新Invoker列表、配置信息、路由列表。
+
+(3) StaticDirectoryo Directory的静态列表实现，即将传入的Invoker列表封装成静态的Directory对象，里面的列表不会改变。因为Cluste「#join(Directopy〈T> directory)方法需要传入Directory对象，因此该实现主要使用在一些上层已经知道自己要调用哪些Invoker,只需要包装一个 Directory对象返回即可的场景。在ReferenceConfig#createProxy和RegistryDirectory#toMergeMethodInvokerMap 中使用了 Cluster#join 方法。StaticDirectory 的逻辑非常简单，在构造方法中需要传入Invoker列表，doList方法则直接返回初始化时传入的列表。因此，不再详细说明。
+
+### RegistryDirectory 的实现
+
+​	RegistryDirectory中有两条比较重要的逻辑线，第一条，框架与注册中心的订阅，并动态更新本地Invoker列表、路由列表、配置信息的逻辑；第二条，子类实现父类的doList方法。
+
+**1.订阅与动态更新**
+
+​	我们先看一下订阅和动态更新逻辑。这个逻辑主要涉及subscribe、notify、refreshinvoker三个方法，其余是一些数据转换的辅助类方法，如toConfigurators、toRouters。
+
+​	subscribe是订阅某个URL的更新信息。Dubbo在引用每个需要RPC调用的Bean的时候，会调用directory. subscribe来订阅这个Bean的各种URL的变化(Bean的配置在配置中心中都是以URL的形式存放的)。这个方法比较简单，只有两行代码，仅仅使用registry.subscribe订阅。订阅发布在前面章节已经有了详细的讲解，因此不在此展开。
+
+​	notify就是监听到配置中心对应的URL的变化，然后更新本地的配置参数。监听的URL分为三类：配置configurators>路由规则router> Invoker列表。工作流程如下：
+
+​	(1) 新建三个List,分别用于保存更新的Invoker URL、路由配置URL、配置URL。遍历监听返回的所有URL,分类后放入三个List中。
+
+​	(2) 解析并更新配置参数。
+
+* 对于router类参数，首先遍历所有router类型的URL,然后通过Router工厂把每个URL包装成路由规则，最后更新本地的路由信息。这个过程会忽略以empty开头的URL。
+* 对于Configurator类的参数，管理员可以在dubbo-admin动态配置功能上修改生产者的参数，这些参数会保存在配置中心的configurators类目下。notify监听到URL配置参数的变化，会解析并更新本地的Configurator配置。
+* 对于Invoker类型的参数，如果是empty协议的URL,则会禁用该服务，并销毁本地缓存的Invoker；如果监听到的Invoker类型URL都是空的，则说明没有更新，直接使用本地的老缓存；如果监听到的Invoker类型URL不为空，则把新的URL和本地老的URL合并，创建新的Invoker,找出差异的老Invoker并销毁。
+
+![](https://pic.imgdb.cn/item/60fe6baf5132923bf8725846.jpg)
+
+​	dubbo-admin上更新路由规则或参数是通过“override://”协议实现的，dubbo-admin的使用方法可以查看官方文档。override协议的URL会覆盖更新本地URL中对应的参数。如果是“empty://"协议的URL,则会清空本地的配置，这里会调用Configurator接口来实现该功能。override参数示例如图7-8所示，如果有其他的参数需要覆盖，则直接加在URL上即可。
+
+![](https://pic.imgdb.cn/item/60fe81fd5132923bf8cceee6.jpg)
+
+
+
+**2. doList的实现**
+
+​	notify中更新的Invoker列表最终会转化为一个字典`Map<Stringj List<Invoker<T>>>methodlnvokerMap`。 key是对应的方法名称，value是整个Invoker列表。doList的最终目标就是在字典里匹配出可以调用的Invoker列表，并返回给上层。其主要步骤如下：
+
+(1)检查服务是否被禁用。如果配置中心禁用了某个服务，则该服务无法被调用。如果服务被禁用则会抛出异常。
+
+(2)根据方法名和首参数匹配Invokero这是一个比较奇特的特性。根据方法名和首参数查找对应的Invoker列表，暂时没看到相关的应用场景。首参数匹配Invoker使用示例如代码清单7-5所示。
+
+
+
+![](https://pic.imgdb.cn/item/60ff79945132923bf840f15f.jpg)
+
+如果在这一步没有匹配到Invoker列表，则进入第3步。
+(3)根据方法名匹配Invokero以方法名为key去methodlnvokerMap中匹配Invoker列表,如果还是没有匹配到，则进入第4步。
+(4)根据"*”匹配Invoker>用星号去匹配Invoker列表，如果还没有匹配到，则进入最后一步兜底操作。
+(5)遍历methodlnvokerMap,找到第一个Invoker列表返回。如果还没有，则返回一个空列表。
+
+## 路由的实现
+
+​	通过7.3节的Directory获取所有Invoker列表的时候，就会调用到本节的路由接口。路由接口会根据用户配置的不同路由策略对Invoker列表进行过滤，只返回符合规则的Invoker。例如：如果用户配置了接口 A的所有调用，都使用IP为192.168.1.22的节点，则路由会过滤其他的 Invoker,只返回 IP 为 192.168.1.22 的 Invoker。
+
+### 路由的总体结构
+
+​	路由分为条件路由、文件路由、脚本路由，对应dubbo-admin中三种不同的规则配置方式。条件路由是用户使用Dubbo定义的语法规则去写路由规则;文件路由则需要用户提交一个文件,里面写着对应的路由规则，框架基于文件读取对应的规则；脚本路由则是使用JDK自身的脚本引擎解析路由规则脚本，所有JDK脚本引擎支持的脚本都能解析，默认是JavaScript。我们先来看一下接口之间的关系，如图7.9所示。
+
+![](https://pic.imgdb.cn/item/60ff9ee85132923bf8dacfa5.jpg)
+
+​	RouterFactory是一个SPI接口，没有设置默认值，但由于有@Adaptive("protocol")注解，因此它会根据URL中的protocol参数确定要初始化哪一个具体的Router实现。RouterFactory源码如代码清单7-6所示。
+
+![](https://pic.imgdb.cn/item/60ff9f275132923bf8dbe13a.jpg)
+
+​	我们在SPI的配置文件中能看到，URL中的protocol可以设置file、script、condition三种值，分别寻找对应的实现类，如代码清单7-7所示。
+
+![](https://pic.imgdb.cn/item/60ff9f4e5132923bf8dc89ce.jpg)
+
+​	RouterFactory的实现类也非常简单，就是直接“new” 一个对应的Router并返回。例如：ConditionRouterFactory 直接"new” 并返回一个 ConditionRouter。当然，FileRouterFactory除外，直接在工厂类中实现了所有逻辑。
+
+### 条件路由的参数规则
+
+​	条件路由使用的是 condition://协议，URL 形式是”condition:// 0.0.0.0/com.fbo.BarService?category=routers&dynamic=false&rule=n + URL.encode(nhost = 10.20.153.10 => host = 10.20.153.11")。我们可以看到，最后的路由规则会用URL.encode进行编码。下面来看一下官方文档中对每个参数含义的说明，如表7-2所示。
+
+![](https://pic.imgdb.cn/item/60ff9ff55132923bf8df6e2b.jpg)
+
+![](https://pic.imgdb.cn/item/60ffa0495132923bf8e0ddef.jpg)
+
+![](https://pic.imgdb.cn/item/60ffa0775132923bf8e1a931.jpg)
+
+
+
+* 这条配置说明所有调用find开头的方法都会被路由到IP为192.168.1.22的服务节点上。
+* =＞之前的部分为消费者匹配条件，将所有参数和消费者的URL进行对比，当消费者满足匹配条件时，对该消费者执行后面的过滤规则。
+* =＞之后的部分为提供者地址列表的过滤条件，将所有参数和提供者的URL进行对比,消费者最终只获取过滤后的地址列表。
+* 如果匹配条件为空，则表示应用于所有消费方，如=＞ host != 192.168.1.22。
+* 如果过滤条件为空，则表示禁止访问，如host = 192.168.1.22 =＞。
+
+
+
+​	整个规则的表达式支持$protocol等占位符方式，也支持=、！=等条件。值可以支持多个，用逗号分隔，如host = 192.168.1.22,192.168.1.23;如果以`*`号结尾，则说明是通配符，如host = `192.168.1.*`表示匹配192.168.1.网段下所有的IP。
+
+### 条件路由的实现
+
+​	条件路由的具体实现类是ConditionRouter, Dubbo会根据自定义的规则语法来实现路由规则。我们主要需要关注其构造方法和实现父类接口的route方法。
+
+**1. ConditionRouter构造方法的逻辑**
+
+​	ConditionRouterFactory在初始化ConditionRouter的时候，其构造方法中含有规则解析的逻辑。步骤如下：
+
+​	(1) 根据URL的键rule获取对应的规则字符串。以=>为界，把规则分成两段，前面部分为whenRule,即消费者匹配条件；后面部分为thenRule,即提供者地址列表的过滤条件。我们以代码清单7-8的规则为例，其会被解析为whenRule: method = find*和thenRule: host =192.168.1.22。
+
+​	(2) 分别解析两个路由规则。调用parseRule方法，通过正则表达式不断循环匹配whenRule和thenRule字符串。解析的时候，会根据key-value之间的分隔符对key-value做分类(如果A=B,则分隔符为=)，支持的分隔符形式有：A=B、A&B、A!=B、A,B这4种形式。最终参数都会被封装成一个个MatchPair对象，放入Map中保存。Map的key是参数值，value是MatchPair对象。若以代码清单7-8的规则为例，则会生成以method为key的when Map,以host为key的 then Mapo value 则分别是包装了 find*和 192.168.1.22 的 MatchPair 对象。
+
+​	MatchPair对象是用来做什么的呢？这个对象一共有两个作用。第一个作用是通配符的匹配和占位符的赋值。MatchPair对象是内部类，里面只有一个isMatch方法，用于判断值是否能匹配得上规则。规则里的$、`*`等通配符都会在MatchPair对象中进行匹配。其中$支持protoco、username、 password、host、port、path这几个动态参数的占位符。例如：规则中写了$protocol,则会自动从URL中获取protocol的值，并赋值进去。第二个作用是缓存规则。MatchPair对象中有两个Set集合，一个用于保存匹配的规则，如=`find*`；另一个则用于保存不匹配的规则，如!=`find*`。这两个集合在后续路由规则匹配的时候会使用到。
+
+**2. route方法的实现原理**
+
+   ConditionRouter继承了 Router接口，需要实现接口的route方法。该方法的主要功能是过滤出符合路由规则的Invoker列表，即做具体的条件匹配判断，其步骤如下：
+
+​	(1) 校验。如果规则没有启用，则直接返回；如果传入的Invoker列表为空，则直接返回空；如果没有任何的whenRule匹配，即没有规则匹配，则直接返回传入的Invoker列表；如果whenRule有匹配的，但是thenRule为空，即没有匹配上规则的Invoker,则返回空。
+
+​	(2) 遍历Invoker列表，通过thenRule找出所有符合规则的Invoker加入集合。例如：匹配规则中的method名称和当前URL中的method是不是相等。
+
+​	(3) 返回结果。如果结果集不为空，则直接返回；如果结果集为空，但是规则配置了force=true,即强制过滤，那么就会返回空结果集；非强制则不过滤，即返回所有Invoker列表。
+
+### 文件路由的实现
+
+​	文件路由是把规则写在文件中，文件中写的是自定义的脚本规则，可以是JavaScript, Groovy等，URL中对应的key值填写的是文件的路径。文件路由主要做的就是把文件中的路由脚本读出来，然后调用路由的工厂去匹配对应的脚本路由做解析。由于逻辑比较简单，我们直接看代码清单7-9。
+
+![](https://pic.imgdb.cn/item/60ffd9e35132923bf8cb3420.jpg)
+
+### 脚本路由的实现
+
+​	脚本路由使用JDK自带的脚本解析器解析脚本并运行，默认使用JavaScript解析器，其逻辑分为构造方法和route方法两大部分。构造方法主要负责一些初始化的工作，route方法则是具体的过滤逻辑执行的地方。我们先来看一段官方文档中的JavaScript脚本，如代码清单7-10所示。
+
+![](https://pic.imgdb.cn/item/610009735132923bf85e82a6.jpg)
+
+​	我们在写JavaScript脚本的时候需要注意，一个服务只能有一条规则，如果有多条规则，并且规则之间没有交集，则会把所有的Invoker都过滤。另外，脚本路由中也没看到沙箱约束,因此会有注入的风险。
+
+​	下面我们来看一下脚本路由的构造方法逻辑：
+
+(1) 初始化参数。获取规则的脚本类型、路由优先级。如果没有设置脚本类型，则默认设置为JavaScript类型，如果没有解析到任何规则，则抛出异常。
+(2) 初始化脚本执行引擎。根据脚本的类型，通过Java的ScriptEngineManager创建不同的脚本执行器，并缓存起来。
+
+​	route方法的核心逻辑就是调用脚本引擎，获取执行结果并返回。主要是JDK脚本引擎相关的知识，不会涉及具体的过滤逻辑，因为逻辑己经下沉到用户自定义的脚本中，如代码清单7-11所示。
+
+![](https://pic.imgdb.cn/item/61000d965132923bf8703f74.jpg)
+
+## 负载均衡的实现
+
+​	在整个集群容错流程中，首先经过Directory获取所有Invoker列表，然后经过Router根据路由规则过滤Invoker,最后幸存下来的Invoker还需要经过负载均衡这一关，选出最终要调用的 Invoker。
+
+### 包装后的负载均衡
+
+​	7.2节介绍了 7种容错策略，发现在很多容错策略中都会使用负载均衡方法，并且所有的容错策略中的负载均衡都使用了抽象父类Abstractclusterinvoker中定义的`Invoker<T> select`方法，而并不是直接使用LoadBalance方法。因为抽象父类在LoadBalance的基础上又封装了一些新的特性：
+
+​	(1) 粘滞连接。Dubbo中有一种特性叫粘滞连接，以下内容摘自官方文档：
+
+​	粘滞连接用于有状态服务，尽可能让客户端总是向同一提供者发起调用，除非该提供者“挂了”，再连接另一台。
+
+​	粘滞连接将自动开启延迟连接，以减少长连接数。
+`<dubbo:protocol name=Hdubbo" sticky="true" />`
+
+​	(2) 可用检测。Dubbo调用的URL中，如果含有cluster.availablecheck=false,则不会检测远程服务是否可用，直接调用。如果不设置，则默认会开启检查，对所有的服务都做是否可用的检查，如果不可用，则再次做负载均衡。
+
+​	(3) 避免重复调用。对于已经调用过的远程服务，避免重复选择，每次都使用同一个节点。这种特性主要是为了避免并发场景下，某个节点瞬间被大量请求。
+
+​	整个逻辑过程大致可以分为4步：
+
+​	(1) 检查URL中是否有配置粘滞连接，如果有则使用粘滞连接的Invoker。如果没有配置粘滞连接，或者重复调用检测不通过、可用检测不通过，则进入第2步。
+
+​	(2) 通过ExtensionLoader获取负载均衡的具体实现，并通过负载均衡做节点的选择。对选择出来的节点做重复调用、可用性检测，通过则直接返回，否则进入第3步。
+
+​	(3) 进行节点的重新选择。如果需要做可用性检测，则会遍历Directory中得到的所有节点，过滤不可用和已经调用过的节点，在剩余的节点中重新做负载均衡；如果不需要做可用性检测，那么也会遍历Directory中得到的所有节点，但只过滤已经调用过的，在剩余的节点中重新做负载均衡。这里存在一种情况，就是在过滤不可用或已经调用过的节点时，节点全部被过滤，没有剩下任何节点，此时进入第4步。
+
+​	(4) 遍历所有已经调用过的节点，选出所有可用的节点，再通过负载均衡选出一个节点并返回。如果还找不到可调用的节点，则返回null。
+
+​	从上述逻辑中，我们可以得知，框架会优先处理粘滞连接。否则会根据可用性检测或重复调用检测过滤一些节点，并在剩余的节点中做负载均衡。如果可用性检测或重复调用检测把节点都过滤了，则兜底的策略是：在己经调用过的节点中通过负载均衡选择出一个可用的节点。
+
+​	以上就是封装过的负载均衡的实现，下面讲解原始的LoadBalance是如何实现的。
+
+### 负载均衡的总体结构
+
+​	Dubbo现在内置了 4种负载均衡算法，用户也可以自行扩展，因为LoadBalance接口上有@SPI注解，如代码清单7.12所示。
+
+![](https://pic.imgdb.cn/item/610014365132923bf88aa601.jpg)
+
+​	从代码中我们可以知道默认的负载均衡实现就是RandomLoadBalance,即随机负载均衡。由于select方法上有@Adaptive ("loadbalance")注解，因此我们在URL中可以通过loadbalance=xxx来动态指定select时的负载均衡算法。下面我们来看一下官方文档中对所有负载均衡算法的说明，如表7-3所示。
+
+![](https://pic.imgdb.cn/item/6100148f5132923bf88c0d4d.jpg)
+
+​	4种负载均衡算法都继承自同一个抽象类，使用的也是模板模式，抽象父类中己经把通用的逻辑完成，留了一个抽象的doSelect方法给子类实现。负载均衡的接口关系如图7-10所示。
+
+![](https://pic.imgdb.cn/item/6100153e5132923bf88ee04e.jpg)
+
+​	抽象父类AbstractLoadBalance有两个权重相关的方法：calculateWarmupWeight和getWeighto getWeight方法就是获取当前Invoker的权重，calculateWarmupWeight是计算具体的权重。getWeight方法中会调用calculateWarmupWeight,如代码清单7-13所示。
+
+![](https://pic.imgdb.cn/item/610016905132923bf894683b.jpg)
+
+​	calculateWarmupWeight的计算逻辑比较简单，由于框架考虑了服务刚启动的时候需要有一个预热的过程，如果一启动就给予100%的流量，则可能会让服务崩溃，因此实现了calculateWarmupWeight方法用于计算预热时候的权重，计算逻辑是：(启动至今时间/给予的预热总时间)X权重。例如：假设我们设置A服务的权重是5,让它预热10分钟，则第一分钟的时候，它的权重变为(1/10) X5 = 0.5, 0.5/5 = 0.1,也就是只承担10%的流量；10分钟后，权重就变为(10/10) X5 = 5,也就是权重变为设置的100%,承担了所有的流量。
+
+​	抽象父类的select方法是进行具体负载均衡逻辑的地方，这里只是做了一些判断并调用需要子类实现的doSelect方法，因此不再赘述。下面直接看一下不同子类实现doSelect的方式。
+
+### Random负载均衡
+
+​	Random负载均衡是按照权重设置随机概率做负载均衡的。这种负载均衡算法并不能精确地平均请求，但是随着请求数量的增加，最终结果是大致平均的。它的负载计算步骤如下：
+
+​	(1) 计算总权重并判断每个Invoker的权重是否一样。遍历整个Invoker列表，求和总权重。在遍历过程中，会对比每个Invoker的权重，判断所有Invoker的权重是否相同。
+
+​	(2) 如果权重相同，则说明每个Invoker的概率都一样，因此直接用nextlnt随机选一个Invoker返回即可。
+
+​	(3) 如果权重不同，则首先得到偏移值，然后根据偏移值找到对应的Invoker,如代码清单7-14所示。
+
+![](https://pic.imgdb.cn/item/610017845132923bf898767b.jpg)
+
+​	看源码可能还没理解原理，下面做一个场景假设：假设有4个Invoker,它们的权重分别是1、2、3、4,则总权重是 1 +2+3+4=10。说明每个 Invoker 分别有 1/10、2/10、3/10、4/10 的概率会被选中。然后nextlnt(10)会返回0〜10之间的一个整数，假设为5。如果进行累减,则减到3后会小于0,此时会落入3的区间，即选择3号Invoker,如图7-11所示。
+
+![](https://pic.imgdb.cn/item/610019285132923bf89f7c8c.jpg)
+
+### RoundRobin 负载均衡
+
+​	权重轮询负载均衡会根据设置的权重来判断轮询的比例。普通轮询负载均衡的好处是每个节点获得的请求会很均匀，如果某些节点的负载能力明显较弱，则这个节点会堆积比较多的请求。因此普通的轮询还不能满足需求，还需要能根据节点权重进行干预。权重轮询又分为普通权重轮询和平滑权重轮询。普通权重轮询会造成某个节点会突然被频繁选中，这样很容易突然让一个节点流量暴增。Nginx中有一种叫平滑轮询的算法(smooth weighted round-robin balancing),这种算法在轮询时会穿插选择其他节点，让整个服务器选择的过程比较均匀，不会“逮住”一个节点一直调用。Dubbo框架中最新的RoundRobin代码已经改为平滑权重轮询算法。
+
+​	我们先来看一下Dubbo中RoundRobin负载均衡的工作步骤，如下：
+
+​	(1 )初始化权重缓存Map。以每个Invoker的URL为key,对象WeightedRoundRobin为value生成一个 ConcurrentMap,并把这个 Map 保存到全局的 methodWeightMap 中：`ConcurrentMap<String, ConcurrentMap<StringJ WeightedRoundRobin>> `methodWeightMap。methodWeightMap
+的key是每个接口 +方法名。这一步只会生成这个缓存Map,但里面是空的，第2步才会生成每个Invoker对应的键值。
+
+​	WeightedRoundRobin封装了每个Invoker的权重，对象中保存了三个属性，如代玛清单7-15所示。
+
+![](https://pic.imgdb.cn/item/61001bf75132923bf8ac1300.jpg)
+
+​	(2) 遍历所有Invoker。首先，在遍历的过程中把每个Invoker的数据填充到第1步生成的权重缓存Map中。其次，获取每个Invoker的预热权重，新版的框架RoundRobin也支持预热，通过和Random负载均衡中相同的方式获得预热阶段的权重。如果预热权重和Invoker设置的权重不相等，则说明还在预热阶段，此时会以预热权重为准。然后，进行平滑轮询。每个Invoker会把权重加到自己的current属性上，并更新当前Invoker的lastUpdate。同时累加每个Invoker的权重到totalweighto最终，遍历完后，选出所有Invoker中current最大的作为最终要调用的节点。
+
+​	(3) 清除已经没有使用的缓存节点。由于所有的Invoker的权重都会被封装成一个weightedRoundRobin对象，因此如果可调用的Invoker列表数量和缓存weightedRoundRobin对象的Map大小不相等，则说明缓存Map中有无用数据（有些Invoker己经不在了，但Map中还有缓存）。
+
+​	为什么不相等就说明有老数据呢？如果Invoker列表比缓存Map大，则说明有没被缓存的Invoker,此时缓存Map会新增数据。因此缓存Map永远大于等于Invoker列表。
+
+​	清除老旧数据时，各线程会先用CAS抢占锁（抢到锁的线程才做清除操作，抢不到的线程就直接跳过，保证只有一个线程在做清除操作），然后复制原有的Map到一个新的Map中，根据lastupdate清除新Map中的过期数据（默认60秒算过期），最后把Map从旧的Map引用修改到新的Map上面。这是一种CopyOnWrite的修改方式。
+
+​	（4）返回Invoker。注意，返回之前会把当前Invoker的current减去总权重。这是平滑权重轮询中重要的一步。
+
+​	看了这个逻辑，很多读者可能也没明白整个轮询过程，因为穿插了框架逻辑。因此这里把算法逻辑提取出来：
+
+（1） 每次请求做负载均衡时，会遍历所有可调用的节点（Invoker列表）。对于每个Invoker,让它的current = current + weight。属性含义见weightedRoundRobin对象。同时累加每个Invoker 的 weight 到 totalWeight,即 totalweight = totalweight + weight。
+
+（2） 遍历完所有Invoker后，current值最大的节点就是本次要选择的节点。最后，把该节点的 current 值减去 totalWeight,即 current = current - totalweight。
+
+假设有3个Invoker： A、B、C,它们的权重分别为1、6、9,初始current都是0,则平滑权重轮询过程如表7-4所示。
+
+![](https://pic.imgdb.cn/item/61001dcb5132923bf8b4f71e.jpg)
+
+![](https://pic.imgdb.cn/item/61001e1e5132923bf8b6868e.jpg)
+
+​	从这16次的负载均衡来看，我们可以清楚地得知，A刚好被调用了 1次，B刚好被调用了6次，C刚好被调用了 9次。符合权重轮询的策略，因为它们的权重比是1 ： 6 ： 90此外，C并没有被频繁地一直调用，其中会穿插B和A的调用。至于平滑权重轮询的数学原理，就不在本书讨论的范围内了，感兴趣的读者可以去进一步了解。
+
+### LeastActive 负载均衡
+
+
+
+# 个人源码阅读
+
+基于3.0.1
+
+## 启动
+
+```java
+DubboBootstrap bootstrap = DubboBootstrap.getInstance();
+bootstrap.application(new ApplicationConfig("dubbo-demo-api-consumer"))
+        .registry(new RegistryConfig("zookeeper://192.128.1.200:2181"))
+        .reference(reference)
+        .start();
+```
+
+### 设置applicationConfig
+
+```java
+// ConfigManager
+final Map<String, Map<String, AbstractConfig>> configsCache = newMap();
+protected <T extends AbstractConfig> T addConfig(AbstractConfig config, boolean unique) {
+        if (config == null) {
+            return null;
+        }
+        // ignore MethodConfig
+        if (config instanceof MethodConfig) {
+            return null;
+        }
+        return (T) write(() -> {
+            Map<String, AbstractConfig> configsMap = configsCache.computeIfAbsent(getTagName(config.getClass()), type -> newMap());
+            return addIfAbsent(config, configsMap, unique);
+        });
+    }
+```
+
+```java
+// AbstractConfig
+public static String getTagName(Class<?> cls) {
+        String tag = cls.getSimpleName();
+    	// 如果是以某些结尾，去掉后面的后缀 Config Bean ConfigBase
+        for (String suffix : SUFFIXES) {
+            if (tag.endsWith(suffix)) {
+                tag = tag.substring(0, tag.length() - suffix.length());
+                break;
+            }
+        }
+        return StringUtils.camelToSplitName(tag, "-");
+    }
+```
+
+```java
+// StringUtils 把ApplicationWow-> application-wow
+public static String camelToSplitName(String camelName, String split) {
+        if (isEmpty(camelName)) {
+            return camelName;
+        }
+        if (!isWord(camelName)) {
+            // convert Ab-Cd-Ef to ab-cd-ef
+            if (isSplitCase(camelName, split.charAt(0))) {
+                return camelName.toLowerCase();
+            }
+            // not camel case
+            return camelName;
+        }
+
+        StringBuilder buf = null;
+        for (int i = 0; i < camelName.length(); i++) {
+            char ch = camelName.charAt(i);
+            if (ch >= 'A' && ch <= 'Z') {
+                if (buf == null) {
+                    buf = new StringBuilder();
+                    if (i > 0) {
+                        buf.append(camelName, 0, i);
+                    }
+                }
+                if (i > 0) {
+                    buf.append(split);
+                }
+                buf.append(Character.toLowerCase(ch));
+            } else if (buf != null) {
+                buf.append(ch);
+            }
+        }
+        return buf == null ? camelName.toLowerCase() : buf.toString().toLowerCase();
+    }
+
+```
+
+```java
+// ConfigManager
+private <C extends AbstractConfig> C addIfAbsent(C config, Map<String, C> configsMap, boolean unique)
+            throws IllegalStateException {
+
+        if (config == null || configsMap == null) {
+            return config;
+        }
+
+        // find by value
+        // TODO Is there any problem with ignoring duplicate and equivalent but different ReferenceConfig instances?
+        Optional<C> prevConfig = configsMap.values().stream()
+                .filter(val -> isEquals(val, config))
+                .findFirst();
+        if (prevConfig.isPresent()) {
+            if (prevConfig.get() == config) {
+                // the new one is same as existing one
+                return prevConfig.get();
+            }
+
+            // ignore duplicated equivalent config
+            if (logger.isInfoEnabled()) {
+                logger.info("Ignore duplicated config: " + config);
+            }
+            return prevConfig.get();
+        }
+
+        // check unique config
+        if (unique && configsMap.size() > 0) {
+            C oldOne = configsMap.values().iterator().next();
+            String configName = oldOne.getClass().getSimpleName();
+            String msgPrefix = "Duplicate Configs found for " + configName + ", only one unique " + configName +
+                " is allowed for one application. previous: " + oldOne + ", later: " + config + ". According to config mode [" + configMode + "], ";
+            switch (configMode) {
+                case STRICT: {
+                    if (!isEquals(oldOne, config)) {
+                        throw new IllegalStateException(msgPrefix + "please remove redundant configs and keep only one.");
+                    }
+                    break;
+                }
+                case IGNORE: {
+                    // ignore later config
+                    logger.warn(msgPrefix + "keep previous config and ignore later config: " + config);
+                    return oldOne;
+                }
+                case OVERRIDE: {
+                    // clear previous config, add new config
+                    configsMap.clear();
+                    logger.warn(msgPrefix + "override previous config with later config: " + config);
+                    break;
+                }
+            }
+        }
+
+        String key = getId(config);
+            if (key == null) {
+                // generate key for non-default config compatible with API usages
+                key = generateConfigId(config);
+            }
+
+        C existedConfig = configsMap.get(key);
+
+        if (isEquals(existedConfig, config)) {
+            String type = config.getClass().getSimpleName();
+            throw new IllegalStateException(String.format("Duplicate %s found, there already has one default %s or more than two %ss have the same id, " +
+                    "you can try to give each %s a different id, key: %s, prev: %s, new: %s", type, type, type, type, key, existedConfig, config));
+        } else {
+            configsMap.put(key, config);
+        }
+        return config;
+    }
+```
+
+### 设置RegistryConfig
+
+最终也会到这个方法中
+
+```
+protected <T extends AbstractConfig> T addConfig(AbstractConfig config, boolean unique);
+```
+
+### **.reference(reference)**
+
+最终也会以ReferenceConfig落到addConfig方法中
+
+### 启动
+
+```java
+public DubboBootstrap start() {
+        if (started.compareAndSet(false, true)) {
+            startup.set(false);
+            shutdown.set(false);
+            awaited.set(false);
+
+            initialize();
+            if (logger.isInfoEnabled()) {
+                logger.info(NAME + " is starting...");
+            }
+            // 1. export Dubbo Services
+            exportServices();
+
+            // If register consumer instance or has exported services
+            if (isRegisterConsumerInstance() || hasExportedServices()) {
+                // 2. export MetadataService
+                exportMetadataService();
+                // 3. Register the local ServiceInstance if required
+                registerServiceInstance();
+            }
+
+            referServices();
+            if (asyncExportingFutures.size() > 0 || asyncReferringFutures.size() > 0) {
+                new Thread(() -> {
+                    try {
+                        this.awaitFinish();
+                    } catch (Exception e) {
+                        logger.warn(NAME + " asynchronous export / refer occurred an exception.");
+                    }
+                    startup.set(true);
+                    if (logger.isInfoEnabled()) {
+                        logger.info(NAME + " is ready.");
+                    }
+                    onStart();
+                }).start();
+            } else {
+                startup.set(true);
+                if (logger.isInfoEnabled()) {
+                    logger.info(NAME + " is ready.");
+                }
+                onStart();
+            }
+
+            if (logger.isInfoEnabled()) {
+                logger.info(NAME + " has started.");
+            }
+        }
+        return this;
+    }
+```
+
+初始化框架
+
+```java
+// ApplicationModel
+public static void initFrameworkExts() {
+        Set<FrameworkExt> exts = ExtensionLoader.getExtensionLoader(FrameworkExt.class).getSupportedExtensionInstances();
+        for (FrameworkExt ext : exts) {
+            ext.initialize();
+        }
+    }
+```
+
+**ConfigManager初始化**
+
+主要设置congMode
+
+```java
+// ConfigManager
+@Override
+    public void initialize() throws IllegalStateException {
+        String configModeStr = null;
+        try {
+            configModeStr = (String) ApplicationModel.getEnvironment().getConfiguration().getProperty(DUBBO_CONFIG_MODE);
+            if (StringUtils.hasText(configModeStr)) {
+                this.configMode = ConfigMode.valueOf(configModeStr.toUpperCase());
+            }
+            logger.info("Dubbo config mode: " + configMode);
+        } catch (Exception e) {
+            String msg = "Illegal '" + DUBBO_CONFIG_MODE + "' config value [" + configModeStr + "], available values " + Arrays.toString(ConfigMode.values());
+            logger.error(msg, e);
+            throw new IllegalArgumentException(msg, e);
+        }
+    }
+```
+
+**startConfigCenter**
+
+```java
+private void startConfigCenter() {
+
+    // load application config
+    loadConfigs(ApplicationConfig.class);
+
+    // load config centers
+    loadConfigs(ConfigCenterConfig.class);
+
+    useRegistryAsConfigCenterIfNecessary();
+
+    // check Config Center
+    Collection<ConfigCenterConfig> configCenters = configManager.getConfigCenters();
+    if (CollectionUtils.isEmpty(configCenters)) {
+        ConfigCenterConfig configCenterConfig = new ConfigCenterConfig();
+        configCenterConfig.refresh();
+        ConfigValidationUtils.validateConfigCenterConfig(configCenterConfig);
+        if (configCenterConfig.isValid()) {
+            configManager.addConfigCenter(configCenterConfig);
+            configCenters = configManager.getConfigCenters();
+        }
+    } else {
+        for (ConfigCenterConfig configCenterConfig : configCenters) {
+            configCenterConfig.refresh();
+            ConfigValidationUtils.validateConfigCenterConfig(configCenterConfig);
+        }
+    }
+
+    if (CollectionUtils.isNotEmpty(configCenters)) {
+        CompositeDynamicConfiguration compositeDynamicConfiguration = new CompositeDynamicConfiguration();
+        for (ConfigCenterConfig configCenter : configCenters) {
+            // Pass config from ConfigCenterBean to environment
+            environment.updateExternalConfigMap(configCenter.getExternalConfiguration());
+            environment.updateAppExternalConfigMap(configCenter.getAppExternalConfiguration());
+
+            // Fetch config from remote config center
+            compositeDynamicConfiguration.addConfiguration(prepareEnvironment(configCenter));
+        }
+        environment.setDynamicConfiguration(compositeDynamicConfiguration);
+    }
+
+    configManager.refreshAll();
+}
+```
+
+## ServiceConfig#Export流程
+
+* 初始化
+
+* 如果没有刷新配置，就刷新
+
+* doExport
+
+  * doExportUrls
+
+    * 往ServiceRepository注册provider
+
+    * 然后根据协议依次注册Service
+
+    * doExportUrlsFor1Protocol
+
+      * ```
+        //init serviceMetadata attachments
+        serviceMetadata.getAttachments().putAll(map);
+        ```
+
+    * 不是远程就要暴露到本地exportLocal
+
+    * DubboProtocol.export
+
+      * openServer
+      * ExchangeServer
+
+    * RegistryProtocol.export
+
+      * ZookeeperServiceDiscovery
+
+  * exported
+
+```java
+//ServiceRepository
+    // services
+    private ConcurrentMap<String, ServiceDescriptor> services = new ConcurrentHashMap<>();
+
+    // consumers
+    private ConcurrentMap<String, ConsumerModel> consumers = new ConcurrentHashMap<>();
+
+    // providers
+    private ConcurrentMap<String, ProviderModel> providers = new ConcurrentHashMap<>();
+
+    // useful to find a provider model quickly with serviceInterfaceName:version
+    private ConcurrentMap<String, ProviderModel> providersWithoutGroup = new ConcurrentHashMap<>();
+```
+
