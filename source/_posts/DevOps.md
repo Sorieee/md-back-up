@@ -5029,3 +5029,713 @@ JaCoCo提供了以下几个维度的覆盖率分析。
 
 ​	在一些特殊情况下，比如外网的代码仓库无法调用内网的Jenkins，或者反过来，则会采用这种方式。
 
+## 事件触发
+
+### 由上游任务触发：upstream
+
+	upstream的作用就是能让B pipeline自行决定依赖哪些上游任务。示例如下：
+
+![](https://pic.imgdb.cn/item/60dffef95132923bf8267a90.jpg)
+
+当upstreamProjects参数接收多个任务时，使用，分隔。threshold参数是指上游任务的执行结果是什么值时触发。hudson.model.Result是一个枚举，包括以下值：
+
+* ABORTED：任务被手动中止。
+* FAILURE：构建失败。
+* SUCCESS：构建成功。
+* UNSTABLE：存在一些错误，但不至于构建失败。
+* NOT_BUILT：在多阶段构建时，前面阶段的问题导致后面阶段无法执行。
+
+注意：需要手动触发一次任务，让Jenkins加载pipeline后，trigger指令才会生效。
+
+### GitLab通知触发
+
+GitLab通知触发是指当GitLab发现源代码有变化时，触发Jenkins执行构建。示意图如图6-1所示。
+
+![](https://pic.imgdb.cn/item/60e000bb5132923bf836005f.jpg)
+
+	通过以下几步就可以实现提交代码后，GitLab触发Jenkins上相应的pipeline执行构建。
+	
+	（1）安装Jenkins插件。
+	
+	• GitLab插件（https：//plugins.jenkins.io/gitlab-plugin）。
+	
+	• git插件（https：//plugins.jenkins.io/git）。
+	
+	需要再次提醒的是，本书使用的GitLab版本是10.5.4，使用的是GitLab插件，不是GitLab Hook插件（已废弃）。在安装插件时需要留意。
+	
+	（2）在GitLab上创建项目。我们在jenkins-book这个group下创建一个名为“hello-world-pipeline”的项目，地址为：http：//192.168.0.100：8091/jenkins-book/hello-world-pipeline
+	
+	（3）在Jenkins上创建pipeline项目（注意是单分支的pipeline项目，而不是多分支的pipeline项目）。使用的git地址就是上一步创建的git@192.168.0.100：jenkins-book/hello-world-pipeline.git。Jenkins将使用SSH方式拉取，所以需要提前将SSH的公钥放到GitLab上。
+	
+	（4）在Jenkins上配置hello-world-pipeline。在项目的配置页中找到“Build Triggers”部分，勾选“Build when a change is pushed toGitLab”复选框，就可以看到如图6-2所示的配置。
+
+![](https://pic.imgdb.cn/item/60e003d65132923bf85200b1.jpg)
+
+	可以看到Jenkins会暴露一个webhook：http：//192.168.23.11：8667/jenkins/project/hello-world-pipeline。
+	
+	这里需要提醒读者朋友，不论是单分支的pipeline项目还是多分支的pipeline项目，它们暴露的webhook的地址格式都是：/project/＜项目名＞，而不是/job/＜项目名＞。
+	
+	那是不是说任何人都可以请求这个webhook？这取决于你在Jenkins上的权限设置。总的来说，这个webhook调用权限取决于以下两个设置项：
+
+* Jenkins全局权限设置。
+* 该pipeline是否设置了“Secret token”。
+
+	不论Jenkins全局权限如何设置，基于安全的考虑，我们一般都会为该pipeline生成一个Secrettoken，只有带上Secret token的请求才会被处理。Secret token的生成也很简单。单击如图6-2所示页面上的“Advanced”按钮，我们就可以看到一个“Secret token”输入框，推荐单击其右下角的“Generate”按钮自动生成Secret token，而不是手动输入，如图6-3所示。
+
+
+
+![](https://pic.imgdb.cn/item/60e004a95132923bf85946c5.jpg)
+
+	我们需要将所生成的Secret token复制下来，在接下来的步骤中会使用到。
+
+（5）GitLab：配置通知Jenkins。
+
+进入hello-world-pipeline在GitLab上的配置页，找到Settings→Integrations（注意不同版本的GitLab，界面可能不同），如图6-4所示。
+
+![](https://pic.imgdb.cn/item/60e004c95132923bf85a624d.jpg)
+
+	在Integrations配置页的相应输入框中粘贴上一步中Jenkins暴露的webhook及相应的Secrettoken，如图6-5所示。
+	
+	在Integrations配置页的相应输入框中粘贴上一步中Jenkins暴露的webhook及相应的Secrettoken，如图6-5所示。
+
+![](https://pic.imgdb.cn/item/60e004e25132923bf85b3deb.jpg)
+
+（6）测试整个链路是否通了。
+
+	在GitLab上添加好这个webhook后，可以跳到表单下方，有一个已添加的webhook列表，找到我们刚刚创建的webbook。单击“Test”按钮，选择“Push events”，GitLab就会向该webhook发送一个event，如图6-6所示。
+
+![](https://pic.imgdb.cn/item/60e005265132923bf85d9841.jpg)
+
+	再回到Jenkins上该项目的详情页，在构建历史中，我们可以看到被GitLab触发的构建都会被标记为“Started by GitLab push byAdministrator”，如图6-7所示。这就说明链路已经通了。
+
+![](https://pic.imgdb.cn/item/60e005325132923bf85e0732.jpg)
+
+### 在pipeline中实现GitLab trigger
+
+	我们也希望通过修改Jenkinsfile就能实现。
+
+![](https://pic.imgdb.cn/item/60e005895132923bf8610f74.jpg)
+
+	secretToken使用随机字符串生成器生成即可。如果Jenkins在内网使用，并且安全性有一定的保障，我们可以将secretToken定义为一个Jenkins全局变量，供所有的项目使用。这样做就不用为每个项目重新生成token了。
+
+GitLab trigger方法有很多参数可配置，下面简单介绍一些常用的参数。
+
+* triggerOnPush：当GitLab触发push事件时，是否执行构建。
+* triggerOnMergeRequest：当GitLab触发mergeRequest事件时，是否执行构建。
+* branchFilterType：只有符合条件的分支才会被触发。必选，否则无法实现触发。可以设置的值有：
+  * NameBasedFilter：基于分支名进行过滤，多个分支名使用逗号分隔。
+  * RegexBasedFilter：基于正则表达对分支名进行过滤。
+  * All：所有分支都会被触发。
+* includeBranchesSpec：基于branchFilterType值，输入期望包括的分支的规则。
+* excludeBranchesSpec：基于branchFilterType值，输入期望排除的分支的规则。
+
+
+
+	想了解更多的参数，可以在GitLab plugin的GitHub页面中查看。
+
+## 将构建状态信息推送到**GitLab**
+
+（1）进入Jenkins→Configure System页，找到“Gitlab”选项，填入GitLab地址，如图6-8所示。
+
+![](https://pic.imgdb.cn/item/60e009595132923bf88357bc.jpg)
+
+2）根据提示，我们需要设置它的Credentials（凭证）。单击“Add”按钮，在弹出的对话框中输入之前保存的API token，如图6-9所示。单击“Add”按钮确定添加。
+
+![](https://pic.imgdb.cn/item/60e0096a5132923bf883f20c.jpg)
+
+在Credentials下拉列表中选择“GitLab APItoken”后，单击“Test Connection”按钮，如果返回Success，就说明集成成功了，如图6-10所示。有关凭证的更多内容，将在第9章中进行介绍。
+
+![](https://pic.imgdb.cn/item/60e009765132923bf88460d1.jpg)
+
+（3）在pipeline的post部分，将构建结果更新到GitLab的相应commit记录上。除此之外，还需要在options部分加入gitLabConnection配置，同时传入“gitlab”参数。“gitlab”就是上文中提醒读者注意的“Connection name”的值。
+
+![](https://pic.imgdb.cn/item/60e009895132923bf8850ebb.jpg)
+
+提交代码后，需要手动触发一次构建，pipeline才会生效。
+
+笔者做了一次成功构建、一次失败构建的实验。在GitLab上的项目的commit列表中，显示了最近两次commit的构建状态，如图6-11所示。
+
+![](https://pic.imgdb.cn/item/60e0099b5132923bf885adec.jpg)
+
+## 使用Generic Webhook Trigger插件实现触发
+
+	前文中，我们讲到安装GitLab插件后，GitLab系统就可以发送Webhook触发Jenkins项目的执行。那是不是说其他系统想触发Jenkins项目执行，也需要找一个插件或者开发一个插件来实现呢？有了Generic Webhook Trigger插件（https：//plugins.jenkins.io/generic-webhook-trigger）就不需要了。
+	
+	安装 Generic Webhook Trigger 插件（下文使用GWT 简称）后，Jenkins 会暴露一个 API：＜JENKINS URL>/generic-webhook-trigger/invoke，即由GWT插件来处理此API的请求。
+	
+	GWT插件接收到JSON或XML的HTTP POST请求后，根据我们配置的规则决定触发哪个Jenkins项目。基本原理就这么简单。下面我们先感受一下，然后再详细介绍GWT各参数的含义。现在，我们创建一个普通的pipeline项目。代码如下：
+
+![](https://pic.imgdb.cn/item/60e00b1e5132923bf8935096.jpg)
+
+	注意：在创建完成后，需要手动运行一次，这样pipeline的触发条件才会生效。
+	
+	然后，我们发起一次HTTP POST请求。
+
+![](https://pic.imgdb.cn/item/60e00b765132923bf8966763.jpg)
+
+	GenericTrigger触发条件由GWT插件提供。此触发条件可以说是GWT的所有内容。
+	
+	笔者将GenericTrigger触发条件分为5部分，这样更易于理解各参数的作用。
+
+*  从HTTP POST请求中提取参数值。
+* token，GWT插件用于标识Jenkins项目的唯一性。
+* 根据请求参数值判断是否触发Jenkins项目的执行。
+* 根据请求参数值判断是否触发Jenkins项目的执行。
+* 日志打印控制。
+* Webhook响应控制。
+
+### 从Webhook请求中提取参数值
+
+	一个HTTP POST请求可以从三个维度提取参数，即POST body、URL参数和header。GWT插件提供了三个参数分别对这三个维度的数据进行提取。
+	
+	（1）genericVariables：提取POST body中的参数。
+
+![](https://pic.imgdb.cn/item/60e00bde5132923bf89a374a.jpg)
+
+* value：JSONPath表达式，或者XPath表达式，取决于expressionType参数值，用于从POSTbody中提取值。
+* key：从POST body中提取出的值的新变量名，可用于pipeline其他步骤。
+* expressionType：可选，value的表达式类型，默认为JSONPath。当请求为XML内容时，必须指定XPath值。
+* defaultValue：可选，当提取不到值，且defaultValue不为空时，则使用defaultValue作为返回值。
+* regexpFilter：可选，过滤表达式，对提取出来的值进行过滤。regexpFilter做的事情其实就是string.replaceAll（regexpFilter，""）；。string是从HTTP请求中提取出来的值。
+
+（2）genericRequestVariables：从URL参数中提取值。
+
+![](https://pic.imgdb.cn/item/60e00c1b5132923bf89c4f94.jpg)
+
+* key：提取出的值的新变量名，可用于pipeline其他步骤。
+* regexpFilter：对提取出的值进行过滤。
+
+（3）genericHeaderVariables：从HTTPheader中提取值。
+
+![](https://pic.imgdb.cn/item/60e00c9c5132923bf8a0b4ca.jpg)
+
+### 触发具体某个Jenkins项目
+
+	上文中，我们看到GenericTrigger方法有一个token参数。
+
+![](https://pic.imgdb.cn/item/60e069295132923bf8ab7c3d.jpg)
+
+	token参数的作用是标识一个pipeline在Jenkins中的唯一性（当然，没有人阻止你让所有的pipeline使用同一个token）。为什么需要这个参数呢？这要从GWT插件的原理说起。
+	
+	当Jenkins接收到generic-webhook-trigger/invoke接口的请求时，会将请求代理给GWT插件处理。GWT插件内部会从Jenkins实例对象中取出所有的参数化Jenkins项目，包括pipeline，然后进行遍历。如果在参数化项目中GenericTrigger配置的token的值与Webhook请求时的token的值一致，则触发此参数化项目。
+	
+	如果多个参数化项目的token值一样，则它们都会被触发。
+	
+	小技巧：pipeline的token可以被设置为Jenkins的项目名。比如：
+
+![](https://pic.imgdb.cn/item/60e0694b5132923bf8ac59e9.jpg)
+
+### 根据请求参数值判断是否触发Jenkins项目执行
+
+GWT并不只是根据token值来判断是否触发，还可以根据我们提取出的值进行判断。示例如下：
+
+![](https://pic.imgdb.cn/item/60e069635132923bf8aceebb.jpg)
+
+* regexpFilterText：需要进行匹配的key。例子中，我们使用从POST body中提取出的refValue变量值。
+* regexpFilterExpression：正则表达式。
+
+
+
+	如果regexpFilterText参数的值符合regexpFilterExpression参数的正则表达式，则触发执行。
+
+### 控制打印内容
+
+	打印日志有助于调试。GWT插件提供了三个参数。
+
+* printPostContent：布尔值，将Webhook请求信息打印到日志上。
+* printContributedVariables：布尔值，将提取后的变量名及变量值打印出来。
+* causeString：字符串类型，触发原因，可以直接引用提取后的变量，如causeString：'Triggered on $msg'。
+
+### 控制响应
+
+	GWT插件最近（写本书时）才加入的一个参数：
+
+* silentResponse：布尔类型，在正常情况下，当Webhook请求成功后，GWT插件会返回HTTP200状态码和触发结果给调用方。但是当silentResponse设置为true时，就只返回HTTP200状态码，不返回触发结果。
+
+## 小结
+
+略
+
+# 多分支构建
+
+## 创建多分支pipeline
+
+	幸好Jenkins支持多分支pipeline（Multibranch Pipeline）。在创建此类项目时，就需要选择“MultibranchPipeline”，如图7-1所示。
+
+![](https://pic.imgdb.cn/item/60e1ace35132923bf8f2591d.jpg)
+
+（1）设置代码仓库地址，如图7-2所示。
+
+![](https://pic.imgdb.cn/item/60e1acf85132923bf8f2df01.jpg)
+
+（2）设置分支扫描触发策略。
+
+	分支扫描是指Jenkins根据一定的策略去代码仓库扫描分支，如果有新分支就创建一个以分支名命名的任务，如果发现有分支被删除了，就删除相应的Jenkins任务。如图7-3所示的就是创建完成后的任务页面。
+
+![](https://pic.imgdb.cn/item/60e1b2265132923bf8118d0e.jpg)
+
+	在“Scan Multibranch Pipeline Triggers”下就只有一个可选项：Periodically if not otherwiserun （没有手动触发，就定期扫描分支）。勾选此选项，设置扫描的间隔时长，如图7-4所示。
+
+![](https://pic.imgdb.cn/item/60e1b2365132923bf811ec84.jpg)
+
+	读者可根据项目建立分支的频繁程度设置周期的长短。越频繁建立分支，扫描周期应越短。当然，我们也可以单击任务页面左侧的“ScanMultibranch Pipeline Now”项，手动触发Jenkins去扫描分支。
+
+（3）孤儿任务（Orphaned Item）处理策略。
+
+	如果在代码仓库中删除了release分支，那么在多分支任务页面上，该分支在Jenkins上的任务也应该被删除。至于什么时候删除，取决于下次分支扫描的时间。如果代码仓库中的分支被删除了，而Jenkins上的相应任务没有被删除，那么这个任务就被称为孤儿任务。
+	
+	对于分支任务上的历史记录，保存多长时间是可以设置的，如图7-5所示。
+
+![](https://pic.imgdb.cn/item/60e1b2665132923bf81308a9.jpg)
+
+两个参数的含义分别是：
+
+* Days to keep old items：保留多少天。
+*  Max＃of old items to keep：最多保留多少个孤儿任务。
+
+## 根据分支部署到不同的环境
+
+	如何根据不同的分支做不同的事情，比如根据不同的分支部署到不同的环境。类似这样的事情可以使用if-else来实现。
+
+![](https://pic.imgdb.cn/item/60e1b2c05132923bf8152826.jpg)
+
+
+
+	但是这样的代码不够优雅，而且不是声明式的。使用when指令可以让pipeline看起来更优雅。
+
+![](https://pic.imgdb.cn/item/60e1b2ce5132923bf8157da0.jpg)
+
+## when指令的用法
+
+	when指令必须至少包含一个条件。when指令除了支持branch判断条件，还支持多种判断条件。
+
+* changelog：如果版本控制库的changelog符合正则表达式，则执行
+
+![](https://pic.imgdb.cn/item/60e1b7ce5132923bf835b5c4.jpg)
+
+* changeset：如果版本控制库的变更集合中包含一个或多个文件符合给定的Ant风格路径表达式，则执行
+
+![](https://pic.imgdb.cn/item/60e1b85f5132923bf8396eae.jpg)
+
+*  environment：如果环境变量的值与给定的值相同，则执行
+
+![](https://pic.imgdb.cn/item/60e1b8755132923bf83a1e01.jpg)
+
+* equals：如果期望值与给定的值相同，则执行
+
+![](https://pic.imgdb.cn/item/60e1b9155132923bf83e7eb8.jpg)
+
+* expression：如果Groovy表达式返回的是true，则执行
+
+![](https://pic.imgdb.cn/item/60e1b9325132923bf83f4042.jpg)
+
+	当表达式返回的是字符串时，它必须转换成布尔类型或null；否则，所有的字符串都被当作true处理。
+
+* buildingTag：如果pipeline所执行的代码被打了tag，则执行
+
+![](https://pic.imgdb.cn/item/60e1b9785132923bf841251c.jpg)
+
+* tag：如果pipeline所执行的代码被打了tag，且tag名称符合规则，则执行
+
+![](https://pic.imgdb.cn/item/60e1b98f5132923bf841bf47.jpg)
+
+	如果tag的参数为空，即tag（），则表示不论tag名称是什么都执行，与buildingTag的效果相同。
+	
+	tag条件支持comparator参数，支持的值如下。
+
+* EQUALS：简单的文本比较。
+
+![](https://pic.imgdb.cn/item/60e1b9ab5132923bf8427bd7.jpg)
+
+* GLOB （默认值）：Ant风格路径表达式。由于是默认值，所以使用时一般省略。完整写法如下：
+
+![](https://pic.imgdb.cn/item/60e1b9b95132923bf842e015.jpg)
+
+* REGEXP：正则表达式。使用方法如下：
+
+![](https://pic.imgdb.cn/item/60e1b9d15132923bf84384c9.jpg)
+
+	tag条件块非常适合根据tag进行发布的发布模式。
+	
+	以上介绍的都是单条件判断，when指令还可以进行多条件组合判断。
+
+* allOf：所有条件都必须符合。下例表示当分支为master且环境变量DEPLOY_TO的值为production时，才符合条件。
+
+![](https://pic.imgdb.cn/item/60e1b9f05132923bf8445a79.jpg)
+
+* anyOf：其中一个条件为true，就符合。下例表示master分支或staging分支都符合条件。
+
+![](https://pic.imgdb.cn/item/60e1bc925132923bf856bf91.jpg)
+
+## GitLab trigger对多分支pipeline的支持
+
+	对于多分支pipeline，JenkinsGitLab插件只监听push事件，不监听mergerequest事件。
+	
+	而在Jenkins多分支pipeline项目的设置页面中，是找不到GitLab配置项的。只能通过修改Jenkinsfile来实现，在triggers指令中加入gitlab配置。
+
+
+
+![](https://pic.imgdb.cn/item/60e1bcc75132923bf8583328.jpg)
+
+## Generic Webhook Trigger插件在多分支pipeline场景下的应用
+
+在多分支pipeline场景下，我们希望触发某个分支的构建执行，GenericTrigger可以这么传参：
+
+![](https://pic.imgdb.cn/item/60e1bdb65132923bf85edb3d.jpg)
+
+# 参数化pipeline
+
+## 什么是参数化pipeline
+
+​	参数化pipeline是指可以通过传参来决定pipeline的行为。参数化让写pipeline就像写函数，而函数意味着可重用、更抽象。所以，通常使用参数化pipeline来实现一些通用的pipeline。
+
+## 使用parameters指令
+
+​	在Jenkins pipeline中定义参数使用的是parameters指令，其只允许被放在pipeline块下。代码如下：
+
+![](https://pic.imgdb.cn/item/610537595132923bf8bfb69f.jpg)
+
+​	booleanParam方法用于定义一个布尔类型的参数。booleanParam方法接收三个参数。
+
+*  defaultValue：默认值。
+* description：参数的描述信息。
+* name：参数名。
+
+
+
+​	在定义了pipeline的参数后，如何使用呢？
+
+​	被传入的参数会放到一个名为params的对象中，在pipeline中可直接使用。params.userFlag就是引用parameters指令中定义的userFlag参数。
+
+​	值得注意的是，在Jenkins新增此pipeline后，至少要手动执行一次，它才会被Jenkins加载生效。生效后，在执行项目时，就可以设置参数值了，如图8-1所示。
+
+![](https://pic.imgdb.cn/item/610539eb5132923bf8c6749f.jpg)
+
+### parameters指令支持的参数类型
+
+​	为了满足不同的应用场景，参数化pipeline支持多种参数类型，包括：
+
+* string，字符串类型。
+
+![](https://pic.imgdb.cn/item/61053acf5132923bf8c8e692.jpg)
+
+* text，多行文本类型，换行使用\n。
+
+![](https://pic.imgdb.cn/item/61053aea5132923bf8c93b9a.jpg)
+
+* booleanParam，布尔类型。
+
+![](https://pic.imgdb.cn/item/61053bae5132923bf8cb4d95.jpg)
+
+* choice，选择参数类型，使用\n来分隔多个选项。
+
+![](https://pic.imgdb.cn/item/61053bbd5132923bf8cb7c0d.jpg)
+
+​	效果如图8-3所示。
+
+![](https://pic.imgdb.cn/item/61053bcc5132923bf8cba327.jpg)
+
+* file，文件类型，用户可上传文件。但是此类型存在Bug——你无法拿到上传后的文件，所以不推荐使用。具体可以看官方issue：JENKINS-27413。
+
+* password，密码类型。
+
+![](https://pic.imgdb.cn/item/61053bf15132923bf8cc156f.jpg)
+
+### 多参数
+
+​	当然，参数化的pipeline不可能只支持接收一个参数，以下就是为pipeline同时定义多个参数的例子。
+
+![](https://pic.imgdb.cn/item/61053c355132923bf8ccd751.jpg)
+
+## 由另一个pipeline传参并触发
+
+​	既然存在参数化的pipeline，那么就表示可以在一个pipeline中“调用”另一个pipeline。在Jenkins pipeline中可以使用build步骤实现此功能。build步骤是pipeline插件的一个组件，所以不需要另外安装插件，可以直接使用。
+
+​	build步骤其实也是一种触发pipeline执行的方式，它与triggers指令中的upstream方式有两个区别：
+
+​	（1） build步骤是由上游pipeline使用的，而upstream方式是由下游pipeline使用的。
+
+​	（2） build步骤是可以带参数的，而upstream方式只是被动触发，并且没有带参数。
+
+​	假如调用本章开头的例子，我们可以在steps部分这样写：
+
+![](https://pic.imgdb.cn/item/61053cac5132923bf8ce2d45.jpg)
+
+​	我们来看看build步骤的基本的两个参数。
+
+*  job（必填）：目标Jenkins任务的名称。
+* parameters（可选）：数组类型，传入目标pipeline的参数列表。传参方法与定参方法类似。
+
+![](https://pic.imgdb.cn/item/61053cc95132923bf8ce8170.jpg)
+
+除此之外，build步骤还支持其他三个参数。
+
+* propagate（可选）：布尔类型，如果值为true，则只有当下游pipeline的最终构建状态为SUCCESS时，上游pipeline才算成功；如果值为false，则不论下游pipeline的最终构建状态是什么，上游pipeline都忽略。默认值为true。
+* quietPeriod（可选）：整型，触发下游pipeline后，下游pipeline等待多久执行。如果不设置此参数，则等待时长由下游pipeline确定。单位为秒。
+* wait（可选）：布尔类型，是否等待下游pipeline执行完成。默认值为true。
+
+
+
+​	如果你使用了Folder插件（https：//plugins.jenkins.io/cloudbees-folder），那么就需要注意build步骤的job参数的写法了。
+
+​	使用Folder插件，可以让我们像管理文件夹下的文件一样来管理Jenkins项目。我们的Jenkins项目可以创建在这些文件夹下。如果目标pipeline与源pipeline在同一个目录下，则可以直接使用名称；如果不在同一个目录下，则需要指定相对路径，如../sister-folder/downstream，或者指定绝对路径，如/top-level-folder/nested-folder/downstream。
+
+## 使用Conditional BuildStep插件处理复杂的判断逻辑
+
+​	有些场景要求我们根据传入的参数做一些逻辑判断。很自然地，我们想到了在script函数内就可以实现。
+
+![](https://pic.imgdb.cn/item/61053e675132923bf8d32e5a.jpg)
+
+
+
+​	这样写起来很不优雅，Conditional BuildStep插件（https：//plugins.jenkins.io/conditional-buildstep）可以让我们像使用when指令一样进行条件判断。以下代码就是安装Conditional BuildStep插件后的写法。
+
+![](https://pic.imgdb.cn/item/61053e885132923bf8d38ed8.jpg)
+
+​	现实中，我们会面对更复杂的判断条件。而expression表达式本质上就是一个Groovy代码块，大大提高了表达式的灵活性。以下是比较常用的例子。
+
+
+
+![](https://pic.imgdb.cn/item/61053eaa5132923bf8d3ef7a.jpg)
+
+![](https://pic.imgdb.cn/item/61053eb55132923bf8d40df7.jpg)
+
+## 使用input步骤
+
+​	执行input步骤会暂停pipeline，直到用户输入参数。这是一种特殊的参数化pipeline的方法。我们可以利用input步骤实现以下两种场景：
+
+​	（1）实现简易的审批流程。例如，pipeline暂停在部署前的阶段，由负责人点击确认后，才能部署。
+
+​	（2）实现手动测试阶段。在pipeline中增加一个手动测试阶段，该阶段中只有一个input步骤，当手动测试通过后，测试人员才可以通过这个input步骤。
+
+###  input步骤的简单用法
+
+接下来，我们介绍input步骤的简单使用方式。
+
+（1）在Jenkinsfile中加入input步骤。
+
+![](https://pic.imgdb.cn/item/61053f0b5132923bf8d51209.jpg)
+
+（2）当pipeline执行到deploy阶段后，就会暂停。如图8-5所示的是该Jenkins任务首页的阶段视图。
+
+![](https://pic.imgdb.cn/item/61053f1f5132923bf8d554b4.jpg)
+
+​	将鼠标指针移到虚线方块上后，就会出现有提示信息的浮层，如图8-6所示。
+
+![](https://pic.imgdb.cn/item/61053f2f5132923bf8d586ee.jpg)
+
+​	如果单击“Proceed”按钮，将会进入下一个步骤；如果单击“Abort”按钮，则pipeline中止。
+
+​	不论是通过还是中止，job日志都会记录是谁进行的手动操作。这对审计非常友好。
+
+![](https://pic.imgdb.cn/item/61053f765132923bf8d65d35.jpg)
+
+​	这是简单的input步骤使用方式——手动确定是否通过。
+
+### input步骤的复杂用法
+
+​	input步骤的简单用法很难满足更复杂的场景。现在，我们来看一种更复杂的使用方式。
+
+![](https://pic.imgdb.cn/item/61053f9a5132923bf8d6c77c.jpg)
+
+​	细心的读者可能已经注意到，我们在pipeline外定义了一个变量approvalMap。这是因为定义在阶段内的变量的作用域只在这个阶段中，而input步骤的返回值需要跨阶段使用，所以需要将其定义在pipeline外。这样变量approvalMap的作用域就是整个pipeline了。
+
+​	同时，由于在pipeline中直接使用了Groovy语言赋值表达式，所以需要将approvalMap=input（...）放到script块中。
+
+​	input步骤的返回值类型取决于要返回的值的个数。如果只有一个值，返回值类型就是这个值的类型；如果有多个值，则返回值类型是Map类型。本例返回的approvalMap就是一个map。Map的key就是每个参数的name属性，比如ENV、myparam都是key。
+
+​	除了可以在返回的map中放手动输入的值，还可以放其他数据，比如submitterParameter：'APPROVER'代表将key APPROVER放到返回的map中。
+
+​	下面我们分别介绍input步骤的参数。
+
+* message：input步骤的提示消息。
+* submitter（可选）：字符串类型，可以进行操作的用户ID或用户组名，使用“，”分隔，在“，”左右不允许有空格。这在做input步骤的权限控制方面很实用。
+* submitterParameter（可选）：字符串类型，保存input步骤的实际操作者的用户名的变量名。
+* ok（可选）：自定义确定按钮的文本。
+* parameters（可选）：手动输入的参数列表。
+
+
+
+​	8.2节中介绍的parameters指令支持的参数类型，input步骤都支持，而且写法是一样的，此处就不重复介绍了。
+
+​	其实，approvalMap还有一种定义方式，放在environment中。
+
+![](https://pic.imgdb.cn/item/61053ff05132923bf8d7d02b.jpg)
+
+## 小贴士
+
+​	遗憾的是，上游pipeline触发下游pipeline时，并没有自动带上自身的信息。所以，当下游pipeline需要使用上游pipeline的信息时，上游pipeline信息就要以参数的方式传给下游pipeline。比如在上游pipeline中调用下游pipeline时，可以采用以下做法。
+
+​	![](https://pic.imgdb.cn/item/6105400f5132923bf8d83269.jpg)
+
+### 设置手动输入步骤超时后，pipeline自动中止
+
+​	input步骤可以与timeout步骤实现超时自动中止pipeline，防止无限等待。以下pipeline一小时后不处理就自动中止。
+
+![](https://pic.imgdb.cn/item/6105401f5132923bf8d862d9.jpg)
+
+# 凭证管理
+
+## 为什么要管理凭证
+
+众所周知，在Jenkinsfile或部署脚本中使用明文密码会造成安全隐患。但是为什么还频繁出现明文密码被上传到GitHub上的情况呢？笔者认为有两个主要原因（当然，现实的原因可能更多）：
+
+​	（1）程序员或运维人员不知道如何保护密码。
+
+​	（2）管理者没有足够重视，否则会给更多的时间让程序员或运维人员想办法隐藏明文密码。本章介绍的Jenkins凭证管理就是为解决此类问题的。
+
+## 凭证是什么
+
+​	凭证（cridential）是Jenkins进行受限操作时的凭据。比如使用SSH登录远程机器时，用户名和密码或SSH key就是凭证。而这些凭证不可能以明文写在Jenkinsfile中。Jenkins凭证管理指的就是对这些凭证进行管理。
+
+​	为了最大限度地提高安全性，在Jenkins master节点上对凭证进行加密存储（通过Jenkins实例ID加密），只有通过它们的凭证ID才能在pipeline中使用，并且限制了将证书从一个Jenkins实例复制到另一个Jenkins实例的能力。
+
+​	也因为所有的凭证都被存储在Jenkins master上，所以在Jenkins master上最好不要执行任务，以免被pipeline非法读取出来。那么在哪里执行pipeline呢？应该分配到Jenkins agent上执行。我们将在第14章中详细介绍Jenkins master与Jenkinsagent的概念。
+
+## 创建凭证
+
+​	创建凭证前，请确保当前用户有添加凭证的权限。我们使用超级管理员的身份登录。单击Jenkins首页左侧的Credentials→System，如图9-1所示。
+
+![](https://pic.imgdb.cn/item/6105408d5132923bf8d9b696.jpg)
+
+​	然后单击“Global credentials （unrestricted）”链接，再单击“AddCredentials”，显示如图9-2所示。
+
+![](https://pic.imgdb.cn/item/6105409d5132923bf8d9e724.jpg)
+
+​	在右侧的表单中，我们来看几个关键的选项。
+
+* Kind：选择凭证类型。
+* Scope：凭证的作用域。有两种作用域：
+* Global，全局作用域。如果凭证用于pipeline，则使用此种作用域。
+*  System，如果凭证用于Jenkins本身的系统管理，例如电子邮件身份验证、代理连接等，则使用此种作用域。
+* ID：在pipeline使用凭证的唯一标识。
+
+
+
+​	Jenkins默认支持以下凭证类型：Secret text、Username with password、Secret file、SSH Username with private key、Certificate：PKCS＃12、Docker Host Certificate Authentication credentials。
+
+​	接下来，我们分别介绍几种常用的凭证。
+
+## 常用凭证
+
+​	添加凭证后，安装Credentials Binding Plugin插件（https：//plugins.jenkins.io/credentials-binding），通过其提供的withCredentials步骤就可以在pipeline中使用凭证了。
+
+### Secret text
+
+​	Secret text是一串需要保密的文本，比如GitLab的API token。添加方法如图9-3所示。
+
+![](https://pic.imgdb.cn/item/610540f05132923bf8dae20d.jpg)
+
+### Username with password
+
+![](https://pic.imgdb.cn/item/610541035132923bf8db1a8f.jpg)
+
+### Secret file
+
+​	Secret file指需要保密的文本文件。添加方法如图9-5所示。使用Secret file时，Jenkins会将文件复制到一个临时目录中，再将文件路径设置到一个变量中。构建结束后，所复制的Secret file会被删除。
+
+​	示例如下：
+
+![](https://pic.imgdb.cn/item/610541195132923bf8db5f79.jpg)
+
+### SSH Username with private key
+
+​	SSH Username with private key指一对SSH用户名和密钥。添加方法如图9-6所示。
+
+![](https://pic.imgdb.cn/item/6105412b5132923bf8db9484.jpg)
+
+​	在使用此类凭证时，Jenkins会将SSH key复制到一个临时目录中，再将文件路径设置到一个变量中。
+
+​	示例如下：
+
+![](https://pic.imgdb.cn/item/6105413d5132923bf8dbcd29.jpg)
+
+​	sshUserPrivateKey函数还支持以下参数。
+
+* usernameVariable：SSH用户名的变量名。
+* passphraseVariable：SSH key密码的变量名。
+
+## 优雅地使用凭证
+
+​	在上文例子中，使用凭证的写法未免有些“啰唆” 不就引用一个凭证变量吗，还需要写一大段代码？为解决这一问题，声明式pipeline提供了credentials helper方法（只能在environment指令中使用）来简化凭证的使用。以下是使用方法
+
+![](https://pic.imgdb.cn/item/610541645132923bf8dc4735.jpg)
+
+​	与 Secret text 不同的是，我们需要通过 BITBUCKET CREDS USR 拿到用户名的值，通过BITBUCKET CREDS PSW拿到密码的值。而变量BITBUCKET CREDS的值则是一个字符串，格式为：＜用户名>：＜密码>。
+
+* Secret file
+
+![](https://pic.imgdb.cn/item/610541805132923bf8dc9ffa.jpg)
+
+## 使用HashiCorp Vault
+
+​	如果觉得Jenkins的凭证管理功能太弱，无法满足你的需求，则可以考虑使用HashiCorp Vault。本节介绍Jenkins与HashiCorp Vault的集成。
+
+### HashiCorp Vault介绍
+
+​	HashiCorp Vault是一款对敏感信息进行存储，并进行访问控制的工具。敏感信息指的是密码、token、密钥等。它不仅可以存储敏感信息，还具有滚动更新、审计等功能。
+
+### 集成HashiCorp Vault
+
+​	（1）安装HashiCorp Vault插件（https：//plugins.jenkins.io/hashicorp-vault-plugin）。
+
+​	（2）添加Vault Token凭证，如图9-7所示。
+
+![](https://pic.imgdb.cn/item/610545c85132923bf8ea082c.jpg)
+
+​	HashiCorp Vault插件并没有提供pipeline步骤，提供此步骤的是Hashicorp VaultPipeline插件（https：//github.com/jenkinsci/hashicorp-vault-pipeline-plugin）。但是它依赖的是2.138.1或以上的Jenkins版本。
+
+​	如果你的Jenkins版本低于2.138.1，但是又想用Hashicorp Vault Pipeline插件，怎么办呢？
+
+​	可以将该插件的源码下载到本地，将pom.xml中的jenkins.version值从2.138.1修改成你的Jenkins版本，然后运行mvn clean package进行编译打包。如果没有报错，则接着找到target/hashicorp-vault-pipeline.hpi进行手动安装即可。
+
+​	笔者当前使用的Jenkins版本为2.121.3，经测试没有问题。
+
+​	首先我们使用 vault 命令向 vault 服务写入私密数据以方便测试：vault writesecret/hello value=world。
+
+​	接着在pipeline中读取，示例代码如下：
+
+![](https://pic.imgdb.cn/item/610545ff5132923bf8eab34e.jpg)
+
+​	我们可以在environment和steps中使用vault步骤。推荐在environment中使用。
+
+​	vault步骤的参数如下：
+
+*  path，存储键值对的路径。
+
+*  key，存储内容的键。
+
+* vaultUrl（可选），vault服务地址。
+
+* credentialsId（可选），vault服务认证的凭证。
+
+
+
+​	如果不填vaultUrl与credentialsId参数，则使用系统级别的配置。
+
+## 在Jenkins日志中隐藏敏感信息
+
+​	如果使用的是credentials helper方法或者withCredentials步骤为变量赋值的，那么这个变量的值是不会被明文打印到Jenkins日志中的。除非使用以下方法：
+
+​	![](https://pic.imgdb.cn/item/610546785132923bf8ec333e.jpg)
+
+​	在没有使用credential的场景下，我们又该如何在日志中隐藏变量呢？可以使用Masked Pass-word插件（https：//plugins.jenkins.io/mask-passwords）。通过该插件提供的包装器，可以隐藏我们指定的敏感信息。
+
+​	示例代码如下：
+
+![](https://pic.imgdb.cn/item/6105468d5132923bf8ec76e0.jpg)
+
+​	初次使用 Masked Password 插件很容易以为是使用 s1 和 s2 作为变量的，如echo"被隐藏的密文：${s1} 和 ${s2}"。实际上，var参数只是用于方便在自由风格的Jenkins项目中区分不同的需要隐藏的密文。在pipeline中使用，它就没有存在的意义了。但是即使这样也不能省略它，必须传一个值。password参数传的是真正要隐藏的密文。
+
+​	那么，为什么echo "secret1"这条语句中并没有使用预定义的变量，secret1也会被隐藏呢？这是由Masked Password插件的实现方式决定的。
+
+​	Jenkins 提供了 ConsoleLogFilter 接口，可以在日志打印阶段实现我们自己的业务逻辑。Masked Password 插件实现了 ConsoleLogFilter 接口，然后利用正则表达式将匹配到的文本replaceAll成********。
+
+​	MaskPasswordsBuildWrapper包装器除了支持varPasswordPairs参数，还支持varMask Regexes参数，使用自定义的正则表达式匹配需要隐藏的文本。写法如下：
+
+![](https://pic.imgdb.cn/item/610546a75132923bf8ecc859.jpg)
+
+​	通过Masked Password插件还可以设置全局级别的密文隐藏，在ManageJenkins→Configure System页中可以找到，具体配置如图9-9所示。
+
+![](https://pic.imgdb.cn/item/610546b75132923bf8ecf95e.jpg)
+

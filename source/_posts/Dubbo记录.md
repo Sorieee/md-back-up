@@ -1800,11 +1800,314 @@ doList抽象方法则是返回所有的Invoker列表，由于是抽象方法，�
 
 ​	(4) 处理Mock实现类。先从缓存中取，如果有则直接返回。如果缓存中没有，则先获取接口的类型，如果Mock的参数配置的是true或default,则尝试通过“接口名+Mock”查找Mock实现类，例如：TestService会查找Mock实现TestServiceMock0如果是其他配置方式，则通过Mock的参数值进行查找，例如：配置了 mock=com.xxx.testservice ,则会查找com.xxx.testservice。
 
+# Dubbo扩展点
+
+## Dubbo核心扩展点概述
+
+​	我们经常会听到一句话：唯一不变的，就是变化本身。面对互联网领域日新月异的业务发展变化，作为一个分布式服务框架，既需要提供非常强大的功能，满足业务开发者日常开发的需求，也需要在框架的内在结构里，提供足够多的特定扩展能力，使得用户可以在不改动内部代码和结构的基础上，按照这些接口的约定，即可简单方便地定制出自己想要的功能。Dubbo使用了扩展点的方式来实现这种能力。Dubbo的总体流程和分层是抽象不变的，但是每一层都提供扩展接口，让用户可以自定义扩展每一层的功能。
+
+### 扩展点的背景
+
+​	Dubbo本身的各类功能组件也是按照这些扩展点的具体实现构建出来的，例如Dubbo默认的Dubbo协议、Hessian2序列化和协议、fastjson序列化、ZooKeeper注册中心等。更多的“非官方”扩展组件则是由广大开发者在自己的工作实践中创造并提交到Dubbo项目中的，最终一部分变成了目前的“官方”扩展组件，比如WebService协议、REST协议、Thrift协议、fst和kryo序列化等，另一部分变成了 Dubbo生态项目中的“准官方”扩展组件，例如JSON-RPC/XML-RPC协议、JMS协议、avro/gson序列化、etcd/nacos注册中心等。这些扩展的提交者也成为Dubbo项目的Committer或PMC成员。
+
+### 扩展点整体架构
+
+​	如果按照使用者和开发者两种类型来区分，Dubbo可以分为API层和SPI层。API层让用户只关注业务的配置，直接使用框架的API即可；SPI层则可以让用户自定义不同的实现类来扩展整个框架的功能。
+
+​	如果按照逻辑来区分，那么又可以把Dubbo从上到下分为业务、RPC、Remote三个领域。由于业务层不属于SPI的扩展，因此不是本章关注的内容。可扩展的RPC和Remote层继续细分，又能分出7层，如图8-1所示。
+
+​	另外，细分出来的每一层(Proxy.Registry…)的作用，已经在第1章中介绍，因此本章不再重复赘述。
+
+![](https://pic.imgdb.cn/item/6102c3e55132923bf8e8d6bf.jpg)
+
+## RPC层扩展点
+
+​	按照完整的Dubbo结构分层，RPC层可以分为四层：Config、Proxy、Registry、Cluster。由于Config属于API的范畴，因此我们只基于Proxy、Registry、Cluster三层来介绍对应的扩展点。
+
+### Proxy层扩展点
+
+​	Proxy层主要的扩展接口是ProxyFactoryo我们在使用Dubbo框架的时候，明明调用的是一个本地的接口，为什么框架会自动帮我们发起远程请求，并把调用结果返回呢？整个远程调用的过程对开发者完全是透明的，就像本地调用一样。这正是由于ProxyFactory帮我们生成了代理类，当我们调用某个远程接口时，实际上使用的是代理类。代理类远程调用过程如图8.2所示。
+
+​	图8-2中省略了很多细节，如序列化等，主要是为了说明整个代理调用过程。Dubbo中的ProxyFactory有两种默认实现:Javassist和JDK,用户可以自行扩展自己的实现，如CGLIB(CodeGeneration Library)o Dubbo选用Javassist作为默认字节码生成工具，主要是基于性能和使用的简易性考虑，Javassist的字节码生成效率相对于其他库更快，使用也更简单。下面我们来看一下ProxyFactory接口有哪些具体的方法，如代码清单8-1所示。
+
+![](https://pic.imgdb.cn/item/6102c5c35132923bf8f1e561.jpg)
+
+![](https://pic.imgdb.cn/item/6102c5d05132923bf8f2257d.jpg)
+
+​	我们可以看到ProxyFactory接口有三个方法，每个方法上都有©Adaptive注解，并且方法会根据URL中的proxy参数决定使用哪种字节码生成工具。第二个方法的generic参数是为了标识这个代理是否是泛化调用。已有的扩展点实现如表8.1所示。
+
+![](https://pic.imgdb.cn/item/6102c5e95132923bf8f2a28c.jpg)
+
+​	stub比较特殊，它的作用是创建一个代理类，这个类可以在发起远程调用之前在消费者本地做一些事情，比如先读缓存。它可以决定要不要调用Proxy。
+
+### Registry 层扩展点
+
+​	Registry层可以理解为注册层，这一层中最重要的扩展点就是org. apache, dubbo. registry.RegistryFactoryo整个框架的注册与服务发现客户端都是由这个扩展点负责创建的。该扩展点有@Adaptive({"protocol"))注解，可以根据URL中的protocol参数创建不同的注册中心客户端。例如：protocol=redis,该工厂会创建基于Redis的注册中心客户端。因此，如果我们扩展了自定义的注册中心，那么只需要配置不同的Protocol即可。在第11章"Dubbo注册中心扩展实践”中使用的就是这个扩展点。RegistryFactory接口如代码清单8-2所示。
+
+![](https://pic.imgdb.cn/item/6102c7225132923bf8f8c88c.jpg)
+
+使用这个扩展点，还有一些需要遵循的“潜规则”：
+
+* 如果URL中设置了 check-false,则连接不会被检查。否则，需要在断开连接时抛出异常。
+* 需要支持通过usemame:password格式在URL中传递鉴权。
+* 需要支持设置backup参数来指定备选注册集群的地址。
+* 需要支持设置file参数来指定本地文件缓存。
+* 需要支持设置timeout参数来指定请求的超时时间。
+* 需要支持设置session参数来指定连接的超时或过期时间。
+
+
+
+​	在Dubbo,有AbstractRegistryFactory已经抽象了一些通用的逻辑，用户可以直接继承该抽象类实现自定义的注册中心工厂。已有的RegistryFactory实现如表8-2所示。
+
+![](https://pic.imgdb.cn/item/6102c7c45132923bf8fc1078.jpg)
+
+### Cluster层扩展点
+
+​	Cluster层负责了整个Dubbo框架的集群容错，涉及的扩展点较多，包括容错(Cluster)、路由(Router负载均衡(LoadBalance)> 配置管理工厂(ConfiguratorFactory)和合并器(Merger)。
+
+**1. Cluster扩展点**
+
+​	Cluster需要与Cluster层区分开，Cluster主要负责一些容错的策略，也是整个集群容错的入口。当远程调用失败后，由Cluster负责重试、快速失败等，整个过程对上层透明。整个集群容错层之间的关系，已经在第7章有比较详细的讲解了，因此不再赘述。
+
+​	Cluster扩展点主要负责Dubbo框架中的容错机制，如Failover、Failfast等,默认使用Failover机制。Cluster扩展点接口如代码清单8-3所示。
+
+![](https://pic.imgdb.cn/item/6102c8b75132923bf8010527.jpg)
+
+​	Cluster接口只有一个join方法，并且有^Adaptive注解，说明会根据配置动态调用不同的容错机制。已有的Cluster实现如表8-3所示。
+
+![](https://pic.imgdb.cn/item/6102c90c5132923bf802bfc9.jpg)
+
+**2. RouterFactory 扩展点**
+
+​	RouterFactory是一个工厂类，顾名思义，就是用于创建不同的Router。假设接口 A有多个服务提供者提供服务，如果配置了路由规则(某个消费者只能调用某个几个服务提供者)，则Router会过滤其他服务提供者，只留下符合路由规则的服务提供者列表。
+
+​	现有的路由规则支持文件、脚本和自定义表达式等方式。接口上有@Adaptive("protocol1')注解，会根据不同的protocol自动匹配路由规则，如代码清单8-4所示。
+
+![](https://pic.imgdb.cn/item/6102ca935132923bf80abc6a.jpg)
+
+​	在2.7版本之后，路由模块会做出较大的更新，每个服务中每种类型的路由只会存在一个，它们会成为一个路由器链。因此新的运行模式需要关注2.7版本。已有的RouterFactory实现如表8-4所示。
+
+![](https://pic.imgdb.cn/item/6102cace5132923bf80bf47e.jpg)
+
+**3. LoadBalance 扩展点**
+
+​	LoadBalance是Dubbo框架中的负载均衡策略扩展点，框架中已经内置随机(Random)、轮询(RoundRobin)、最小连接数(LeastActive)、一致性 Hash (ConsistentHash)这几种负载均衡的方式，默认使用随机负载均衡策略。LoadBalance主要负责在多个节点中，根据不同的负载均衡策略选择一个合适的节点来调用。由于在集群容错章节对负载均衡也有比较深入的讲解，因此也不再赘述。LoadBalance扩展点接口源码如代码清单8-5所示。
+
+![](https://pic.imgdb.cn/item/6104b3c95132923bf8f5b80a.jpg)
+
+**4. ConfiguratorFactory 扩展点**
+
+​	ConfiguratorFactory是创建配置实例的工厂类，现有override和absent两种工厂实现，分别会创建OverrideConfigupatop和AbsentConfigurator两种配置对象。默认的两种实现，OverrideConfigurator会直接把配置中心中的参数覆盖本地的参数；AbsentConfigurator会先看本地是否存在该配置，没有则新增本地配置，如果己经存在则不会覆盖。ConfiguratorFactory扩展点源码如代码清单8-6所示。
+
+![](https://pic.imgdb.cn/item/6104b3fd5132923bf8f6fcfa.jpg)
+
+![](https://pic.imgdb.cn/item/6104b4dd5132923bf8f9fbe1.jpg)
+
+**5. Merger扩展点**
+
+​	Merger是合并器，可以对并行调用的结果集进行合并，例如：并行调用A、B两个服务都会返回一个List结果集,Merger可以把两个List合并为一个并返回给应用。默认已经支持map、set、list、byte等11种类型的返回值。用户可以基于该扩展点，添加自定义类型的合并器。Merger扩展点源码如代码清单8-7所示。
+
+![](https://pic.imgdb.cn/item/6104b5a35132923bf8fc77f6.jpg)
+
+## Remote层扩展点
+
+​	Remote处于整个Dubbo框架的底层，涉及协议、数据的交换、网络的传输、序列化、线程池等，涵盖了一个远程调用的所有要素。
+
+​	Remote层是对Dubbo传输协议的封装，内部再划为Transport传输层和Exchange信息交换层。其中Transport层只负责单向消息传输，是对Mina> Netty等传输工具库的抽象。而Exchange层在传输层之上实现了 Request-Response语义，这样我们可以在不同传输方式之上都能做到统一的请求/响应处理。Serialize层是RPC的一部分，决定了在消费者和服务提供者之间的二进制数据传输格式。不同的序列化库的选择会对RPC调用的性能产生重要影响，目前默认选择是Hessian2序列化。
+
+### Protocol 层扩展点
+
+​	Protocol 层主要包含四大扩展点，分别是 Protocol 、Filter 、ExporterListener 和 InvokerListener。其中Protocol. Filter这两个扩展点使用得最多。下面分别介绍每个扩展点。
+
+**1. Protocol 扩展点**
+
+​	Protocol是Dubbo RPC的核心调用层，具体的RPC协议都可以由Protocol点扩展。如果想增加一种新的RPC协议，则只需要扩展一个新的Protocol扩展点实现即可。Protocol扩展点接口如代码清单8-8所示。
+
+![](https://pic.imgdb.cn/item/6104b8615132923bf805c2fb.jpg)
+
+Protocol的每个接口会有一些“潜规则”，在实现自定义协议的时候需要注意。
+export 方法：
+
+​	(1) 协议收到请求后应记录请求源IP地址。通过RpcContext.getContext(). setRemote-Address()方法存入RPC上下文。
+
+​	(2) export方法必须实现幕等，即无论调用多少次，返回的URL都是相同的。
+
+​	(3) Invoker实例由框架传入，无须关心协议层。
+
+refer方法：
+
+​	(1) 当我们调用refer。方法返回Invoker对象的invoke()方法时，协议也需要相应地执行invoke()方法。这一点在设计自定义协议的Invoker时需要注意。
+
+​	(2) 正常来说refer。方法返回的自定义Invoker需要继承Invoker接口。
+
+​	(3) 当URL的参数有check=false时，自定义的协议实现必须不能抛出异常，而是在出现连接失败异常时尝试恢复连接。
+
+destroy 方法：
+
+​	(1) 调用destroy方法的时候，需要销毁所有本协议暴露和引用的方法。
+
+​	(2) 需要释放所有占用的资源，如连接、端口等。
+
+​	(3) 自定义的协议可以在被销毁后继续导出和引用新服务。
+
+整个Protocol的逻辑由Protocol、 Exporter、 Invoker三个接口串起来：
+
+* com.alibaba.dubbo.rpc.Protocol；
+* com.alibaba.dubbo.rpc.Exporter；
+* com. alibaba. dubbo .rpc. Invoker o
+
+
+
+​	其中Protocol接口是入口，其实现封装了用来处理Exporter和Invoker的方法：
+
+​	Exporter代表要暴露的远程服务引用，Protocol#export方法是将服务暴露的处理过程，Invoker代表要调用的远程服务代理对象，Protocol#refer方法通过服务类型和URL获得要调用的服务代理。
+
+​	由于Protocol可以实现Invoker和Exporter对象的创建，因此除了作为远程调用对象的构造，还能用于其他用途，例如：可以在创建Invoker的时候对原对象进行包装增强，添加其他Filter进去，ProtocolFilterWrapper实现就是把Filter链加入Invokero如果对这一段并不是十分了解，则可以先了解设计模式中的装饰器模式，对最原始的Invoker进行增强。
+
+​	因此，下面我们只列出框架中用于调用的协议，已有的Protocol扩展点实现如表8.8所示。
+
+![](https://pic.imgdb.cn/item/6104c1d35132923bf824894b.jpg)
+
+**2. Filter扩展点**
+
+​	Filter是Dubbo的过滤器扩展点，可以自定义过滤器，在Invoker调用前后执行自定义的逻辑。在Filter的实现中，必须要调用传入的Invoker的invoke方法，否则整个链路就断了。Filter接口定义及实现的示例如代码清单8-9所示。
+
+![](https://pic.imgdb.cn/item/6104c79b5132923bf83712b7.jpg)
+
+​	可以看到，Filter接口使用了 JDK8的新特性，接口中有default方法onResponse,默认返回收到的结果。
+
+​	由于Filter在后面有专门的章节去讲解，因此默认实现就不在本章再讲一遍了。
+
+**3. ExporterListener/lnvokerListener 扩展点**
+
+​	ExporterListener和InvokerListener这两个扩展点非常相似，ExporterListener是在暴露和取消暴露服务时提供回调；InvokerListener则是在服务的引用与销毁引用时提供回调。ExporterListener与InvokerListener扩展接口如代码清单8-10所示。
+
+![](https://pic.imgdb.cn/item/6104c8795132923bf8399223.jpg)
+
+### Exchange 层扩展点
+
+​	Exchange层只有一个扩展点接口 Exchanger,这个接口主要是为了封装请求/响应模式，例如：把同步请求转化为异步请求。默认的扩展点实现是org.apache.dubbo.「emoting.exchange,support.header.HeaderExchanger o 每个方法上都有@Adaptive 注解，会根据 URL 中的Exchanger参数决定实现类。
+
+![](https://pic.imgdb.cn/item/6104ca6b5132923bf83f3af9.jpg)
+
+​	既然已经有了 Transport层来传输数据了，为什么还要有Exchange层呢？因为上层业务关注的并不是诸如Netty这样的底层Channel。上层一个Request只关注对应的Response,对于是同步还是异步请求，或者使用什么传输根本不关心。Transport层是无法满足这项需求的，Exchange层因此实现了 Request-Response模型，我们可以理解为基于Transport层做了更高层次的封装。
+
+### Transport 层扩展点
+
+​	Transport层为了屏蔽不同通信框架的异同，封装了统一的对外接口。主要的扩展点接口有Transporter、 Dispatcher、 Codec2 和 ChannelHandler。
+​	其中，ChannelHandler主要处理连接相关的事件，例如：连接上、断开、发送消息、收到消息、出现异常等。虽然接口上有SPI注解，但是在框架中实现类的使用却是直接“new”的方式。因此不在本章做过多介绍。
+
+**1. Transporter 扩展接口**
+
+​	Transporter屏蔽了通信框架接口、实现的不同，使用统一的通信接口。Transporter扩展接口如代码清单8-12所示。
+
+![](https://pic.imgdb.cn/item/6104caf25132923bf840c7a7.jpg)
+
+​	bind方法会生成一个服务，监听来自客户端的请求；connect方法则会连接到一个服务。两个方法上都有^Adaptive注解，首先会根据URL中server的参数值去匹配实现类，如果匹配不到则根据transporter参数去匹配实现类。默认的实现是netty4o然后我们看一下框架中已有的扩展点实现，如表8-9所示。
+
+![](https://pic.imgdb.cn/item/6104cc1e5132923bf8445e47.jpg)
+
+**2. Dispatcher 扩展接口**
+
+​	如果有些逻辑的处理比较慢，例如：发起I/O请求查询数据库、请求远程数据等，则需要使用线程池。因为I/O速度相对CPU是很慢的，如果不使用线程池，则线程会因为I/O导致同步阻塞等待。Dispatcher扩展接口通过不同的派发策略，把工作派发到不同的线程池，以此来应对不同的业务场景。Dispatcher扩展接口如代码清单8-13所示。
+
+![](https://pic.imgdb.cn/item/6104d2fa5132923bf8593085.jpg)
+
+**3. Codec2扩展接口**
+
+​	Codec2主要实现对数据的编码和解码，但这个接口只是需要实现编码/解码过程中的通用逻辑流程，如解决半包、粘包等问题。该接口属于在序列化上封装的一层。Codec2扩展接口如代码清单8-14所示。
+
+![](https://pic.imgdb.cn/item/6104d3315132923bf859e6ec.jpg)
+
+**4. ThreadPool 扩展接口**
+
+​	我们在Transport层由Dispatcher实现不同的派发策略，最终会派发到不同的ThreadPool中执行。ThreadPool扩展接口就是线程池的扩展。ThreadPool扩展接口如代码清单8-15所示。
+
+![](https://pic.imgdb.cn/item/6104d3565132923bf85a5f32.jpg)
+
+现阶段，框架中默认含有四种线程池扩展的实现，以下内容摘自官方文档：
+
+* fixed,固定大小线程池，启动时建立线程，不关闭，一直持有。
+* cached,缓存线程池，空闲一分钟自动删除，需要时重建。
+* limited,可伸缩线程池，但池中的线程数只会增长不会收缩。只增长不收缩的目的是
+  为了避免收缩时突然来了大流量引起的性能问题。
+* eager,优先创建Worker线程池。在任务数量大于corePoolSize小于maximumPoolSize
+  时，优先创建Worker来处理任务。当任务数量大于maximumPoolSize时，将任务放入
+  阻塞队列。阻塞队列充满时抛出RejectedExecutionException (cached在任务数量超
+  过maximumPoolSize时直接抛出异常而不是将任务放入阻塞队列)。
+
+其接口实现的类如下：
+
+* org.apache .dubbo .common.threadpool. support, fixed. F ixedThreadPool；
+* org.apache.dubbo.common.threadpool.support.cached.CachedThreadPool；
+* org.apache.dubbo.common.threadpool.support.limited.LimitedThreadPool；
+* org.apache.dubbo.common.threadpool.support.eager.EagerThreadPool。
+
+### Serialize 层扩展点
+
+​	Serialize层主要实现具体的对象序列化，只有Serialization 一个扩展接口。Serialization是具体的对象序列化扩展接口，即把对象序列化成可以通过网络进行传输的二进制流。
+
+**1. Serialization 扩展接口**
+
+​	Serialization就是具体的对象序列化，Serialization扩展接口如代码清单8-16所示。
+
+![](https://pic.imgdb.cn/item/6104d3b85132923bf85b9c9d.jpg)
+
+![](https://pic.imgdb.cn/item/6104d3c55132923bf85bc6b9.jpg)
+
+​	其中compactedjava是在Java原生序列化的基础上做了压缩，实现了自定义的类描写叙述符的写入和读取。在序列化的时候仅写入类名，而不是完整的类信息，这样在对象数量很多的情况下，可以有效压缩体积。
+
+​	NativeJavaSerialization是原生的Java序列化的实现方式。
+
+​	JavaSerialization是原生Java序列化及压缩的封装。
+
+​	其他的序列化实现则封装了现在比较流行的各种序列化框架，如kryo> protostuff和fastjson等。
+
+## 其他扩展点
+
+​	还有其他的一些扩展点接口： TelnetHandler、StatusChecker、 Container、CacheFactory、Validation 、Logger Adapter和Compiler。由于平时使用得比较少，因此归类到其他扩展点中，下面简单介绍每个扩展点的用途。
+
+**1. TelnetHandler 扩展点**
+
+​	我们知道，Dubbo框架支持Telnet命令连接，TelnetHandler接口就是用于扩展新的Telnet命令的接口。已知的命令与接口实现之间的关系如下：
+
+![](https://pic.imgdb.cn/item/6104d4705132923bf85e0a94.jpg)
+
+**2. StatusChecker 扩展点**
+
+​	通过这个扩展点，可以让Dubbo框架支持各种状态的检查，默认已经实现了内存和load的检查。用户可以自定义扩展，如硬盘、CPU等的状态检查。已有的实现如下所示。
+
+![](https://pic.imgdb.cn/item/6104d4895132923bf85e65ac.jpg)
+
+**3. Container 扩展点**
+
+​	服务容器就是为了不需要使用外部的Tomcat、JBoss等Web容器来运行服务，因为有可能服务根本用不到它们的功能，只是需要简单地在Main方法中暴露一个服务即可。此时就可以使用服务容器。Dubbo中默认使用Spring作为服务容器。
+
+**4. CacheFactory 扩展点**
+
+​	我们可以通过dubbo:method配置每个方法的调用返回值是否进行缓存，用于加速数据访问速度。已有的缓存实现如下所示。
+
+![](https://pic.imgdb.cn/item/6104d4b75132923bf85f0aee.jpg)
+
+**5. Validation 扩展点**
+
+​	该扩展点主要实现参数的校验，我们可以在配置中使用＜dubbo: service validation="校验实现名"/＞实现参数的校验。己知的扩展实现有org.apache.dubbo.validation.support.jvalidation.^Validation, 扩展 key 为 jvalidation。
+
+**6. LoggerAdapter 扩展点**
+
+​	日志适配器主要用于适配各种不同的日志框架，使其有统一的使用接口。已知的扩展点实现如下：
+
+![](https://pic.imgdb.cn/item/6104d4dc5132923bf85f94b7.jpg)
+
+**7. Compiler 扩展点**
+
+​	我们在第4章讲Dubbo扩展点加载机制的时候就提到：@Adaptive注解会生成Java代码,然后使用编译器动态编译出新的Class。 Compiler接口就是可扩展的编译器，现有两个具体的实现（adaptive不算在内）：
+
+![](https://pic.imgdb.cn/item/6104d54b5132923bf8611706.jpg)
+
 
 
 # 个人源码阅读
-
-基于3.0.1
 
 ## 启动
 
