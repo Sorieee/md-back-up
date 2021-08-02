@@ -5076,7 +5076,7 @@ JaCoCo提供了以下几个维度的覆盖率分析。
 
 ​	事实上，如果代码有变化，最好的方式是代码仓库主动通知Jenkins，而不是Jenkins频繁去代码仓库检查。那这种方式存在的意义是什么？
 
-​	在一些特殊情况下，比如外网的代码仓库无法调用内网的Jenkins，或者反过来，则会采用这种方式。
+    	在一些特殊情况下，比如外网的代码仓库无法调用内网的Jenkins，或者反过来，则会采用这种方式。
 
 ## 事件触发
 
@@ -5787,4 +5787,790 @@ GWT并不只是根据token值来判断是否触发，还可以根据我们提取
 ​	通过Masked Password插件还可以设置全局级别的密文隐藏，在ManageJenkins→Configure System页中可以找到，具体配置如图9-9所示。
 
 ![](https://pic.imgdb.cn/item/610546b75132923bf8ecf95e.jpg)
+
+# 制品管理
+
+## 制品是什么
+
+​	换句话说，制品是软件开发过程中产生的多种有形副产品之一。另外，直译artifact，是人工制品的意思。所以，广义的制品还包括用例、UML图、设计文档等。
+
+## 制品管理仓库
+
+​	最简单的制品管理仓库就是将制品统一放在一个系统目录结构下。但是很少有人这样做，更多的做法是使用现成的制品库。
+
+​	制品管理涉及两件事情：一是如何将制品放到制品库中；二是如何从制品库中取出制品。由于每种制品的使用方式不一样，因此下面我们分别进行介绍。
+
+​	目前现成的制品库有：Nexus（https：//www.sonatype.com/nexus-repository-oss）、Artifactory。本书使用的是Nexus OSS 3.x，Nexus的一个开源版本，它支持非常多的制品类型。它还有2.x版本，与3.x版本差别比较大，不在本书讨论范围。由于Nexus的安装比较简单，网上已经有很多相关资料，因此本书不再赘述。读者在学习时可以考虑使用Nexus Docker镜像，省时省力。
+
+## 过渡到制品库
+
+​	从手工打包到自动化打包，再将打好的包放到制品库中。这看似简单，但是要在团队中从无到有地落地其实是一个很漫长的过程，特别是对于存在很多遗留项目的团队。每个团队都应该按照自己当前情况进行调整，有时统一的解决方案不一定适合你。
+
+​	曾经，笔者所在团队已经将部分项目的编译和单元测试放到Jenkins上执行，然而并没有人力及能力搭建Nexus。但是又期望能将自动打包好的JAR包放到各个环境中使用，以马上从持续集成中获益，怎么办？
+
+​	这时，archiveArtifacts步骤（https：//jenkins.io/doc/pipeline/steps/core/＃archiveartifacts-arch-ive-the-artifacts）就派上用场了。它能对制品进行归档，然后你就可以从Jenkins页面上下载制品了，如图10-1所示。
+
+![](https://pic.imgdb.cn/item/61069db85132923bf804c860.jpg)
+
+​	完整的Jenkinsfile内容如下：
+
+![](https://pic.imgdb.cn/item/61069dcf5132923bf805219f.jpg)
+
+接下来，我们详细介绍几个常用的archiveArtifacts的参数的用法。
+
+* artifacts（必填）：字符串类型，需要归档的文件路径，使用的是Ant风格路径表达式。
+* fingerprint（可选）：布尔类型，是否对归档的文件进行签名。
+* excludes（可选）：字符串类型，需要排除的文件路径，使用的也是Ant风格路径表达式。
+* caseSensitive（可选）：布尔类型，对路径大小写是否敏感。
+* onlyIfSuccessful（可选）：布尔类型，只在构建成功时进行归档。
+
+
+
+​	值得一提的是，archiveArtifacts步骤并不只用于归档JAR包，事实上，它能归档所有类型的制品。
+
+​	团队初期可以考虑使用这种方式管理简单的制品。
+
+## 管理Java栈制品
+
+​	目前Java栈的构建工具以Maven及Gradle为主，且Maven的用户最广泛。接下来，我们使用Maven作为主要工具来讲解制品管理。
+
+### 使用Maven发布制品到Nexus中
+
+​	当Nexus搭建好后，就可以使用Maven Deploy插件上传JAR或WAR包到Nexus中了。Deploy插件是Apache Maven团队提供的官方插件，能将JAR包及POM文件发布到Nexus中。目前该插件的最新版本是2.8.2。在POM文件中这样定义：
+
+![](https://pic.imgdb.cn/item/61069e305132923bf80686e0.jpg)
+
+​	如果不需要自定义Deploy插件配置，则不需要在POM文件中定义。
+
+​	使用Deploy插件发布需要以下几个步骤。
+
+（1）配置发布地址。在Maven项目的POM文件中加入：
+
+![](https://pic.imgdb.cn/item/61069e475132923bf806db3b.jpg)
+
+​	完成此步骤后，我们就可以通过执行mvn clean deploy进行发布了。Deploy插件会根据Maven项目中定义的version值决定是使用nexus-snapshot仓库还是nexus-release仓库。当version值是以-SNAPSHOT后缀结尾时，则发布到nexus-snapshot仓库。
+
+（2）配置访问Nexus的用户名和密码。在Nexus中，我们配置了只有授权的用户名和密码才能发布制品。这时需要在Maven的settings.xml中加入配置：
+
+![](https://pic.imgdb.cn/item/61069e5b5132923bf8072533.jpg)
+
+​	至于如何优雅地配置Jenkins上的Maven的settings.xml，请参考第4章中的“使用Managed files设置Maven”部分。
+
+### 使用Nexus插件发布制品
+
+​	除了可以通过Maven发布JAR包，还可以使用Nexus Platform（https：//plugins.jenkins.io/nexus-jenkins-plugin）来插件实现。最新版本的Nexus Platform（3.3.20180801-112343.4970c8a）已经同时支持Nexus 2.x和Nexus 3.x，只是它的文档更新不及时，大家都不知道它支持3.x版本了。
+
+​	在安装好Nexus Platform插件后，根据以下步骤来使用。
+
+（1）进入Manage Jenkins→Configure System→Sonatype Nexus页，设置Nexus 3.x的服务器地址，如图10-2所示。
+
+![](https://pic.imgdb.cn/item/61069e7b5132923bf8079f3d.jpg)
+
+​	需要注意的是：
+
+* 在“Credentials”选项处，增加了一个具有发布制品到Nexus中的权限的用户名和密码凭证。
+* Server ID字段的值，在Jenkinsfile中会引用。
+
+
+
+​	设置完成后，单击“Test connection”按钮测试设置是否正确。
+
+​	（2）在Jenkinsfile中加入nexusPublisher步骤。
+
+![](https://pic.imgdb.cn/item/61069e995132923bf8081414.jpg)
+
+​	下面简单介绍一下nexusPublisher的参数。
+
+* nexusInstanceId：在Jenkins中配置Nexus 3.x时的Server ID。
+* nexusRepositoryId：发布到Nexus服务器的哪个仓库。
+* mavenCoordinate：Maven包的坐标，packaging值与Maven中的packaging值一致，可以是jar、war、pom、hpi等。
+* mavenAssetList：要发布的文件，如果是pom.xml，则extension必须填“xml”。
+
+
+
+在实际工作中，笔者并不常使用此插件。原因如下：
+
+* 每个Maven项目都可能不同，必须为每个Maven项目写nexusPublisher方法。
+* 对于多模块的Maven项目，nexusPublisher的参数写起来十分啰唆。
+
+但是介绍这个插件还是有必要的，一是大家可以根据实际情况进行选择；二是可以了解Jenk-ins与Nexus的集成程度。
+
+## 使用Nexus管理Docker镜像
+
+​	本节假设Jenkins机器上已经安装了Docker CE。检查在Jenkins上能否运行Docker的方法是：在Jenkinsfile中加入sh "docker ps"语句，如果没有报错，就说明可以运行Docker。
+
+### Nexus：创建Docker私有仓库
+
+​	首先进入Nexus的仓库列表页：Administration→Repository→Repositories，如图10-3所示。
+
+![](https://pic.imgdb.cn/item/61069ee55132923bf8093468.jpg)
+
+​	单击“docker（hosted）”，进入Docker私有仓库创建页，如图10-4所示。
+
+![](https://pic.imgdb.cn/item/61069ef65132923bf809736d.jpg)
+
+​	在创建过程中，需要指定Docker私有仓库提供HTTP服务的端口为8595。私有仓库的地址为：http：//＜ip>：8595。
+
+### 创建Docker私有仓库凭证
+
+​	将镜像推送到Docker私有仓库是需要用户名和密码的。我们不能将密码明文写在Jenkinsfile中，所以需要创建一个“Username with password”凭证。
+
+### 构建并发布Docker镜像
+
+​	当私有仓库创建好后，我们就可以构建Docker镜像并发布到仓库中了。假设Dockerfile与Jenkinsfile在同一个目录下，我们看一下Jenkinsfile的内容。
+
+![](https://pic.imgdb.cn/item/61069f1d5132923bf80a071d.jpg)
+
+​	withDockerRegistry步骤做的事情实际上就是先执行命令：docker login-uadmin-p********http：//192.168.0.101：8595。其间，所生成的config.json文件会存储在工作空间中。然后再执行闭包内的命令。
+
+​	将镜像推送到Nexus中后，在Nexus中可以看到如图10-5所示的信息。
+
+![](https://pic.imgdb.cn/item/61069f4a5132923bf80ab2c3.jpg)
+
+
+
+### 小贴士
+
+​	由于是私有的非安全（HTTP）的仓库，所以需要配置Docker的daemon.json。
+
+![](https://pic.imgdb.cn/item/61069f835132923bf80b8eab.jpg)
+
+## 管理原始制品
+
+​	Nexus提供了对raw仓库的支持。raw仓库可以被理解为一个文件系统，我们可以在该仓库中创建目录。
+
+### 创建raw仓库
+
+​	进入Administration→Repository→Repositories页，如图10-6所示。单击“raw（hosted）”，进入raw仓库创建页，如图10-7所示。输入仓库名称“raw-example”，单击“Create repository”按钮，确认后创建成功。
+
+​	该仓库的地址是：＜你的Nexus地址>/repository/raw-example/。
+
+![](https://pic.imgdb.cn/item/61069fa25132923bf80c048b.jpg)
+
+![](https://pic.imgdb.cn/item/61069fab5132923bf80c279e.jpg)
+
+### 上传制品，获取制品
+
+​	使用HTTP客户端就可以将制品上传到raw仓库中。我们使用Linux curl命令。具体步骤如下：
+
+（1）在Jenkins上添加“Username with password”凭证，如图10-8所示。
+
+![](https://pic.imgdb.cn/item/61069fbf5132923bf80c73d4.jpg)
+
+（2）在Jenkinsfile中加入上传制品的步骤。
+
+![](https://pic.imgdb.cn/item/61069fcc5132923bf80ca7f4.jpg)
+
+​	为简单起见，我们直接使用构建号作为目录名称来区分每次上传的制品。curl命令的格式为：
+
+![](https://pic.imgdb.cn/item/61069fda5132923bf80cde3b.jpg)
+
+​	将制品保存到Nexus上的全路径：如果目录不存在，Nexus将会自动创建。
+
+（3）在Nexus中，我们看到readme.md文件已经上传成功，如图10-9所示。在Jenkins pipeline中获取原始制品时，我们同样使用curl命令。
+
+![](https://pic.imgdb.cn/item/61069fec5132923bf80d244d.jpg)
+
+## 从其他pipeline中拷贝制品
+
+​	在某些场景下，我们需要从另一个pipeline中拷贝制品。Copy Artifact插件（https：//plugins.jenkins.io/copyartifact）可以帮助我们实现。具体代码如下：
+
+​	![](https://pic.imgdb.cn/item/6106a0095132923bf80d954a.jpg)
+
+​	从core项目中拿到最后一次构建成功的制品。
+
+​	接下来，我们详细介绍copyArtifacts步骤的参数。
+
+* projectname：字符串类型，Jenkins job或pipeline名称。
+* selector：BuildSelector类型，从另一个pipeline中拷贝制品的选择器，默认拷贝最后一个制品。
+* parameters：字符串类型，使用逗号分隔的键值对字符串（name1=value1，name2=value2），用于过滤从哪些构建中拷贝制品。
+* filter：字符串类型，Ant风格路径表达式，用于过滤需要拷贝的文件。
+* excludes：字符串类型，Ant风格路径表达式，用于排除不需要拷贝的文件。
+*  target：字符串类型，拷贝制品的目标路径，默认为当前pipeline的工作目录。
+* optional：布尔类型，如果为true，则拷贝失败，但不影响本次构建结果。
+* fingerprintArtifacts：布尔类型，是否对制品进行签名，默认值为true。
+* resultVariableSuffix：上例中，无法得知我们到底拿的是core项目的哪次构建的制品。Copy Artifact 插件的设计是将其构建次数放到一个环境变量中。这个环境变量名就是在COPYARTIFACT BUILD NUMBER 后拼上resultVariableSuffix，比如resultVariableSuf fix值为corejob，那么就在pipeline中通过变量COPYARTIFACT BUILD NUMBER corejob拿到源pipeline的构建次数了。
+
+
+
+
+
+​	除projectname参数是必填的外，其他参数都是可选的。
+
+​	下面介绍几种常用的获取选择器的方法。
+
+* lastSuccessful：最后一次构建成功的制品。方法签名为lastSuccessful（boolean stable）。stable为true表示只取构建成功的制品，为false表示只要构建结果比UNSTABLE好就行。
+* specific：指定某一次构建的制品。方法签名为specific（StringbuildNumber）。buildNum ber表示指定取第n次构建的制品。
+* lastCompleted：最后一次完成构建的制品，不论构建的最终状态如何。方法签名为lastCompleted（）。
+* latestSavedBuild：最后一次被标记为keep forever的构建的制品。方法签名为latestSavedBu ild（）。
+
+
+
+## 版本号管理
+
+​	谈到制品，就必须谈到版本号的管理。版本号的制定并没有所谓的行业标准。比如谷歌浏览器当前版本号为70.0.3538.110；Ubuntu操作系统当前版本号为18.10；由美国计算机教授高德纳（Donald Ervin Knuth）编写的功能强大的排版软件TEX系统的版本号不断趋近于π，类似于这样：3.1415926。
+
+## 语义化版本
+
+​	GitHub提出了一种具有指导意义、统一的版本号表示规则，称为SemanticVersioning（语义化版本表示）。这也被人们称为三段式版本号。有了这套规则，用户一看版本号，就大概能猜到一个软件两个版本之间的可能变化。
+
+​	语义化版本格式为：主版本号.次版本号.修订号。版本号递增规则如下：
+
+* 主版本号：当作了不兼容的API修改时。
+* 次版本号：当作了向下兼容的功能性新增时。
+* 修订号：当作了向下兼容的问题修正时。
+
+
+
+​	先行版本号及版本编译元数据可以加到“主版本号.次版本号.修订号”的后面，作为延伸。以下是常用的修饰词。
+
+* alpha：内部版本。
+* beta：测试版本。
+* rc：即将作为正式版本发布。
+* lts：长期维护。
+
+
+
+### 版本号的作用
+
+​	语义化版本号的好处是除了方便人类识别，也方便软件识别。比如Ansible提供的版本比较器的使用：{{ansible distribution version is version（'12.04'，'>='）}}。这也是很多开源软件使用语义化版本号的原因。
+
+​	但是，语义化版本号真的适用于所有的场景吗？不一定。我们需要根据版本号的作用来确定软件版本号的格式。说白了，你希望别人一眼从版本号里看出什么，你就怎么确定版本号。
+
+​	那么，谁看这个版本号？软件的真正使用者根本不关心软件版本号。不过，现实中各种App强制大版本，对于市场营销的确有好处。
+
+​	企业软件的销售人员是要看版本号的。他必须知道不同版本之间的功能区别，以更好地完成其工作。
+
+​	对于版本号的不同诉求，决定了它的作用。笔者总结，可以从以下两个角度来设计版本号。
+
+（1）方便表达。对于更接近使用者的软件，更倾向于这个角度，比如三段式版本号。所以，推荐前端应用使用三段式版本号。
+
+（2）方便找出制品与源码的关系。对于更接近软件源码的人，更倾向于这个角度，比如Go CD的版本号：18.10.0 （7703-42d1cbe661161b5400289ead86c0447c84af8c0a）。除了三段式版本号，还会有构建次数及相应的代码提交ID。推荐后端服务使用Go CD的这种版本号格式。
+
+
+
+​	现实中，如何设计版本号才能做到既方便表达，又方便找出制品与源码的关系呢？采用内外部版本号策略就可以了。对外部，可以使用1.0.1这样的版本号；对内部，可以使用1.0.1.20180911.12.42d1cbe66116这样的版本号。最后要做的事情就是，想办法将内外部版本对应上就可以了。
+
+
+
+### 方便生成版本号的Version Number插件
+
+​	Version Number（https：//plugins.jenkins.io/versionnumber）是一款用于生成版本号的插件，它提供了VersionNumber步骤。具体使用方法如下：
+
+​	![](https://pic.imgdb.cn/item/6106a1375132923bf8123482.jpg)
+
+注意：BUILDS ALL TIME只是占位符，并不是Jenkins或Version Number插件提供的环境变量。
+
+VersionNumber步骤支持以下参数。
+
+* versionNumberString：字符串类型，版本号格式，用于生成版本号。只能使用单引号，以防格式中的占位符被转义。版本号格式支持多种占位符，稍后介绍。
+* versionPrefix：字符串类型，版本号的前缀。
+* projectStartDate：字符串类型，项目开始时间，格式为yyyy-MM-dd，用于计算项目开始后的月数和年数。
+* worstResultForIncrement：字符串类型，如果本次构建状态比上一次构建状态更糟糕，则BUILDS_TODAY、BUILDS_THIS_WEEK、BUILDS_THIS_MONTH、BUILDS_THIS_YEAR占位符的值不会增加。worstResultForIncrement可以设置的值有SUCCESS、UNSTABLE、FAILURE、ABORTED、NOT_BUILT（默认）。此参数较少使用。
+
+
+
+versionNumberString参数使用占位符生成版本号。部分占位符本身支持参数化。接下来分别介绍它们。
+
+* BUILD DATE FORMATTED：格式化的构建日期，支持参数化，如${BUILDDATE FORMATTED，"yyyy-MM-dd"}。
+* BUILD DAY：构建日期，支持X和XX参数。比如是12月2日，${BUILD DAY}将返回2，${BUILD DAY，X}将返回2，${BUILD DAY，XX}将返回03。
+*  BUILD WEEK：今年构建的星期数，支持X和XX参数。
+* BUILD MONTH：今年构建的月数，支持X和XX参数。
+* BUILD YEAR：今年构建的年份。
+
+
+
+​	比如构建的时间为2018-12-02，那么BUILD_DAY的值为2，BUILD_WEEK的值为49，BUILD_MONTH的值为12，BUILD_YEAR的值为2018。
+
+​	接下来是一组和构建数相关的占位符：BUILDS TODAY、BUILDS THIS WEEK、BUILDS THIS MONTH、BUILDS THIS YEAR，它们分别表示当天、本星期、本月、本年完成的构建数。BUILDS ALL TIME表示自从项目开始后完成的总构建数。
+
+​	MONTHS SINCE PROJECT START和YEARS SINCE PROJECT START分别表示自项目开始日期起已过去的日历月数和年数。
+
+## 小贴士
+
+### Nexus匿名用户权限问题
+
+​	在默认情况下，Nexus匿名用户是可以下载所有制品的，如图10-10所示。
+
+​	![](https://pic.imgdb.cn/item/6106a1af5132923bf8141d37.jpg)
+
+​	我们希望对下载制品进行权限控制，匿名用户不可以下载制品。在Nexus中的操作如下：
+
+* 创建一个新的role，不授予任何权限。
+* 将这个新的role分配给anonymous用户。
+
+### 制品库的容量要大
+
+​	通常制品文件都很大，我们需要对制品库的容量进行监控，当达到一定容量时，清理过时的制品。
+
+### 本章小结
+
+​	以下是笔者认为常常被人忽略，但是又有意义的元数据。
+
+* 制品的唯一标识：全局唯一的ID，不仅可以用于定位制品，还可以定位制品背后的元数据。
+* 制品与源代码的commit记录的关联：当线上某系统出现业务类别的Bug时，我们可以快速定位到与该制品相关的代码。
+* 制品的依赖树：依赖可以小到组件依赖，大到服务依赖。这里所说的制品的依赖树是指组件级别的依赖。当要修改某个组件时，我们可以顺着依赖树找到所有影响的组件，进而评估修改的影响面。
+
+# 可视化构建及视图
+
+## Green Balls插件
+
+​	Green Balls插件（https：//plugins.jenkins.io/greenballs）的作用就是让构建成功的状态图标变成绿色的。
+
+​	在安装Green Balls插件前，构建状态图标如图11-1所示。
+
+![](https://pic.imgdb.cn/item/6106a2685132923bf817e7a5.jpg)
+
+​	虽然这个插件并没有提供功能上的帮助，但是有助于感官效果的提升。
+
+## Build Monitor View插件
+
+​	解决办法之一就是将构建可视化，让所有人可以自助查到某个系统在某个环境的部署情况。
+
+​	Build Monitor View插件（https：//plugins.jenkins.io/build-monitor-plugin）可以将Jenkins项目以一块“看板”的形式呈现。
+
+​	安装该插件后，我们需要手动添加这块“看板”。步骤如下：
+
+​	![](https://pic.imgdb.cn/item/6106a2af5132923bf819bc30.jpg)
+
+![](https://pic.imgdb.cn/item/6106a2c35132923bf81a3d77.jpg)
+
+![](https://pic.imgdb.cn/item/6106a2d15132923bf81a8b83.jpg)
+
+​	当构建失败时，就会出现红块。
+
+​	如果条件允许，请将这块“看板”显示在人人都可以看到的大屏幕上。这样做的好处是：
+
+* （1）大家提交代码会变得更严谨，因为所有人都可以看到你的构建结果。在没有持续集成经验的团队中，一开始开发人员并不会很在意构建的成功与失败。即使上一次构建失败了，其他人也会继续推送代码。这样的操作违反了持续集成的一个原则：不修复失败的构建，不提交代码。
+* （2）让项目信息流通更顺畅。人人都可以看到最近执行了什么构建。
+
+## 使用视图
+
+​	当Jenkins项目较多时，在Jenkins首页中要找到目标项目，要么使用浏览器自带的搜索功能，要么使用Jenkins本身的搜索框。但不论使用哪种方法，都会觉得“麻烦”，特别是多个团队使用同一个Jenkins实例时。
+
+### 使用项目的维度建立视图
+
+​	假设存在a、b两个大项目，在这两个大项目下又各自有自己的子项目。如图11-7所示，所有项目默认都在“All”视图下。
+
+![](https://pic.imgdb.cn/item/6106a3535132923bf81d8ea5.jpg)
+
+​	单击左侧列表中的“New View”选项（也可以单击“All”旁边的“+”号），开始创建新视图，如图11-8所示。
+
+​	![](https://pic.imgdb.cn/item/6106a3635132923bf81de502.jpg)
+
+​	输入视图名称后，单击“OK”按钮，进入视图配置页面，如图11-9所示。
+
+​	在“Job Filters”部分，勾选“Use a regular expression to include jobs intothe view”复选框，然后输入正则表达式，用于匹配项目名。匹配了的项目将会显示在此视图中。
+
+​	如果不使用正则表达式，则需要手动选择。这里就不进行详细介绍了。
+
+​	单击“OK”按钮后，跳转回首页，我们可以看到如图11-10所示的列表。
+
+​	从侧面可以看出，如果Jenkins项目一开始就能按一定的规则命名，那么能为后期操作节约不少时间。
+
+![](https://pic.imgdb.cn/item/6106a3855132923bf81e9900.jpg)
+
+![](https://pic.imgdb.cn/item/6106a39c5132923bf81f1449.jpg)
+
+### 设置默认视图
+
+![](https://pic.imgdb.cn/item/6106a3ae5132923bf81f6ae0.jpg)
+
+## 本章小结
+
+​	本章介绍了Green Balls插件和Build Monitor View插件，还介绍了如何建立视图，对Jenk-ins项目进行分类显示。学习过Jenkins的读者应该听说过Blue Ocean插件，它是Jenkins的一款皮肤插件。但是它又不仅仅是给Jenkins换一个皮肤，还对用户体验进行了重构。读者朋友可以体验一下。但本书为什么没有介绍它呢？原因是官方中文文档非常详细，其链接地址为：https：//jenkins.io/zh/doc/book/blueocean/。
+
+# 自动化部署
+
+## 关于部署有什么好说的
+
+### 部署不等于发布
+
+​	用通俗的话来说，部署就是将应用服务软件“放”在远程服务器上，但是并不代表真正的用户可以看到这些新功能。当用户能看到这些新功能时，才代表发布了新功能。
+
+​	进而你可以解释如何做到部署，但是不发布：通过一些技术，即使把最新的应用服务软件“放”到服务器上，但是用户也看不到这些功能。这些技术就像是开关一样，能在后台控制开和关。只要打开某个功能的“开关”，这个功能就可以呈现给用户。
+
+### 什么是自动化部署
+
+​	笔者将自动化部署的逻辑分成两部分：自动化逻辑和部署逻辑。自动化逻辑，即只需要“描述”第一步安装Nginx，第二步配置Nginx，第三步启动Nginx服务· · · · ·· 至于第一步是使用yum还是apt实现的，那是工具的事情；第二步如何将Nginx配置复制到指定目录下，那也是工具的事情……这部分是自动化逻辑。
+
+​	部署逻辑，我们可以使用shell来描述，也可以使用Python来描述。但是，不论是使用shell还是使用Python，都太过于原始。就像使用汇编语言来开发一个HR系统，虽然可以实现，但是效率和成本都没有办法保证。
+
+​	所以，有人开发了Puppet、Chef、Ansible等这类表达力更强的自动化运维工具。我们使用这些工具提供的运维领域的特定语言来描述部署逻辑，而自动化逻辑就交给了这些工具来实现。
+
+### 自动化运维工具解决的问题
+
+​	笔者在学习了Puppet、Chef、Ansible后，总结出了它们的共性——它们都必须解决以下几大问题。
+
+* 如何与受控机器通信？
+* 如何组织成百上千台机器？
+* 如何描述部署逻辑，同时还应该是幂等的（同样的部署脚本，执行一次与执行多次的结果应该是一样的）？
+* 如何得到执行结果？
+
+
+
+​	Puppet使用的是C/S架构，分为主控机器（Puppet master）与受控机器（Puppet client），它们之间使用HTTPS进行通信。也就是说，我们需要在所有的受控机器上安装Puppet的客户端，在主控机器上安装Puppet的服务器端。Puppet使用一种称为manifest的DSL来描述部署逻辑，并在manifest中组织机器。
+
+​	在主控机器与受控机器认证成功后，受控机器会每隔一段时间就向主控机器发送一次请求，这个请求将会把自己（受控机器）的信息告诉主控机器。主控机器拿到这些信息后与manifest链接编译，最后生成一份受控机器可执行的catalog。受控机器在执行过程中，将执行情况反馈给主控机器。
+
+​	Chef使用的是C/S架构，也是使用HTTPS进行通信的。其解决问题的方式与Puppet相似。
+
+​	而Ansible解决问题的方式就不一样了。下面我们会详细介绍。
+
+## Jenkins集成Ansible实现自动化部署
+
+### Ansible介绍
+
+​	Ansible采用了与Puppet、Chef不一样的解决方案，不需要在受控机器上安装额外的客户端软件。原因是Ansible使用的是SSH协议与受控机器进行通信的，一般服务器默认有SSH服务。Ansible也因此被称为agentless（去客户端的）。
+
+​	Ansible也不像Puppet、Chef那样需要在一台相对稳定的机器上安装一个主控程序，好让所有的受控机器连接上来。只要是安装了Ansible的机器就可以作为主控机器，比如工作时用的电脑。
+
+​	Puppet和Chef都自己做了一套DSL，而Ansible使用YAML格式作为自己的DSL格式。
+
+​	笔者认为这是非常聪明的设计：一是大家都熟悉YAML格式；二是不需要自己设计DSL；三是不用自己写编译器（YAML可以直接映射到Python对象）。所以，在学习过程中，笔者发现相对Puppet、Chef，Ansible简单得多。
+
+​	Ansible将部署逻辑放在一个称为“playbook”的YAML文件中。通常，文件名是playbook.yml。
+
+![](https://pic.imgdb.cn/item/6106a4be5132923bf824935e.jpg)
+
+​	组织受控机器的逻辑被放在inventory文件中。它是ini格式的，默认文件名为hosts。
+
+![](https://pic.imgdb.cn/item/6106a4ce5132923bf824e08f.jpg)
+
+​	这两个文件构成了Ansible自动化部署的基础。
+
+​	只要运行ansible-playbook--inventory hosts--user vagrant--ask-passplaybook.yml命令，输入SSH登录时用户vagrant的密码，就可以执行我们描述好的部署逻辑了。为简单起见，我们使用用户名和密码的方式登录。更安全的方式是使用SSH密钥登录。
+
+​	以上就是对Ansible的基本介绍。如果读者想更深入地学习，请前往Ansible官网。
+
+**Ansible的隐喻**
+
+​	了解Ansible的隐喻，对于了解Ansible背后的设计有一定的帮助。Ansible的隐喻很简单：Ansible是导演，受控机器列表（inventory）为演员列表，开发者则是编剧。开发者只要把剧本（playbook.yml）写好，Ansible拿着剧本与invenstory一对上号，演员就会按照剧本如实表演，不会有任何个人发挥。
+
+### Jenkins与Ansible集成
+
+​	Jenkins与Ansible集成能让Jenkins执行ansible命令。是具体步骤如下：
+
+* 安装Ansible插件（https：//plugins.jenkins.io/ansible）。
+* 在主控机器上安装 Ansible，并设置不进行 host key 检查。主控机器指的是真正执行ansible命令的机器，也就是Jenkins。我们需要在主控机器上自行安装Asible，然后修改主控机器的Ansible配置，不进行host key检查。
+
+![](https://pic.imgdb.cn/item/6106a5085132923bf825ee0f.jpg)
+
+如果要求安全级别高，则应该提前将所有受控机器的fingerprint放到主控机器的know_hosts文件中。
+
+* 在Jenkins上进入Manage Jenkins→Global Tool Configuration→Ansible配置页面，配置Ansible的执行路径，如图12-1所示。
+
+我们可以同时添加多个Ansible版本。请留意Name字段的值，后面介绍的ansiblePlaybook步骤会使用到。
+
+* 在Jenkins上添加登录受控机器的凭证。Ansible与受控机器连接的凭证需要我们在Jenk-ins上手动添加。根据项目的实际情况，可以选择使用用户名和密码的方式或者用户名和密钥的方式登录。
+
+![](https://pic.imgdb.cn/item/6106a53a5132923bf826d18e.jpg)
+
+* 在pipeline中加入ansiblePlaybook步骤。
+
+
+
+​	部署项目的目录结构如下：
+
+![](https://pic.imgdb.cn/item/6106a54f5132923bf82734cd.jpg)
+
+![](https://pic.imgdb.cn/item/6106a5605132923bf8278100.jpg)
+
+![](https://pic.imgdb.cn/item/6106a5715132923bf827ccc6.jpg)
+
+​	ansiblePlaybook步骤执行的是ansible-playbook命令，其中playbook参数是playook文件的路径，inventory参数是inventory文件的路径，credentialsId参数就是在上一步中添加的凭证ID。
+
+​	最后打印日志如下：
+
+![](https://pic.imgdb.cn/item/6106a5875132923bf8282ce7.jpg)
+
+​	在执行日志中，密码并不会被明文打印出来。
+
+​	这样，Jenkins与Ansible的集成就算完成了。但是这只是刚刚开始，在实际工作中，我们还需要考虑自定义的公共role应该放在哪里等与Ansible相关的问题。
+
+### Ansible插件详解
+
+**ansiblePlaybook步骤**
+
+​	ansiblePlaybook步骤除支持playbook、inventory、credetialsId三个参数外，还支持以下参数。
+
+* installation：字符串类型，值为前面设置的Name字段的值。此参数的作用不言自明，用于指定不同版本的Ansible。
+* vaultCredentialsId：Ansible vault 密码在 Jenkins 中的凭证 ID。它相当于ansible 命令行的--vault-password-file参数。
+* disableHostKeyChecking：布尔类型，是否进行host key检查。这个参数可以用来代替12.2.2节中的第2个步骤。
+* become：布尔类型，在执行操作时是否加上sudo。它相当于ansible命令行的--become参数。
+* becomeUser：字符串类型，切换到超级管理员用户名，默认是root。它相当于ansible命令行的--become-user参数。
+* limit：字符串类型，指定执行的主机。相当于ansible命令行的-l参数。多个主机之间使用逗号分隔。
+* tags：指定执行打上特定tag的任务。它相当于ansible命令行的-t参数。多个tag之间使用逗号分隔。
+* skippedTags：字符串类型，指定跳过哪些tag的任务。它相当于ansible命令行的--skip-tags参数。多个tag之间使用逗号分隔。
+* startAtTask：字符串类型，从指定任务开始执行。它相当于ansible命令行的--start-at-task参数。
+*  forks：并行执行的进程数。相当于ansible命令行的-f参数。
+* extras：字符串类型，扩展参数。当ansiblePlaybook步骤的参数无法满足需求时，可以使用此参数。比如extras：'--syntax-check'。
+* extraVars：List＜org.jenkinsci.plugins.ansible.ExtraVar>类型，扩展变量。它相当于ansible命令行的-e参数。使用它的方式比较特殊，格式如下：
+
+![](https://pic.imgdb.cn/item/6106a5df5132923bf829b3d8.jpg)
+
+​	extraVars支持hidden属性，当其值为true时，在执行日志中会隐藏参数值。
+
+​	现在我们来看一下完整的代码示例。
+
+![](https://pic.imgdb.cn/item/6106a60b5132923bf82a74fc.jpg)
+
+​	最后执行的命令如下：
+
+​	![](https://pic.imgdb.cn/item/6106a6195132923bf82ab10f.jpg)
+
+​	ansiblePlaybook 步骤只是 Ansible 插件提供的两个步骤中的一个，还有ansibleVault步骤。
+
+**ansibleVault步骤**
+
+​	放在配置文件中的MySQL连接密码，想必是不希望被所有人看见的。Ansiblevault是Ansible的一个特性，它能帮助我们加解密配置文件或者某个配置项。
+
+​	在ansiblePlaybook步骤中，vaultCredentialsId参数的作用就是，在ansible-playbook执行过程中，会对事先放在playbook中的密文进行解密，解密需要密码，vaultCredentialsId就是我们事先存储在Jenkins中的密码的凭证ID。
+​	而ansibleVault步骤所做的事情就是执行Ansible提供的ansible-vault命令。该命令通常用于对敏感数据进行加解密。
+
+​	ansibleVault支持以下参数。
+
+* action（必填）：字符串类型，ansibleVault执行的操作类型。包括：
+  * encrypt，加密文件。
+  * encrypt_string，加密字符。
+  * rekey，使用一个新的密码进行加密，但需要旧的密码。
+  * decrypt，解密。
+* content：字符串类型，加密文本时的字符串内容。
+*  input：字符串类型，追加到ansible-vault命令行后面的参数。
+* installation：字符串类型，与ansiblePlaybook步骤的installation参数的作用一样。
+* newVaultCredentialsId：字符串类型，使用新的凭证进行重新加密，相当于ansible-vault命令的--new-vault-password-file参数。
+* output：字符串类型，追加到ansible-vault命令行后面的参数，但是会放在input参数之前。对于此参数，无论是在插件源码还是在官方文档（没有任何说明文档）中，都看不出如何使用。
+* vaultCredentialsId（必填）：字符串类型，密码的凭证ID。
+
+接下来，我们看看ansibleVault应用场景的代码示例。
+
+* 对文本内容进行加密。
+
+![](https://pic.imgdb.cn/item/6106a6805132923bf82c74d5.jpg)
+
+* 加密文件。
+
+![](https://pic.imgdb.cn/item/6106a6955132923bf82cd1a9.jpg)
+
+* 更换vault密码。
+
+![](https://pic.imgdb.cn/item/6106a6a45132923bf82d131b.jpg)
+
+* 解密文件。
+
+![](https://pic.imgdb.cn/item/6106a6b65132923bf82d65c3.jpg)
+
+## 手动部署比自动化部署更可靠吗
+
+​	后来有一天，笔者恍然大悟：可靠的是人，与部署方式无关。遇到不可靠的人，在设计自动化部署时，一不小心也会把所有机器的数据都删除了；遇到可靠的人，即使手动配置20台机器也不会出错。
+
+​	那么，自动化部署又有什么优势呢？上文中，我们了解到自动化部署的逻辑分成两部分：自动化逻辑和部署逻辑。自动化部署的优势在于：
+
+* 人只需要保证部署逻辑的正确性，自动化逻辑的正确性由工具保证。
+* 在一天内工具重复执行同一个部署任务1000次，不会有任何怨言，而且每次执行都会保证结果是一样的。
+
+
+
+​	最后，你觉得哪种方式更可靠呢？
+
+## 如何开始自动化部署
+
+​	自动化部署的理想“很丰满”，但是现实常常“骨感”到让你一次次想删库跑路。现实是有永远做不完的业务需求，人手永远不够，自动化部署的专项改造的优先级永远排在业务开发的后面。
+
+​	在这种情况下，我们该如何开始自动化部署呢？在这里介绍一下笔者是如何开始自动化部署之路的，仅供读者参考。
+
+​	假设我们需要在a服务上进行业务开发。目前版本是v1。
+
+​	首先，业务还是要开发的，但是在开发过程中，开发人员就必须为自动化部署做准备：将写死在代码中的配置提到配置文件中。不求一次性全部提出来，但求每次都有改进。这个过程是运行代码与配置分离的过程。
+
+​	当业务开发完成后，假设版本是v2。这时不要急于将应用按照过往手动部署的方式进行部署，而是申请一批（台）新机器（请慎重选择操作系统的版本，因为后期的自动化部署都会依赖它），然后将以前手动部署时的操作写到自动化部署脚本中。接着执行这个自动化部署脚本，将应用部署到新机器上。
+
+​	这时，我们可以绕过Nginx，直接对a服务进行全面测试。图12-2展示了当前的状态。在测试通过后，就可以切换流量到v2版本的a服务中了（现实可能不会这么简单，需要根据具体情况来定）。
+
+​	这样，我们就自动化部署了第一个服务。虽然第一次部署会有些慢，但是很容易就将此模式推广到其他服务。
+
+![](https://pic.imgdb.cn/item/6106a7225132923bf82f547f.jpg)
+
+​	之所以使用新机器，是因为它干净。只有部署到干净的机器上，才可以排除应用与特定机器相关的配置，进而彻底清楚影响这个应用的配置都有哪些。在旧机器上进行自动化部署，即使成功了，也是不可靠的，因为不能保证现在有效的自动化脚本，换台机器还有效。
+
+总结一下如何开始自动化部署：
+
+* 选择从可以独立部署的、影响范围小的服务开始。
+* 要想办法使用标准化的新机器，而不是旧机器。
+* 自动化所有的部署操作，包括机器级别的设置。
+* 重复以上三个步骤。
+
+## 小贴士
+
+​	在现实环境中，对不同环境下的机器可能使用不同的登录方式，甚至对同一个环境下的不同机器也会使用不同的登录方式。使用Ansible的host变量，我们就可以轻松实现对不同机器使用不同的登录方式。
+
+​	基于12.2.2节的例子，我们可以在项目根目录下创建一个名为host vars的目录，并在其中创建一个与受控机器IP地址相同的文本文件。示例如下：
+
+![](https://pic.imgdb.cn/item/6106a75b5132923bf8305797.jpg)
+
+​	内容是YAML格式的。其中ansible_ssh_user和，ansible_ssh_pass变量分别指SSH的用户名和密码；ansible_become_method变量指执行任务时切换权限的方法。
+
+# 通知
+
+​	让团队成员实时知道构建的状态很重要，但是我们不可能24小时盯着构建面板，最好的方式就是构建系统本身知道出现情况时通知什么人。
+
+## 邮件通知
+
+​	邮件通知是最常用的通知方式，Jenkins默认支持。
+
+### 使用Jenkins内置邮件通知功能
+
+​	我们使用163邮箱来演示如何在pipeline中加入邮件通知。步骤如下：
+
+​	（1）进入Manage Jenkins→Configure System→Jenkins Location设置页面，设置管理员邮箱，如图13-1所示。
+
+![](https://pic.imgdb.cn/item/6106a87a5132923bf8354a42.jpg)
+
+（2）在同一个页面中找到E-mail Notification部分，如图13-2所示。
+
+![](https://pic.imgdb.cn/item/6106a8895132923bf8358efb.jpg)
+
+​	勾选“Test configuration by sending test e-mail”复选框，输入接收测试邮件的邮箱，然后单击“Test configuration”按钮，如图13-3所示。
+
+![](https://pic.imgdb.cn/item/6106a89d5132923bf835e315.jpg)
+
+mail步骤的关键参数介绍如下：
+
+* subject，邮件主题。
+* to，收件地址。
+* body，邮件内容。
+* from，发件地址。
+
+
+
+​	欲了解更多参数，可以到官方文档中查看：https：//jenkins.io/doc/pipeline/steps/workflow-basic-steps/＃mail-mail。
+
+### 使用Email Extension插件发送通知
+
+​	mailer插件提供的功能过于简单。Email Extension插件对mailer插件进行了扩展，支持更多的特性。
+
+* 可以定制接收人的邮件列表。
+* 可以将构建日志以附件形式加到邮件中，还可以设置对日志进行压缩。
+* 可以发送附件。
+
+
+
+​	具体使用步骤如下：
+
+（1）安装Email Extension插件（https：//plugins.jenkins.io/email-ext）。
+
+（2）进入Manage Jenkins→Configure System→Extended E-mailNotification配置页面，如图13-4所示。
+
+
+
+![](https://pic.imgdb.cn/item/6106a8e55132923bf8372615.jpg)
+
+​	在Jenkinsfile中使用emailext步骤，因此只要配置SMTP server，其他选项配置保持默认配置就可以了。
+
+（3）将emailext步骤加入pipeline的post部分的failure块内。
+
+![](https://pic.imgdb.cn/item/6106a8fa5132923bf8378a31.jpg)
+
+​	收到的邮件内容如图13-5所示。
+
+​	![](https://pic.imgdb.cn/item/6106a9095132923bf837cc65.jpg)
+
+emailext步骤的常用参数介绍如下：
+
+* 步骤的常用参数介绍如下：
+* body：String类型，邮件内容。
+* attachLog（可选）：Bool类型，是否将构建日志以附件形式发送。
+* attachmentsPattern（可选）：String类型，需要发送的附件的路径，Ant风格路径表达式。
+*  compressLog（可选）：Bool类型，是否压缩日志。
+*  from（可选）：String类型，收件人邮箱。
+* to（可选）：String类型，发件人邮箱。
+* recipientProviders（可选）：List类型，收件人列表类型。
+* replyTo（可选）：回复邮箱。
+
+
+
+​	如表13-1所示的是常用的收件人列表类型。
+
+![](https://pic.imgdb.cn/item/6106a94e5132923bf83905a9.jpg)
+
+​	提示：requestor（）会读取登录用户的邮箱（在个人资料设置页可以设置）。
+
+​	关于完整的收件人列表类型，可以参考官方文档：https：//jenkins.io/doc/pipeline/steps/email-ext/。
+
+## 钉钉通知
+
+​	钉钉（DingTalk）是阿里巴巴集团开发的企业协同办公软件。本节介绍Jenkins与钉钉的集成。原理很简单，就是在钉钉群中增加一个钉钉机器人，我们将消息发送到钉钉机器人的API就可以了。
+
+具体步骤如下：
+
+（1）配置钉钉机器人。
+
+* 在钉钉群的右上角单击机器人形状的图标，如图13-6所示。
+
+![](https://pic.imgdb.cn/item/6106a97e5132923bf839e470.jpg)
+
+* 在弹出的机器人类型列表中，选择“Custom”（自定义）类型，如图13-7所示。
+
+![](https://pic.imgdb.cn/item/6106a9905132923bf83a393f.jpg)
+
+* 按照钉钉的提示操作到达最后一步，复制webhook的URL中的accessToken的值，后面的步骤会使用到，如图13-8所示。
+
+![](https://pic.imgdb.cn/item/6106a9a25132923bf83a8ea9.jpg)
+
+
+
+（2）安装Dingding插件（https：//plugins.jenkins.io/dingding-notifications）。
+
+（3）在Jenkinsfile中加入dingTalk步骤。
+
+![](https://pic.imgdb.cn/item/6106a9b85132923bf83af018.jpg)
+
+​	注意：如果accessToken的值不对，dingTalk并不会报错。另外，应该使用凭证管理accessToken的值，而不应该以明文形式写在Jenkinsfile中。
+
+## HTTP请求通知
+
+​	使用HTTP Request插件（https：//plugins.jenkins.io/http_request），我们能在Jenkins pipeline中发送HTTP请求给第三方系统。这是最通用的Jenkins与第三方系统集成的方式之一。
+
+​	HTTP Request插件提供了httpRequest步骤，代码示例如下：
+
+![](https://pic.imgdb.cn/item/6106a9d25132923bf83b6516.jpg)
+
+httpRequest步骤返回的response对象包含两个字段。
+
+* content：响应内容。
+* status：响应码。
+
+
+
+以下是httpRequest步骤支持的参数。
+
+* url：字符串类型，请求URL。
+* acceptType：枚举类型，HTTP请求Header的“Accept”的值类型为NOT_SET、TEXT_HTML、TEXT_PLAIN、APPLICATION_FORM、APPLICATION_JSON、APPLICATION_JSON_UTF8、APPLICATION_TAR、APPLICATION_ZIP、APPLICATION_OCTETSTREAM。
+* authentication：字符串类型，Username with password凭证的ID，采用的是HTTP Basic认证方式。
+* consoleLogResponseBody：布尔类型，是否将请求的响应body打印出来。
+* contentType：枚举类型，HTTP请求Header的“Content-type”的值类型，与acceptType支持的枚举一样。
+* customHeaders：HttpRequestNameValuePair对象数组，HTTP请求Header部分的内容，该对象有3个参数。
+  * name：字符串类型，Header名称。
+  * value：字符串类型，Header值。
+  * maskValue：布尔类型，是否隐藏Header值。如果设置为true，则在打印时使用“*”代替。
+* httpMode：枚举类型，HTTP方法，有GET（默认）、HEAD、POST、PUT、DELETE、OPTIONS、PATCH。
+* httpProxy：字符串类型，HTTP代理地址
+*  ignoreSslErrors：布尔类型，是否忽略SSL错误。
+*  requestBody：字符串类型，请求的body内容。
+* timeout：整型，超时时间，单位为秒。默认值为0，代表不设置超时时间。
+* validResponseCodes：字符串类型，代表HTTP请求成功的状态码。它支持3种格式的值。
+  * 单状态值：比如200，当收到200响应状态码时，表示HTTP请求成功。
+  * 多状态值：当响应状态码符合多个状态码中的一个时，代表请求成功。多个状态码之间使用逗号（，）分隔。比如200，404，500。
+  * 范围状态值：格式为“From：To”。比如200：302，代表收到200到302的响应状态码都代表请求成功。
+* validResponseContent：字符串类型，比如设置它的值为“showme.codes”，那么只有当HTTP返回的内容中包含了“showme.codes”时，才代表请求成功。
+* quiet：布尔类型，是否关闭所有的日志打印，默认值为false。
+* responseHandle：枚举类型，获取HTTP响应内容的方式。其值可以为
+  * NONE：不读取响应内容。
+  * LEAVE_OPEN：当执行完请求后，并不会返回响应的内容，而是返回一个打开了的inputStream，由你自己决定该如何读取响应内容。但是在使用完之后，记得调用input-Stream的close（）方法关闭。
+  * STRING（默认值）：将响应内容转换成一个字符串。
+* outputFile：字符串类型，请求响应内容的输出路径。
+
+
+
+虽然参数有些多，但是只有url是必需的，其他参数都是可选的。
 
