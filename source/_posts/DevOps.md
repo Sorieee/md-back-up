@@ -3911,7 +3911,8 @@ tags:
 https://www.jenkins.io/doc/book/installing/war-file/
 
 ```sh
-wget https://get.jenkins.io/war-stable/2.289.1/jenkins.war --no-check-certificatejava -jar jenkins.war --httpPort=9090
+wget https://get.jenkins.io/war-stable/2.289.1/jenkins.war --no-check-certificate
+java -jar jenkins.war --httpPort=9090
 ```
 
 https://www.cnblogs.com/ajianboke/p/10945522.html
@@ -3975,7 +3976,17 @@ http://mirror.xmission.com/jenkins/updates/update-center.json
 ​	在pipeline-hello-world项目的设置页面中，在Pipeline节点下填入pipeline的内容，如图2-3所示。
 
 ```
-pipeline {    agent any    stages {        stage("build") {            steps {                echo "Hello World"            }        }    }}
+pipeline {
+    agent any
+    
+    stages {
+        stage('Build') {
+            steps {
+                echo 'Buiding...'
+            }
+        }
+    }
+}
 ```
 
 
@@ -4036,7 +4047,20 @@ https://www.cnblogs.com/dotnet261010/p/12393917.html
 Jenkinsfile内容如下：
 
 ```
-pipeline {    agent any    tools {        maven 'mvn-3.5.4'    }    stages {        stage("build") {            steps {                sh "mvn clean package spring-boot:repackage"                sh "printenv" // 将环境变量打印            }        }    }}
+pipeline {    
+	agent any    
+	tools {        
+		maven 'mvn-3.5.4'    
+	}    
+	stages {        
+		stage('build') {          
+			steps {                
+				sh "mvn clean package spring-boot:repackage"                
+				sh "printenv" // 将环境变量打印            
+			}       
+		}   
+	}
+}
 ```
 
 ​	当Jenkins执行到tools时，就会根据Maven的设置自动下载指定版本的Maven，并安装。tools是pipeline中的一个指令，用于自动安装工具，同时将其路径放到PATH变量中。通过命令sh"printenv"，可以看到tools将MAVEN_HOME放到了当前任务的环境变量中。
@@ -4061,37 +4085,49 @@ pipeline {    agent any    tools {        maven 'mvn-3.5.4'    }    stages {    
 * 支持命名参数，比如：
 
 ```groovy
-def createName(Stirng giveName, Stirng familyName) {    return giveName + " " + familyName;}// 调用时可以这样createName familyName = "Lee", giveName = "Bruce"
+def createName(Stirng giveName, Stirng familyName) {    
+    return giveName + " " + familyName;
+}// 调用时可以这样createName familyName = "Lee", giveName = "Bruce"
 ```
 
 * 支持默认参数值，比如：
 
 ```groovy
-def sayHello(String name = "humans") {    print "hello ${name}"}sayHello() // 此时括号不能忽略
+def sayHello(String name = "humans") {    
+    print "hello ${name}"
+}
+sayHello() // 此时括号不能忽略
 ```
 
 * 支持单引号、双引号。双引号支持插值，单引号不支持。比如：
 
 ```groovy
-def name = 'world'print "hello ${name}" // 结果 hello worldprint 'hello ${name}' // 结果 hello ${name}
+def name = 'world'
+print "hello ${name}" // 结果 hello worldprint 'hello ${name}' // 结果 hello ${name}
 ```
 
 * 支持三引号。三引号分为三单引号和三双引号。它们都支持换行，区别在于只有三双引号支持插值。比如：
 
 ```groovy
-def name = 'world'def aString = '''line oneline twoline three${name}'''def bString = """line oneline twoline three${name}"""
+def name = 'world'
+def aString = '''line oneline twoline three${name}'''
+def bString = """line oneline twoline three${name}"""
 ```
 
 * 支持闭包。闭包的定义方法如下：
 
 ```groovy
-// 定义闭包def codeBlock = { print "hello closure"}// 当成函数调用codeBlock()
+// 定义闭包
+def codeBlock = { 
+    print "hello closure"
+}// 当成函数调用codeBlock()
 ```
 
 还可以将闭包看作一个参数传递给另一个方法
 
 ```groovy
-// 定义一个pipeline函数, 它接收一个闭包函数def pipeline(closure) {    closure()}// 在调用pipeline函数时，可以这样pipeline(codeBlock)// 如果把闭包定义的语句去掉pipeline({print "hello closure"})// 由于括号是非必需的, 所以pipeline {    print "hello closure"}
+// 定义一个pipeline函数, 它接收一个闭包函数
+def pipeline(closure) {    closure()}// 在调用pipeline函数时，可以这样pipeline(codeBlock)// 如果把闭包定义的语句去掉pipeline({print "hello closure"})// 由于括号是非必需的, 所以pipeline {    print "hello closure"}
 ```
 
 * 闭包的另类用法。我们定义一个stage函数
@@ -4111,13 +4147,21 @@ def stage(String name, closure) {    println name    closure()}// 正常用法st
 ​	前文中，我们已经了解到：从软件版本控制库到用户手中这一过程可以分成很多阶段，每个阶段只专注处理一件事情，而这件事情又是通过多个步骤来完成的，这就是软件工程的pipeline。Jenkins对这个过程进行抽象，设计出一个基本的pipeline结构。
 
 ```groovy
-pipeline {    agent any    stages {        stages('build') {            steps {                echo "hello world"            }        }    }}
+pipeline {    
+    agent any    
+    stages {        
+        stages('build') {            
+            steps {                
+                echo "hello world"            
+            }        
+        }    
+    }
+}
 ```
 
 * pipeline：代表整条流水线，包含整条流水线的逻辑。
 * stage部分：阶段，代表流水线的阶段。每个阶段都必须有名称。本例中，build就是此阶段的名称。
 * stages部分：流水线中多个stage的容器。stages部分至少包含一个stage。
-* steps部分：代表阶段中的一个或多个具体步骤（step）的容器。steps部分至少包含一个步骤，本例中，echo就是一个步骤。在一个stage中有且只有一个steps。
 * steps部分：代表阶段中的一个或多个具体步骤（step）的容器。steps部分至少包含一个步骤，本例中，echo就是一个步骤。在一个stage中有且只有一个steps。
 * agent部分：指定流水线的执行位置（Jenkins agent）。流水线中的每个阶段都必须在某个地方（物理机、虚拟机或Docker容器）执行，agent部分即指定具体在哪里执行。我们会在第14章中进行详细介绍。
 
@@ -4137,8 +4181,13 @@ pipeline {    agent any    stages {        stages('build') {            steps { 
 
 ​	在上一章中，我们已经见过post部分，在pipeline执行失败后，发送邮件到指定邮箱中。
 
-```
-post {	failure {		mail to: 'team@example.com',		subject: 'The pipeline failed :('	}}
+```groovy
+post {	
+	failure {		
+        mail to: 'team@example.com',		
+        subject: 'The pipeline failed :('	
+    }
+}
 ```
 
 ​	post部分包含的是在整个pipeline或阶段完成后一些附加的步骤。post部分是可选的，所以并不包含在pipeline最简结构中。但这并不代表它作用不大。根据pipeline或阶段的完成状态，post部分分成多种条件块，包括：
@@ -4183,7 +4232,7 @@ Jenkins pipeline支持的指令有：
 * buildDiscarder：保存最近历史构建记录的数量。当pipeline执行完成后，会在硬盘上保存制品和构建执行日志，如果长时间不清理会占用大量空间，设置此选项后会自动清理。此选项只能在pipeline下的options中使用。示例如下：
 
 ```
-options {	buildDiscrader(logRotator(numToKeepStr: '10'))}
+options {	buildDiscarder(logRotator(numToKeepStr: '10'))}
 ```
 
 * checkoutToSubdirectory：Jenkins从版本控制库拉取源码时，默认检出到工作空间的根目录中，此选项可以指定检出到工作空间的子目录中。示例如下：
