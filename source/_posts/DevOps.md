@@ -443,7 +443,7 @@ tags:
 
 ​	没有哪个应用程序是孤岛。每个应用程序都依赖于硬件、软件、基础设施以及外部系统才能正常工作。
 
- 	环境的配置和应用程序的配置同样重要。例如，如果应用程序需要用到消息总线，那么只有正确配置了这个消息总线，应用程序才能正常工作。操作系统的配置也同样重要。
+​	环境的配置和应用程序的配置同样重要。例如，如果应用程序需要用到消息总线，那么只有正确配置了这个消息总线，应用程序才能正常工作。操作系统的配置也同样重要。
 
 ​	这里把不良环境管理可能带来的问题总结如下。
 
@@ -6574,3 +6574,1257 @@ httpRequest步骤返回的response对象包含两个字段。
 
 虽然参数有些多，但是只有url是必需的，其他参数都是可选的。
 
+# 分布式构建与并行构建
+
+​	在前面的章节中，所有的Jenkins项目都是在Jenkins master的executor上执行的。如果Jenkins master上只有两个executor，那么只有两个项目能同时执行，其他项目都必须要排队。
+
+​	假如单机足够强大，让更多项目同时执行的方法就是增加executor。但单机的容量总会遇到上限，而且还会有单节点问题。
+
+​	解决办法就是将Jenkins项目分配到多台机器上执行，这就是分布式构建。
+
+​	在真正介绍分布式构建前，我们需要了解一下Jenkins的架构，因为它决定了分布式构建的实现。
+
+## Jenkins架构
+
+​	Jenkins采用的是“master+agent”架构（有时也称为“master+slave”架构），如图14-1所示。Jenkins master负责提供界面、处理HTTP请求及管理构建环境；构建的执行则由Jenkins agent负责（早期，agent也被称为slave。目前还有一些插件沿用slave的概念）。
+
+​	基于这样的架构，只需要增加agent就可以轻松支持更多的项目同时执行。这种方式称为Jenkins agent的横向扩容。
+
+​	对于Jenkins master，存在单节点问题是显而易见的，但是目前还没有很好的解决方案。
+
+​	在学习Jenkins的过程中，发现各种文档中掺杂着node、executor、agent、slave4个术语，新手很容易被它们弄得一头雾水。它们分别是什么意思呢？
+
+![](https://pic.imgdb.cn/item/610882735132923bf8533fd1.jpg)
+
+* node：节点，指包含Jenkins环境及有能力执行项目的机器。master和agent都被认为是节点。
+* executor：执行器，是真正执行项目的单元。一个执行器可以被理解为一个单独的进程（事实上是线程）。在一个节点上可以运行多个执行器。
+* agent：代理，在概念上指的是相对于Jenkins master的一种角色，实际上是指运行在机器或容器中的一个程序，它会连接上Jenkins master，并执行Jenkinsmaster分配给它的任务。
+* slave：“傀儡”，与agent表达的是一个东西，只是叫法不同。
+
+
+
+## 增加agent
+
+​	实现分布式构建最常用、最基本的方式就是增加agent。Jenkins agent作为一个负责执行任务的程序，它需要与Jenkins master建立双向连接。连接方式有多种，这也代表有多种增加agent的方式。
+
+### 对agent打标签
+
+​	当agent数量变多时，如何知道哪些agent支持JDK 8、哪些agent支持Node.js环境呢？我们可以通过给agent打标签（有时也称为tag）来确定。
+
+​	通过标签将多个agent分配到同一个逻辑组中，这个过程被称为打标签。同一个agent可以拥有多个标签。在标签名中不能包含空格，也不能包含！、&、|、＜、>、（、）这些特殊字符中的任何一个。因为包含特殊字符的标签名与标签表达式（用于过滤agent）冲突。
+
+​	对于支持JDK 8的agent，我们打上jdk8标签；对于支持Node.js的agent，我们打上nodejs标签；如果一个agent同时支持JDK 8和Node.js，那么就两个标签都打上。
+
+​	在打标签时，可以根据以下几个维度来进行。
+
+* 工具链：jdk、nodejs、ruby；也可以加上工具的版本，如jdk6、jdk8。
+* 操作系统：linux、windows、osx；或者加上操作系统的版本，如ubuntu18.04、centos7.3。
+* 系统位数：32bit、64bit。
+
+### 通过JNLP协议增加agent
+
+​	Java网络启动协议（JNLP）是一种允许客户端启动托管在远程Web服务器上的应用程序的协议。Jenkins master与agent通过JNLP协议进行通信。而Java WebStart（JWS）可以被理解为JNLP协议的一个客户端。现实中，人们常常将JNLP和JWS看成是一种东西。
+
+​	接下来，我们来看看通过JNLP协议增加agent的具体步骤。
+
+​	（1）进入Manage Jenkins→Global Security→TCP port for JNLP配置页面，如图14-2所示。我们可以选择开放固定端口或者随机开放Jenkins master的一个端口来提供JNLP服务。
+
+![](https://pic.imgdb.cn/item/610883095132923bf8549d05.jpg)
+
+​	随机开放端口不利于自动化，所以选择开放固定端口。此端口用于master与agent之间的TCP通信，与访问Jenkins界面时的端口有别。
+
+​	（2）进入Manage Jenkins→Manage Nodes→New Node页面，如图14-3所示。选项“Permanent Agent”指的是常驻代理客户端。
+
+![](https://pic.imgdb.cn/item/6108831d5132923bf854cc67.jpg)
+
+​	单击“OK”按钮后，进入node配置页面，如图14-4所示。
+
+![](https://pic.imgdb.cn/item/6108833e5132923bf85517c2.jpg)
+
+* Name：agent名称。
+* Remote root directory：agent机器上的工作目录（Jenkins master不关心），使用绝对路径。
+* Labels：agent的标签。
+* Usage：agent的使用策略。有两种：
+  * Use this node as much as possible，尽可能使用此agent。
+  * Only build jobs with label expressions matching this node，只有当构建任务符合本agent的标签时，才使用此agent。
+* Launch method：agent的运行方式。JNLP协议的agent选择“Launch agentvia Java Web Start”。配置完成后进入节点列表页面，此时master节点的状态显示是在线的，即可用的，如图14-5所示。
+
+![](https://pic.imgdb.cn/item/610883825132923bf855bf88.jpg)
+
+​	（3）单击节点列表中的node1，跳转到“Agent node1”页面，显示详情如图14-7所示。
+
+​	JNLP协议agent连接Jenkins master还有3种方式。
+
+​	一是在agent机器的浏览器中打开此页面，单击“Launch”按钮。
+
+​	二是通过javaws命令从master节点下载Java Web Start程序。
+
+​	三是无界面方式连接。
+
+​	第3种方式不需要界面操作，我们毫不犹豫地选择它，因为只有这样才方便自动化。
+
+![](https://pic.imgdb.cn/item/610883ac5132923bf85622e0.jpg)
+
+​	（4）SSH登录到Jenkins agent机器，下载agent.jar文件（JNLP协议的客户端），下载路径为：＜Jenkins master地址>/jenkins/jnlpJars/agent.jar。假设这台机器已经安装好JDK，则执行命令：java-jar agent.jar-jnlpUrlhttp：//192.168.23.11：8667/jenkins/computer/node1/slave-agent.jnlp-workDir "/app"。其中-workDir参数用于指定agent的工作目录。
+
+​	当命令提示连接成功后，我们打开Jenkins master页面，查看node1的详情页，如图14-8所示，表示已经连接成功。
+
+​	![](https://pic.imgdb.cn/item/610883dd5132923bf8569869.jpg)
+
+​	细心的读者会发现，agent与master之间的连接过程没有任何权限控制。这是因为我们没有设置Jenkins的安全控制（默认Jenkins向匿名用户开放所有权限）。当设置了安全控制后，新建node，我们将在node的详情页看到连接master的命令就变成了：
+
+![](https://pic.imgdb.cn/item/610883ff5132923bf856ed3a.jpg)
+
+​	其中-secret******就是agent与master之间的连接凭证。每一个JNLP客户端的凭证都不一样。
+
+​	提示：升级Jenkins后，也需要重新下载agent.jar。agent.jar需要与Jenkinsmaster同步升级。
+
+​	最后，我们看到通过JNLP协议增加agent的方式是需要在Jenkins界面上进行手动操作的（增加节点的操作）。这部分是无法自动化的，因此，我们只在以下场景中使用这种方式。
+
+* 在安全性要求相对较高的情况下，只能手动增加agent。
+* 增加Windows agent。
+
+### 通过JNLP协议增加Windows agent
+
+​	其实，增加Jenkins Windows agent与增加Jenkins Linux agent没有什么差别，都需要提前准备好JDK环境，然后通过运行agent.jar与Jenkins master建立连接。
+
+### 通过Swarm插件增加agent
+
+​	Swarm插件可以帮助我们更好地增加agent。安装此插件后，增加agent就不需要在Jenkins界面上进行手动操作了。只需要启动Swarm客户端（指定Jenkinsmaster地址），master与agent就会自动建立连接。
+
+​	具体步骤如下：
+
+​	（1）安装Swarm插件（https：//plugins.jenkins.io/swarm）。
+
+​	（2）确保Jenkins agent机器上安装有JDK。
+
+​	（3）在Jenkins agent机器上下载Swarm客户端（https：//repo.jenkins-ci.org/releases/org/jenkins-ci/plugins/swarm-client/3.9/swarm-client-3.9.jar）。
+
+​	（4）在Jenkins agent上启动swarm-client连接服务器端。命令如下：
+
+![](https://pic.imgdb.cn/item/610884555132923bf857c1d0.jpg)
+
+​	当日志显示连接成功后，在节点列表页面可以看到Swarm客户端连接成功，如图14-9所示。
+
+![](https://pic.imgdb.cn/item/610884665132923bf857eba4.jpg)
+
+​	以下是swarm-client部分参数的介绍。
+
+* -deleteExistingClients：如果Jenkins master上已经存在同名的node，则先删除。（慎用）
+* -description：描述。
+* -disableClientsUniqueId：默认Swarm会在node名称后加上一个唯一ID。加上此参数后，代表取消加上唯一ID。
+* -disableSslVerification：取消SSL校验。
+* -executors N：设置executor的个数。
+* -labels VAL：分配给agent的标签，如果有多个，则使用空格分隔。注意，这是给agent打标签。
+* -master VAL：指定Jenkins master的URL。
+* -mode MODE：Jenkins master分配项目给agent时使用的格式，即有两种格式，即normal （尽可能分配job）和exclusive（当与指定label匹配时才分配项目）。
+* -username VAL：连接时使用的用户名。
+* -password VAL：连接时使用的密码。不推荐使用。
+* -passwordEnvVariable VAL：从环境变量中读取密码。推荐使用。
+* -passwordFile VAL：从文本文件中读取密码。推荐使用。
+* -retry N：最大重连次数，默认无次数限制。
+* -retryInterval N：每次重连间隔时长，单位为秒。默认值为10秒。
+
+
+
+​	想要了解更多参数，可以通过java-jar swarm-client-3.9.jar-help命令。
+
+​	最后，我们发现使用Swarm插件后，手动操作部分就剩下启动Swarm客户端了。
+
+​	提示：-labels VAL参数即为此agent打标签。如果有多个标签，请加上引号，如-labels"jdk8 windows"。
+
+### agent部分详解
+
+​	打完标签后，如何在pipeline中使用标签呢？其实从一开始就使用了标签，只是我们一直没有详细介绍。
+
+​	agent部分描述的是整个pipeline或在特定阶段执行任务时所在的agent。换句话说，Jenkins master根据此agent部分决定将任务分配到哪个agent上执行。agent部分必须在pipeline块内的顶层定义，而stage块内的定义是可选的。
+
+**any**
+
+​	到此为止，pipeline的agent部分都是这样写的：
+
+![](https://pic.imgdb.cn/item/610884fa5132923bf8595be9.jpg)
+
+​	agent any告诉Jenkins master任何可用的agent都可以执行。
+
+​	agent部分的定义可以放在阶段中，用于指定该stage执行时的agent。
+
+![](https://pic.imgdb.cn/item/610885105132923bf8599141.jpg)
+
+注意：pipeline块内的agent部分是必需的，不能省略。
+
+**通过标签指定agent**
+
+​	当pipeline需要在JDK 8环境下进行构建时，就需要通过标签来指定agent。代码如下：
+
+![](https://pic.imgdb.cn/item/6108852e5132923bf859d9f6.jpg)
+
+​	事实上，agent {label'jdk8'}是以下定义方式的简略写法。
+
+![](https://pic.imgdb.cn/item/610885665132923bf85a605b.jpg)
+
+​	有些构建任务是需要在JDK 8及Windows环境下执行的。也就是说，我们需要过滤同时具有windows和jdk8标签的agent。可以这样写：
+
+![](https://pic.imgdb.cn/item/610885755132923bf85a883e.jpg)
+
+​	上文中，在增加agent时，已经配置好了该agent上的默认工作目录路径，但是agent部分允许我们对工作目录进行自定义。node除了label选项，还提供了另一个选项——customWorkspace，自定义工作目录，写法如下：
+
+![](https://pic.imgdb.cn/item/6108858f5132923bf85ac718.jpg)
+
+​	customWorkspace选项除了写绝对路径，还可以写相对于默认工作目录路径的相对路径。
+
+**不分配节点**
+
+​	以上介绍的是如何分配agent，其实还可以指定不分配agent，写法很简单：agentnone，指的是不分配任何agent。
+
+​	没有真正遇到过使用场景，可能就很难想象在什么时候使用agent。如果希望每个stage都运行在指定的agent中，那么pipeline就不需要指定agent了。示例如下：
+
+![](https://pic.imgdb.cn/item/610885b15132923bf85b1ddf.jpg)
+
+**when指令的beforeAgent选项**
+
+​	在默认情况下，阶段内所有的代码都将在指定的Jenkins agent上执行。when指令提供了一个beforeAgent选项，当它的值为true时，只有符合when条件时才会进入该Jenkins agent。这样就可以避免没有必要的工作空间的分配，也就不需要等待可用的Jenkins agent了。
+
+​	在某些场景下，beforeAgent选项通常用于加速pipeline的执行。示例如下：
+
+![](https://pic.imgdb.cn/item/610885f75132923bf85bc944.jpg)
+
+​	只有分支为production时，才会进入“Example Deploy”阶段。这样就可以避免在some-label的agent中拉取代码，从而达到加速pipeline执行的目的。
+
+### 小结
+
+​	增加Jenkins agent还是需要做不少工作的。在实际工作中笔者会自动化这个过程。虽然写自动化脚本需要一点时间，但是这点成本是非常值的。自动化增加Jenkins agent的脚本可以带来以下好处：
+
+* 下次对Jenkins agent扩容时，只需要执行一遍自动化脚本就可以了。
+* 可以快速重建Jenkins，比如迁移Jenkins、搭建新的Jenkins环境等。
+
+## 将构建任务交给Docker
+
+​	目前我们所有的构建都执行在机器（物理机器或虚拟机器）上。接下来介绍如何让构建执行在Docker容器中。关于Docker是什么，以及它所带来的好处，市面上介绍的文章已经足够多，本书就不做介绍了。
+
+​	Jenkins master要将构建任务分配给Docker，就必须在Jenkins agent上安装Docker。建议给这些agent打上docker的标签。
+
+### 在Jenkins agent上安装Docker
+
+​	关于 Docker 的具体安装过程就不细表了。但是需要注意，要将 Jenkins agent 的用户加入Docker的用户组中，这样Jenkins agent不需要加sudo就能执行docker命令。如果不生效，则可能需要重启Jenkins agent。
+
+### 使用Docker
+
+​	pipeline插件从2.5版本开始就内置了Docker插件（https：//plugins.jenkins.io/docker-plugin）。所以，安装pipeline插件后，就可以直接在pipeline的agent部分指定使用什么Docker镜像进行构建了。
+
+![](https://pic.imgdb.cn/item/6108866e5132923bf85cecfd.jpg)
+
+​	与之前不同的，在agent部分我们将node换成了docker。下面分别解释docker的常用选项。
+
+* label（可选）：字符串类型，与node的label的作用一样。
+* image：字符串类型，指定构建时使用的Docker镜像。
+* args（可选）：字符串类型，Jenkins执行docker run命令时所带的参数，如args'-v/tmp：/tmp'。
+* alwaysPull（可选）：布尔类型，强制每次执行docker pull命令时都重新拉取镜像。
+
+### 配置Docker私有仓库
+
+​	Docker拉取镜像时，默认是从Docker官方中心仓库拉取的。那么如何实现从私有仓库拉取呢？比如在“制品管理”章节中在Nexus上创建的私有仓库。
+
+​	Docker插件为我们提供了界面操作，具体步骤如下：
+
+​	进入Manage Jenkins→Configure System页面，找到“Pipeline ModelDefinition”部分，如图14-10所示。
+
+![](https://pic.imgdb.cn/item/610886ba5132923bf85da7f2.jpg)
+
+* Docker Label：当 pipeline 中的 agent 部分没有指定 label 选项时，就会使用此配置。如docker {image'maven：3-alpine'}。
+* Docker registry URL：Docker私有仓库地址。
+* Registry credentials：登录Docker私有仓库的凭证。
+
+## 并行构建
+
+​	如果需要分别在Chrome、Firefox、IE等浏览器的各个不同版本中对同一个Web应用进行UI测试，该怎么做呢？根据前文对Jenkins pipeline的学习，我们也许会这样写：
+
+![](https://pic.imgdb.cn/item/610886eb5132923bf85e1b4a.jpg)
+
+
+
+​	不论是将UI分别放在不同的阶段还是步骤中，这种按顺序执行的测试都太慢了，慢到执行一次完整的UI测试要一小时以上。
+
+​	通过仔细分析你会发现，这些测试是可以并行执行的。就像原来只有一个测试人员，要测试4个浏览器，他只能测试完一个浏览器，再测试另一个浏览器，但是现在有4个测试人员，他们就可以同时进行测试。这样测试耗时就降到了原来的1/4。
+
+​	很明显，Jenkins pipeline插件支持这种并行构建，并且使用起来也非常简单。
+
+![](https://pic.imgdb.cn/item/6108870d5132923bf85e6ebf.jpg)
+
+![](https://pic.imgdb.cn/item/6108871b5132923bf85e8e96.jpg)
+
+​	在stages部分包含一个Run Tests阶段（限于篇幅，我们只写这个阶段），在这个阶段下包含一个parallel块，在parallel块下又包含了多个阶段。位于parallel块下的阶段都将并行执行，而且并行阶段还可以被分到不同的Jenkins agent上执行。
+
+​	因为parallel本身不包含任何步骤，所以在parallel块下本身不允许包含agent和tools。
+
+​	在默认情况下，Jenkins pipeline要等待parallel块下所有的阶段都执行完成，才能确定结果。如果希望所有并行阶段中的某个阶段失败后，就让其他正在执行的阶段都中止，那么只需要在与parallel块同级的位置加入failFast true就可以了。
+
+### 在不同的分支上应用并行构建
+
+​	并行构建不仅可以被应用在UI自动化测试中，还可以被应用在不同的分支上。
+
+![](https://pic.imgdb.cn/item/610887415132923bf85eecdc.jpg)
+
+![](https://pic.imgdb.cn/item/610887505132923bf85f0f8d.jpg)
+
+​	我们注意到在并行阶段Branch staging下又出现了一个stages部分。是的，阶段是可以嵌套的。但是可以嵌套多少层呢？Jenkins的文档并没有明确说明。笔者建议不要超过三层，因为在同一个Jenkins pipeline中实现过于复杂的逻辑，说明Jenkins pipeline的职责不够单一，需要进行拆分。
+
+### 并行步骤
+
+​	前文中，我们介绍的是阶段级别的并行执行，Jenkins pipeline还支持步骤级别的并行执行。这也是Jenkins pipeline最早支持的并行方式。
+
+![](https://pic.imgdb.cn/item/610887775132923bf85f7200.jpg)
+
+![](https://pic.imgdb.cn/item/610887875132923bf85f976e.jpg)
+
+### 并行阶段与并行步骤之间的区别
+
+​	除了写法的不同，表面上看并行阶段与并行步骤并没有太大的区别。但是它们有一个关键的区别：并行阶段运行在不同的executor上，而并行步骤运行在同一个executor上。这样看来其实就是并行与并发的区别。并行步骤本质上是并发步骤。
+
+## 本章小结
+
+​	当Jenkins中的任务经常出现大量排队的情况时，我们可以通过两种方法来解决：一是增加Jenkins agent；二是优化当前Jenkins任务的执行速度。
+
+​	但是，从何下手？我们可以从执行的所有阶段中找出最耗时的那个阶段，然后以此为切入点进行优化。如果发布的多个阶段或阶段内的任务是可以并行执行的，那么就可以改成并行构建方案；如果在任务中每次构建都需要重新下载依赖包，那么优化方案就可以让其缓存依赖包……总之，需要具体问题，具体分析。
+
+# 扩展pipeline
+
+## 为什么要扩展pipeline
+
+​	在大量使用pipeline后，会发现Jenkins内置的功能并不能照顾到所有的需求。这时，我们就需要扩展pipeline。
+
+​	扩展方式有很多，本章分别介绍它们。
+
+## 在pipeline中定义函数
+
+​	pipeline本质就是一个Groovy脚本。所以，可以在pipeline中定义函数，并使用Groovy语言自带的特性。如下代码示例，我们定义了createVersion函数，并使用了Date类。
+
+![](https://pic.imgdb.cn/item/610888365132923bf8613da2.jpg)
+
+日志打印如下：
+
+![](https://pic.imgdb.cn/item/610888495132923bf8616a04.jpg)
+
+​	还有一种更优雅的写法，将变量定义在environment部分。
+
+![](https://pic.imgdb.cn/item/6108885a5132923bf861936b.jpg)
+
+​	如果在一个Jenkinsfile中定义一个函数，倒是无伤大雅。但是如果在20个Jenkinsfile中重复定义这个函数20遍，就有问题了——存在大量的重复代码。所以，不推荐大量使用自定义函数。
+
+## 使用共享库扩展
+
+​	Jenkins pipeline提供了“共享库”（Shared library）技术，可以将重复代码定义在一个独立的代码控制仓库中，其他的Jenkins pipeline加载使用它。接下来，我们先创建一个共享库项目，跑通它，然后再介绍共享库的一些具体细节。
+
+### 创建共享库
+
+​	创建一个共享库项目，目录结构如下：
+
+![](https://pic.imgdb.cn/item/610888865132923bf861feec.jpg)
+
+​	将代码推送到Git仓库中。
+
+​	进入Jenkins的Manage Jenkins→Configure System→Global Pipeline Libraries配置页面，配置如图15-1所示。
+
+![](https://pic.imgdb.cn/item/6108889c5132923bf862342d.jpg)
+
+​	下面介绍一下配置项。
+
+* Name：共享库的唯一标识，在Jenkinsfile中会使用到。
+* Default version：默认版本。可以是分支名、tag标签等。
+* Load implicitly：隐式加载。如果勾选此项，将自动加载全局共享库，在Jenkinsfile中不需要显式引用，就可以直接使用。
+* Allow default version to be overridden：如果勾选此项，则表示允许“Default version”被Jenk-insfile中的配置覆盖。
+* Include@Library changes in job recent changes：如果勾选此项，那么共享库的最后变更信息会跟项目的变更信息一起被打印在构建日志中。
+* Retrieval method：获取共享库代码的方法。我们选择“Modern SCM”选项，进而选择使用Git仓库。
+
+提示：除了可以使用Git仓库托管共享库代码，还可以使用SVN仓库托管。使用不同的代码仓库托管，“Default version”的值的写法不一样。本书只介绍Git仓库托管方式。
+
+### 使用共享库
+
+![](https://pic.imgdb.cn/item/610888d85132923bf862c3d4.jpg)
+
+​	在Jenkins pipeline的顶部，使用@Library指定共享库。注意，global-shared-library就是我们在上一个步骤中定义的共享库标识符。
+
+​	引入共享库后，我们可以直接在Jenkins pipeline中使用vars目录下的sayHello，和Jenkins pipeline的普通步骤的使用方式无异。15.3.4节我们再详细介绍sayHello.groovy。
+
+​	至此，一个共享库的完整定义和基本使用就介绍完了。总结下来就四步：
+
+​	（1）按照共享库约定的源码结构，实现自己的逻辑。
+
+​	（2）将共享库代码托管到代码仓库中。
+
+​	（3）在Jenkins全局配置中定义共享库，以让Jenkins知道如何获取共享库代码。
+
+​	（4）在Jenkinsfile中使用@Library引用共享库。
+
+### @Library的更多用法
+
+​	使用@Library注解可以指定共享库在代码仓库中的版本。写法如下：
+
+![](https://pic.imgdb.cn/item/6108890d5132923bf86340c2.jpg)
+
+* 分支，如@Library（'global-shared-library@dev'）。
+* tag标签，如@Library（'global-shared-library@release1.0'）。
+* git commit id，如@Library（'global-shared-library@e88d44e73fea304905dc00a1af 2197d945aa1a36'）。
+
+
+
+​	因为Jenkins支持同时添加多个共享库，所以@Library注解还允许我们同时引入多个共享库，如：@Library（['global-shared-library'，'otherlib@abc1234']）。
+
+​	需要注意的是，Jenkins处理多个共享库出现同名函数的方式是先定义者生效。也就是说，如果global-shared-library与otherlib存在同名的sayHello，而@Library引入时global-shared-library在otherlib前，那么就只有global-shared-library的sayHello生效。
+
+### 共享库结构详细介绍
+
+​	本节详细介绍共享库各目录及文件的用处。
+
+​	回顾一下共享库的目录结构：
+
+![](https://pic.imgdb.cn/item/6108895e5132923bf86402cf.jpg)
+
+​	首先看vars目录。
+
+​	放在vars目录下的是可以从pipeline直接调用的全局变量（使用“变量”这个名称实在有些怪）。变量的文件名即为在pipeline中调用的函数名。文件名为驼峰式（camelCased）的。
+
+​	使用vars目录下的全局变量可以调用Jenkins pipeline的步骤。正如sayHello.groovy脚本，直接使用了echo步骤。
+
+![](https://pic.imgdb.cn/item/610889775132923bf864438a.jpg)
+
+​	当我们在Jenkinsfile中写sayHello（"world"）时，它实际调用的是sayHello.groovy文件中的call函数。
+
+​	call函数还支持接收闭包（Closure）。下例中，我们定义了一个mvn全局变量。
+
+![](https://pic.imgdb.cn/item/610889925132923bf864867c.jpg)
+
+​	以上call函数里的内容就是将configFileProvider啰嗦的写法封装在mvn变量中。这样我们就可以更简捷地执行mvn命令了。代码如下：
+
+![](https://pic.imgdb.cn/item/610889ae5132923bf864cc3b.jpg)
+
+​	接着我们来看src目录。
+
+​	src目录是一个标准的Java源码结构，目录中的类被称为库类（Library class）。而@Library（'global-shared-library@dev'） 中的 代表一次性静态加载src目录下的所有代码到classpath中。
+
+​	15.2节代码示例中的Utils.groovy文件代码如下：
+
+![](https://pic.imgdb.cn/item/610889f45132923bf8657491.jpg)
+
+​	提示：Utils实现了Serializable接口，是为了确保当pipeline被Jenkins挂起后能正确恢复。
+
+​	在使用src目录中的类时，需要使用全包名。同时，因为写的是Groovy代码，所以还需要使用script指令包起来。示例如下：
+
+![](https://pic.imgdb.cn/item/61088a095132923bf865a83d.jpg)
+
+​	src目录中的类，还可以使用Groovy的@Grab注解，自动下载第三方依赖包。
+
+![](https://pic.imgdb.cn/item/61088a2b5132923bf865f79b.jpg)
+
+​	但是笔者不推荐大量使用@Grab，因为会带来维护困难的问题。
+
+### 使用共享库实现pipeline模板
+
+​	声明式pipeline在1.2版本后，可以在共享库中定义pipeline。通过此特性，我们可以定义pipeline的模板，根据不同的语言执行不同的pipeline。共享库代码如下：
+
+![](https://pic.imgdb.cn/item/61088a4e5132923bf8664aa1.jpg)
+
+![](https://pic.imgdb.cn/item/61088a5e5132923bf86672d3.jpg)
+
+​	使用时，Jenkinsfile只有两行代码：
+
+![](https://pic.imgdb.cn/item/61088a755132923bf866a9b9.jpg)
+
+​	如果大多数项目的结构都是标准化的，那么利用pipeline模板技术可以大大降低维护pipeline的成本。
+
+## 通过Jenkins插件实现pipeline步骤
+
+​	根据Jenkins插件的用法，笔者将Jenkins插件开发分成：通过界面使用插件和通过代码使用插件。由于本书关注的是pipeline as code，所以并不会涉及Jenkins插件界面方面的开发。
+
+​	本节以一个Hello World示例介绍如何通过Jenkins插件实现pipeline步骤。
+
+###  生成Jenkins插件代码骨架
+
+​	生成Jenkins插件代码骨架，非常简单，使用mvn命令就可以了。
+
+![](https://pic.imgdb.cn/item/61088acf5132923bf86785aa.jpg)
+
+​	生成的代码骨架结构如下：
+
+![](https://pic.imgdb.cn/item/61088ae05132923bf867ae52.jpg)
+
+* HelloWorldBuilder：pipeline步骤具体实现的类。
+* index.jelly：在插件管理页面显示的HTML内容。
+
+![](https://pic.imgdb.cn/item/61088af85132923bf867e9b5.jpg)
+
+* pom.xml：其name属性值就是插件管理页面中的插件名称。Jenkins插件代码骨架的默认值为
+
+![](https://pic.imgdb.cn/item/61088b085132923bf8681284.jpg)
+
+*  HelloWorldBuilderTest：单元测试类。
+
+
+
+​	接下来，我们来看HelloWorldBuilder类。
+
+![](https://pic.imgdb.cn/item/61088b1f5132923bf8684a59.jpg)
+
+![](https://pic.imgdb.cn/item/61088b2a5132923bf86862c9.jpg)
+
+* HelloWorldBuilder：需要继承Builder，并实现SimpleBuildStep接口的perform方法。
+* @DataBoundConstructor：标识插件类的构造函数，name属性为插件默认属性，也是调用插件时的必要参数。
+* @DataBoundSetter：标识插件属性的setter方法。
+* getRequiredMonitorService方法：返回BuildStepMonitor枚举类型，BuildStepMonitor决定了perform方法的执行机制。BUILD的执行机制为
+
+![](https://pic.imgdb.cn/item/61088b575132923bf868cdf1.jpg)
+
+
+
+​	可以看出，在执行插件perform方法前，还做了不少工作。BuildStepMonitor还提供了其他值，具体可以看其源码。
+
+*  DescriptorImpl：内部静态类，用于告诉Jenkins关于此插件的元数据。
+* @Extension：扩展点注解，Jenkins通过此注解自动发现扩展点，并将扩展点加入扩展点列表（ExtensionList）中。
+
+### 启动Jenkins测试：mvn hpi：run
+
+​	想象一下，你写好一个插件，启动Jenkins，然后手动将插件上传到Jenkins进行安装，最后测试插件的功能。如果要调整插件，则需要先卸载，然后再重复一遍上面的步骤。这个开发过程的效率非常低。
+
+​	所以，Jenkins插件开发的代码骨架，默认提供了用于Jenkins插件开发的Maven插件：maven-hpi-plugin。通过该插件，只需要实现插件代码，然后执行mvnhpi：run，就可以启动一个安装了插件的Jenkins实例。在浏览器中打开http：//localhost：8080/jenkins即可访问。
+
+​	进入Jenkins插件管理页面，可以在已安装列表中找到我们正在开发的插件，如图15-2所示。
+
+![](https://pic.imgdb.cn/item/61088b955132923bf869673f.jpg)
+
+### 在Jenkinsfile中使用 greet步骤
+
+​	Jenkins插件已经准备好了，现在开始使用插件。以下是我们使用greet步骤的完整代码。
+
+![](https://pic.imgdb.cn/item/61088baf5132923bf869a958.jpg)
+
+![](https://pic.imgdb.cn/item/61088bc05132923bf869d5b8.jpg)
+
+​	greet是我们通过@Symbol定义的插件扩展点名称。可以将这个名称理解为一个函数名。而使用@DataBoundConstructor注解的构造函数、@DataBoundSetter注解的setter方法，可以理解为这个函数的参数。
+
+​	所以，greet "build"更完整的写法为：gree（name："build"，useFrench：false）。
+
+​	值得注意的是，虽然插件继承的是Builder类，但是也可以直接在post部分使用。
+
+### 全局配置插件
+
+​	插件全局配置的作用在于简化了使用步骤的参数设置。就像在使用mail步骤时，不可能每次调用都要带上邮箱服务器的配置，而且还有利于保持配置的一致性。
+
+​	（1）加入配置类。
+
+![](https://pic.imgdb.cn/item/61088c0a5132923bf86a904c.jpg)
+
+![](https://pic.imgdb.cn/item/61088c1a5132923bf86ab9ce.jpg)
+
+​	（2）加入全局配置页面。在src/main/resources目录中，根据类路径创建HelloWorldGlob-alConfig子目录。结构如下：
+
+![](https://pic.imgdb.cn/item/61088c2b5132923bf86ae23d.jpg)
+
+​	HelloWorldGlobalConfig下的config.jelly内容如下：
+
+![](https://pic.imgdb.cn/item/61088c3b5132923bf86b0c3f.jpg)
+
+​	进入系统设置页面，就可以找到我们的插件配置，如图15-3所示。
+
+![](https://pic.imgdb.cn/item/61088c4c5132923bf86b341c.jpg)
+
+​	（3）使用配置。在HelloWorldBuilder类中通过HelloWorldGlobalConfig.get（）.getLangua ge（）拿到全局配置language的值。
+
+![](https://pic.imgdb.cn/item/61088c585132923bf86b5417.jpg)
+
+## 本章小结
+
+​	下面几种扩展pipeline的方式各有各的应用场景。
+
+* 在Jenkins pipeline中自定义函数：简单、直观，但是容易产生重复代码。此种方式适合解决特定pipeline的问题。不推荐经常使用。
+* 通过共享库扩展：在脚本中使用Jenkins现有的步骤，非常简单。此种方式适合对现有啰唆的pipeline写法进行抽象，还适合做pipeline模板。
+* 通过Jenkins插件扩展：适合需要高度定制化步骤的应用场景。
+
+
+
+​	没有“银弹”，读者需要根据实际应用场景，选择合适的方式进行扩展。
+
+​	这里介绍一下笔者的经验。
+
+* 在考虑是使用自定义函数还是共享库时，优先使用自定义函数。但是如果发现某个函数的逻辑在三个pipeline中重复出现时，就将这些自定义函数抽离到共享库中。
+* 当发现多个项目的pipeline非常相似时，可以考虑使用共享库实现pipeline模板。
+* 如果发现市面上没有合适的插件可用，就是该自己开发插件了。
+
+
+
+​	最后不得不说，Jenkins插件开发的资料非常少。学习Jenkins插件开发的最好方式，就是参照其他Jenkins插件的实现。
+
+# Jenkins运维
+
+## 认证管理
+
+​	如果没有设置Jenkins进行安全检查，那么任何能打开Jenkins页面的人都可以做任何事情。所以，在搭建好Jenkins后，我们要做的第一件事情就是打开Jenkins的安全检查。
+
+​	进入Manage Jenkins→Manage Configure Global Security页面，勾选“Enable security”复选框。默认Jenkins支持两种认证方式：“Delegate toservlet container”和“Jenkins’ own user database”。
+
+​	我们首先介绍最常用的方式——“Jenkins’ own user database”。
+
+### 使用Jenkins自带的用户数据库
+
+​	“Jenkins’ own user database”即使用Jenkins自带的用户数据库进行认证。如果你所在的公司没有搭建LDAP服务，则可以考虑使用这种认证方式。
+
+​	在Manage Jenkins→Manage Configure Global Security页面打开Jenkins的安全检查后，显示如图16-1所示。
+
+​	选择“Jenkins’ own user database”选项，保存即可。最后使用你在安装Jenkins时的初始化用户进行登录。
+
+​	另外，如果允许匿名用户有只读权限，则可以勾选“Allow anonymous readaccess”复选框，如图16-2所示。
+
+![](https://pic.imgdb.cn/item/6108a5f05132923bf8b655e1.jpg)
+
+![](https://pic.imgdb.cn/item/6108a5fd5132923bf8b6827d.jpg)
+
+​	顺便说一下，“Authorization”下的三个选项都无法满足现实中的复杂授权需求。解决方案将在16.2节中进行介绍。
+
+**创建用户**
+
+​	在“Jenkins’ own user database”认证方式下，创建的所有用户都具有Jenkins管理权限。以下是创建用户的具体步骤。
+
+​	（1）进入Manage Jenkins→Manage Users页面，就可以看到用户列表，如图16-3所示。
+
+​	（2）单击左侧栏中的“Create User”选项，进入创建用户页面，如图16-4所示，创建Jenkins用户。
+
+![](https://pic.imgdb.cn/item/6108a6235132923bf8b6fdc1.jpg)
+
+**注册用户**
+
+​	如果Jenkins管理员觉得为团队每个成员手动添加用户比较麻烦，则可以开启“Allow users to sign up”（允许注册）功能。开启后，可以通过Jenkins首页顶部的注册菜单进行注册。
+
+### 使用LDAP认证
+
+​	想象一下，新员工入职，你必须给他创建Jenkins、GitLab、SonarQube等各个系统的用户。你刚登录过Jenkins，想用GitLab时，还得输入用户名和密码再登录一次。当员工离职后，你还必须到各个系统中注销用户。
+
+​	这样的操作必定是低效的。单点登录服务可以为我们解决问题。
+
+​	单点登录（Single Sign On，SSO），是指在多系统应用中登录其中一个系统，便可以在其他所有系统中得到授权而无须再次登录，包括单点登录与单点注销两部分。
+
+**LDAP介绍**
+
+​	来自维基百科的LDAP介绍：
+
+​	轻型目录访问协议（Lightweight Directory Access Protocol，LDAP）是一个开放的、中立的、工业标准的应用协议，通过IP协议提供访问控制和维护分布式信息的目录信息。目录服务在开发内部网和与互联网程序共享用户、系统、网络、服务和应用的过程中占据了重要地位。例如，目录服务提供了组织有序的记录集合，通常有层级结构，如公司电子邮件目录，也提供了包含地址和电话号码的电话簿。
+
+​	LDAP在企业中最常见的应用场景就是单点登录。
+
+​	本文假设读者已经搭建好LDAP服务。以下是集成LDAP认证的步骤。
+
+​	（1）安装LDAP插件（https：//plugins.jenkins.io/ldap）。
+
+​	（2）开启LDAP认证。进入Manage Jenkins→Manage Configure GlobalSecurity页面，如图16-5所示。
+
+![](https://pic.imgdb.cn/item/6108a67b5132923bf8b82083.jpg)
+
+​	勾选“Enable security”复选框后，选择“LDAP”。
+
+​	（3）设置LDAP。单击“Advanced Server Configuration”按钮，然后进行设置，如图16-6所示。根据输入框提示输入设置信息后，单击页面右下角的“TestLDAP settings”按钮，对设置项进行测试，如图16-7所示。
+
+​	输入LDAP中的用户名和密码，如果登录成功，则表明集成LDAP认证成功。
+
+![](https://pic.imgdb.cn/item/6108a6985132923bf8b87bce.jpg)
+
+![](https://pic.imgdb.cn/item/6108a6a35132923bf8b8a086.jpg)
+
+## 授权管理
+
+​	认证是为了解决“证明你是你”的问题，授权是为了解决“你能做什么”的问题。
+
+​	我们已经知道，Jenkins默认的授权方式无法满足现实复杂的场景。Jenkins有三款插件，分别支持不同维度的授权方式。它们分别是
+
+* Matrix Authorization Strategy插件：提供基于矩阵的安全策略。
+* Project-based Matrix Authorization Strategy插件：提供基于项目的矩阵授权策略。
+* Role-based Authorization Strategy插件：提供基于角色的安全策略。
+
+### 使用Role-based Authorization Strategy插件授权
+
+​	本书只介绍如何使用Role-based Authorization Strategy插件进行授权管理。因为现实中，其他插件真的很难满足要求。
+
+​	安装并配置插件的具体步骤如下：
+
+​	（1）安装插件Role-based Authorization Strategy（https：//plugins.jenkins.io/role-strategy）。
+
+​	（2）在“Configure Global Security”页面的“Authorization”下，就会显示出以上三种授权方式。
+
+​	（3）选择“Role-based Strategy”，然后保存，这样就启用了基于角色的安全策略。
+
+​	安装完插件后，在“Manage Jenkins”菜单下增加了一个“Manage and AssignRoles”菜单项，如图16-8所示。
+
+![](https://pic.imgdb.cn/item/6108b0e05132923bf8db46e1.jpg)
+
+​	单击“Manage and Assign Roles”菜单项进入后，显示如图16-9所示。
+
+![](https://pic.imgdb.cn/item/6108b1025132923bf8dbae3b.jpg)
+
+### 管理角色
+
+​	在“Manage Roles”页面中有三大块内容，可以分别设置三类角色。
+
+* 全局角色（Global roles）：基于全局的角色，可以设置多种权限，如图16-10所示。
+
+![](https://pic.imgdb.cn/item/6108b1b75132923bf8ddcf36.jpg)
+
+* 项目角色（Project roles）：基于项目的角色，比如可以设置hr-project-role下的用户只能操作hr项目下的Jenkins任务，如图16-11所示。
+
+![](https://pic.imgdb.cn/item/6108b1d65132923bf8de2cb7.jpg)
+
+​	“Pattern”中的是正则表达式，表示该角色只有被正则表达式匹配的项目权限。下面Slave角色的“Pattern”的含义与此类似。
+
+* Slave角色（Slave roles）：有设置Jenkins节点相关权限的角色，如图16-12所示。
+
+​	当一个用户同时具有全局角色和项目角色时，优先级如何呢？全局角色的配置会覆盖项目角色的配置。比如，当该用户的全局角色被授予了Job-Read权限时，则意味着对所有项目都具有可读权限，不论该用户设置了几个项目角色。因此，如果希望基于项目维度进行权限控制，则除了admin角色，其他全局角色的Job权限及SCM权限留空。
+
+![](https://pic.imgdb.cn/item/6108b20e5132923bf8ded34b.jpg)
+
+### 权限大全	
+
+​	Role-based Authorization Strategy插件对权限的控制粒度非常细，而且还对这些权限进行了很合理的分类。以下是各类权限的介绍。
+
+* Agent（一些老版本称为Slave）：管理Jenkins agent的相关权限。
+  * Configure：配置Jenkins agent。
+  * Build：允许用户在Jenkins agent上运行任务。
+  * Connect：允许用户连接Jenkins agent，或者标识Jenkins agent上线。
+  * Create：允许用户创建Jenkins agent。
+  * Delete：允许用户删除Jenkins agent。
+  * Disconnect：允许用户断开与Jenkins agent的连接，或者标识Jenkins agent临时下线。• Job：关于Jenkins任务的权限。
+  * Create：创建任务。
+  * Delete：允许删除任务。
+  * Cancel：允许停止一个调度任务或者中止一个正在执行的任务。
+  * Read：查看任务。
+  * Build：启动任务。
+  * Discover：如果匿名用户没有Discover权限，直接在浏览器中输入Jenkins任务URL（该任务真实存在）时，会直接跳转到404页面；如果有Discover权限，则跳转到登录页面。
+  * Move：将任务从一个文件夹移动到另一个文件夹的权限。
+  * Workspace：允许查看Jenkins任务的工作空间内容的权限。
+*  Run：构建历史相关权限。
+  * Delete：允许手动删除指定的构建历史。
+  * Replay：允许对一个任务进行重放。
+  * Update：允许用户更新构建历史的属性，比如手动更新某次构建失败的原因。
+* View：视图。
+  * Configure：配置视图。
+  * Create：创建视图，需要与Configure权限一同授予，否则创建之后没有权限配置。
+  * Delete：删除视图。
+  * Read：查看视图。
+
+
+
+​	注意，Job的Read权限是用户查看视图的前提。如果没有Job的Read权限，在首页看到的将是一片空白。
+
+* SCM：版本控制。
+  * Tag：允许用户针对某次构建创建一个新的Tag。
+
+Overall：特殊的权限类，系统级别权限。它包括以下权限。
+
+* Administer：允许用户更改Jenkins系统级别的配置。如果要进入Jenkins管理页面，就必须有此权限。
+* Read：全局读权限。当然，必须是没有安全隐患的页面。
+
+
+
+​	另外，如果希望对凭证做更细粒度的权限控制，那么只要安装了Credentials插件，在角色管理页面中就会多出一列Credentials的权限控制。
+
+### 角色分配
+
+​	在创建角色后，需要将角色分配给用户。角色分配页面分为分配全局角色、项目角色（Item roles）和节点角色（Node roles）三大块内容。
+
+* 分配全局角色，如图16-13所示。
+
+![](https://pic.imgdb.cn/item/6108b3945132923bf8e53c5d.jpg)
+
+* 分配项目角色，如图16-14所示。
+
+![](https://pic.imgdb.cn/item/6108b3a75132923bf8e57896.jpg)
+
+* 分配节点角色，如图16-15所示。
+
+![](https://pic.imgdb.cn/item/6108b3ba5132923bf8e5b236.jpg)
+
+* 从各角色分配页面中可以看出，需要手动输入用户名，单击“Add”按钮添加后，再勾选所分配的角色就可以了。
+
+**内置角色（Built-in Roles）**
+
+​	Role-based Authorization Strategy插件有两个内置角色，我们可以直接设置它们所拥有的权限。
+
+* Anonymous：匿名用户。
+* Authenticated：认证通过的用户。
+
+### 小结
+
+​	说实在的，Jenkins的Role-based Authorization Strategy插件的授权管理功能真的非常弱，所以笔者不推荐使用它做过于复杂的权限控制。在某些情况下，多搭建几套Jenkins，让不同的团队分别使用不同的Jenkins也是可以的。
+
+## Jenkins监控
+
+### 使用Monitoring插件监控
+
+​	Monitoring 插件（https：//plugins.jenkins.io/monitoring）使用 JavaMelody（https：//github.com/javamelody/javamelody/wiki）对Jenkins进行监控。
+
+​	Monitoring插件提供的监控维度非常多，有：内存、CPU、系统负载、HTTP响应时间、系统进程、线程数、当前请求数等。只可惜没有告警功能。
+
+​	安装好插件后，可以在“Manage Jenkins”菜单下找到“Monitoring of Jenkinsmaster”菜单项，如图16-16所示。
+
+![](https://pic.imgdb.cn/item/6108b7275132923bf8f06105.jpg)
+
+​	单击“Monitoring of Jenkins master”菜单项进入后，显示Monitoring仪表盘，如图16-17所示。
+
+![](https://pic.imgdb.cn/item/6108b73f5132923bf8f0a751.jpg)
+
+​	然而，它没有告警功能。因此，这款插件并不适合在大型企业中使用。
+
+### 使用Prometheus监控
+
+​	Prometheus（https：//prometheus.io/）是一款开源的监控、告警系统，是继Kubernetes之后第二个从Cloud Native Computing Foundation（云原生计算基金会，简称CNCF）“毕业”的项目。Prometheus实现了与Zabbix或者Open-Falcon类似的功能，但是更强大。
+
+​	不像Zabbix和Open-Falcon采用的是push模式收集指标数据的，Prometheus采用的是pull模式，即Prometheus的服务器端主动从客户端拉取指标数据。这个客户端被称为exporter。我们会在Jenkins上安装Prometheus插件，目的就是为了暴露一个接口（exporter），这样Prometheus就可以拉取到指标数据了。
+
+​	Prometheus本身是提供界面的，只不过过于简陋。所以，一般都会使用Grafana对指标进行展示。图16-18简单地展示了Jenkins、Prometheus、Grafana的整合方式。
+
+![](https://pic.imgdb.cn/item/6108b7695132923bf8f11dec.jpg)
+
+​	（1）Jenkins：安装Prometheus插件（https：//plugins.jenkins.io/prometheus），Jenkins将暴露一个“/prometheus”接口。Prometheus插件本身是可以配置的。进入ManageJenkins→Configure System页面，配置如图16-19所示。
+
+![](https://pic.imgdb.cn/item/6108b7785132923bf8f14b03.jpg)
+
+​	通过此配置，我们可以选择暴露接口的URL，以及暴露哪些指标数据。
+
+​	（2）配置Prometheus向Jenkins拉取监控指标数据，加入配置：
+
+![](https://pic.imgdb.cn/item/6108b78b5132923bf8f17ea2.jpg)
+
+​	metrics path是Jenkins暴露给Prometheus的路径。static configs数组的值则是Jenkins的“IP地址：端口”。
+
+​	（3）Grafana：增加Prometheus数据源。
+
+​	（4）Grafana：增加“Jenkins：Performance and health overview”面板（https：//grafana.com/dash-boards/306），用以呈现Jenkins的数据，如图16-20所示。
+
+![](https://pic.imgdb.cn/item/6108b7a35132923bf8f215f2.jpg)
+
+## Jenkins备份
+
+### JENKINS_HOME介绍
+
+​	Jenkins的所有数据都是存放在文件中的，所以，Jenkins备份其实就是备份JENKINS_HOME目录。
+
+​	JENKINS_HOME目录的结构如下：
+
+![](https://pic.imgdb.cn/item/6108b83b5132923bf8f4fdef.jpg)
+
+​	并不是所有的内容都必须要备份。以下目录是可以不备份的。
+
+* workspace
+* builds
+* fingerprints
+
+
+
+​	如果启动 Jenkins 时没有指定 JENKINS_HOME 环境变量，那么 Jenkins 将在当前用户目录下创建一个.jenkins目录作为JENKINS_HOME目录。笔者强烈建议启动Jenkins时明确指定JENKINS_HOME目录。比如这样启动：/etc/alternatives/java-DJENKINS HOME=/var/lib/jenkins-jar/usr/lib/jenkins/jenkins.war--logfile=/var/log/jenkins/jenkins.log--webroot=/var/cache/jenkins/war--httpPort=8667。
+
+### 使用Periodic Backup插件进行备份
+
+​	Jenkins本身并不提供备份功能，而是交给插件来完成。我们使用Periodic Backup插件（https：//plugins.jenkins.io/periodicbackup）来实现Jenkins的备份。
+
+​	安装Periodic Backup插件后，在“Manage Jenkins”菜单下就会多出一个“Periodic Backup Manager”菜单项，如图16-21所示。
+
+![](https://pic.imgdb.cn/item/6108b8845132923bf8f5d3fd.jpg)
+
+​	单击“Configure”选项后，进入插件配置页面，配置如图16-23所示。
+
+​	配置项很简单，下面简单介绍几个关键的配置项。
+
+* Backup schedule （cron）：进行备份的cron表达式，单击“Validate cronsyntax”按钮可进行校验。由于Jenkins是使用本地文件存储的方式来保存配置的，在备份过程中如果有其他操作，则很容易出现数据不一致的问题。所以，应尽量选择在无人使用Jenkins的时候进行备份。
+* File Management Strategy：备份策略。
+  * ConfigOnly：只备份配置文件。
+  * 进行全量备份。可以通过在“Excludes list”中填入Ant风格路径表达式，排除不希望进行备份的文件。多个表达式之间使用分号分隔。
+
+![](https://pic.imgdb.cn/item/6108b91f5132923bf8f789c1.jpg)
+
+* Backup Location：由于篇幅限制，这个配置项并没有出现在截图中。我们通过配置备份文件的存放位置。注意，Jenkins运行用户一定要有对该文件夹进行写的权限。保存配置，单击“Backup Now！”选项，可以马上进行一次备份。
+
+
+
+​	当需要恢复时，单击“Restore”选项，然后选择需要恢复的版本，如图16-24所示。
+
+![](https://pic.imgdb.cn/item/6108b9365132923bf8f7c8fd.jpg)
+
+​	为什么没有使用thinBackup插件？
+
+​	网络上有很多介绍如何使用thinBackup插件进行备份的文章。thinBackup插件已经两年没有更新了，而且笔者在使用过程中出现了无法恢复的Bug。所以，不推荐使用thinBackup插件。
+
+## 汉化
+
+​	Jenkins默认根据用户浏览器的语言设置来显示。如果希望设置Jenkins界面的语言，则安装Local插件（https：//plugins.jenkins.io/locale）后，进入“ManageJenkins→Configure System”页面，找到“Local”进行设置，如图16-25所示。
+
+![](https://pic.imgdb.cn/item/6108b9645132923bf8f84ac6.jpg)
+
+## Jenkins配置即代码
+
+​	Jenkins用久了，会有一种莫名的紧张感。因为没有人清楚Jenkins都配置了什么，以至于最终没有人敢动它。
+
+​	但凡使用界面进行配置的，都会有这样的后果。解决办法就是通过代码进行配置——Config-uration as Code。
+
+​	2018 年年初发布的一款 Configuration-as-Code 插件，实现了 JenkinsConfiguration as Code （JCasC）。目前其最新版本是1.3。通过JCasC插件，我们使用YAML文件来配置Jenkins。如此，我们就可以对配置进行版本化控制了。
+
+​	YAML文件内容如下：
+
+![](https://pic.imgdb.cn/item/6108b9945132923bf8f8d021.jpg)
+
+![](https://pic.imgdb.cn/item/6108b99f5132923bf8f8efeb.jpg)
+
+​	虽然JCasC的设计非常棒，但是它还有很多插件需要进行适配，所以在生产环境下使用请谨慎。
+
+## 使用init.groovy配置Jenkins
+
+​	那还有什么办法能对Jenkins的配置进行版本化呢？有一个不是办法的办法。
+
+​	Jenkins在启动时，会执行$JENKINS_HOME目录下的init.groovy脚本，以及init.groovy.d下的所有Groovy文件。在这些Groovy脚本中，我们可以访问Jenkins实例，并对插件进行配置，从而实现版本化Jenkins的目标。
+
+​	以下代码示例展示了如何在init.groovy中向Jenkins增加一个Maven配置。
+
+![](https://pic.imgdb.cn/item/6108b9d15132923bf8f97d76.jpg)
+
+![](https://pic.imgdb.cn/item/6108b9e15132923bf8f9aaad.jpg)
+
+​	界面效果如图16-26所示。
+
+![](https://pic.imgdb.cn/item/6108b9f05132923bf8f9d793.jpg)
+
+**使用脚本命令行调试init.groovy**
+
+​	init.groovy脚本是在Jenkins启动时加载执行的，那是不是说，如果反复调试init.groovy脚本，就需要反复重启Jenkins？当然没有必要。
+
+​	Jenkins 本身提供了一个特性：脚本命令行。通过它，我们可以直接在界面上修改并执行Groovy脚本，而不需要重启Jenkins。具体步骤如下：
+
+​	（1）单击Manage Jenkins→Script Console，如图16-27所示。
+
+![](https://pic.imgdb.cn/item/6108ba155132923bf8fa4f13.jpg)
+
+（2）在“Script Console”页面中，填入Groovy脚本，然后单击“Run”按钮执行，如图16-28所示。
+
+![](https://pic.imgdb.cn/item/6108ba245132923bf8fa7ba7.jpg)
+
+## 本章小结
+
+​	当整个研发流程深度集成Jenkins后，Jenkins宕机就像工厂里的流水线因故停机一样。流水线的停机代表了浪费。做好监控和备份，可以预防或减少“停机”的时间。
+
+# 自动化运维经验
+
+## 小团队自动化运维实践经验
+
+​	笔者曾经所在的一个团队有三个半开发人员，要维护几十台云主机，部署了十多个应用，这些应用90%都是遗留系统。应用系统的编译打包基本在程序员自己的电脑上完成。分支管理就是dev分支开发，测试通过后，再合并到master分支中。生产环境的应用配置要登录具体的机器看才知道，更不用说配置中心及配置版本化了。在监控方面，甚至连基本的机器级别的基础监控都没有。
+
+​	笔者平时的工作是50%的时间做业务开发，50%的时间做运维。而且，只有笔者一个人做运维。面对这么多问题，笔者考虑如何在低成本情况下实现自动化运维。本节就是总结笔者在这方面的一些经验和实践，希望对读者有所帮助。
+
+### 先做监控和告警
+
+​	事情有轻重缓急，监控和告警是一开始就要做的，即使业务开发被拖慢也要先做。只有知道了当前情况，才能做好下一步计划。
+
+​	现在市面上有很多监控系统，如 Zabbix、Open-Falcon、Prometheus 等。最终笔者选择了Prometheus。有以下几个理由。
+
+* 笔者推崇pull模式收集指标数据，Prometheus是pull模式的。自认为push模式是自己怼自己的模式。
+* 不像Zabbix需要一个Web UI，Prometheus使用文本进行配置，有利于配置版本化（这点最关键）。
+* 插件丰富，想要监控什么，基本都会有现成的。
+
+
+
+​	之前我们介绍过，人少机器多，所以安装Prometheus的过程也必须要自动化，同时版本化。笔者先是以自己的工作电脑为控制机器，使用Ansible部署整个监控系统，示意图如图17-1所示。
+
+![](https://pic.imgdb.cn/item/6108d4125132923bf84bbff1.jpg)
+
+* Prometheus server负责监控数据收集和存储。
+* Prometheus alert manager负责根据告警规则进行告警，可集成多种告警通道。
+* node-exporter（https：//github.com/prometheus/node_exporter）的作用是从机器上读取指标数据，然后暴露一个HTTP服务，Prometheus就是从这个服务中收集监控指标数据的。Prometheus官方还提供了各种各样的exporter。
+
+
+
+​	使用Ansible作为部署工具的一个好处是有很多现成的role。在安装Prometheus时，笔者使用的是现成的prometheus-ansble（https：//github.com/ernestas-poskus/ansible-prometheus）。
+
+​	有了监控数据后，我们就可以对数据进行可视化了。Grafana和Prometheus集成得非常好，所以我们又部署了Grafana，示意图如图17-2所示。
+
+​	可是，我们不可能24小时盯着屏幕看CPU负载有没有超吧？这时候就要做告警了。Prome-htues默认集成了多种告警渠道，钉钉除外。由于当时笔者所在团队使用的是钉钉，所以告警通道只能选择钉钉。有好心人开源了钉钉集成Prometheus告警的组件：prometheus-webhook-dingtalk（https：//github.com/timonwong/prometheus-webhook-dingtalk）。于是，我们做了告警，示意图如图17-3所示。
+
+![](https://pic.imgdb.cn/item/6108d44b5132923bf84c77e5.jpg)
+
+![](https://pic.imgdb.cn/item/6108d4655132923bf84cc8e1.jpg)
+
+​	完成以上工作后，我们的基础监控的架子就搭好了，为后期的Redis监控、JVM监控等更上层的监控做好了准备。
+
+### 一开始就应该做配置版本化
+
+​	很多运维人员或者开发人员一开始为了节约时间，采用手动方式搭建监控基础设施。事实上，这只是将“填坑”的时间拖后，或者留给后面的人罢了。
+
+​	笔者推崇一开始就做配置版本化。在搭建监控系统的过程中，已经将配置抽离出来，放到一个单独的代码仓库进行管理。以后所有部署，我们都会将配置和部署逻辑分离。这样，只需要复制一份配置，改一改，就可以在新的环境中快速搭建一套新的监控系统。
+
+​	关于如何管理Ansible部署脚本的配置，我们使用如下目录结构。
+
+![](https://pic.imgdb.cn/item/6108d4b95132923bf84dd783.jpg)
+
+​	现阶段，所有的配置都以文本方式存储，将来切换成使用Consul做配置中心，只需要将配置本身部署到Consul中就可以了。而且，Ansible 2.0以上版本已经原生支持Consul的操作。
+
+### Jenkins化：将打包工作交给Jenkins
+
+​	有了监控后，我们就可以进行下一步操作：将所有项目的打包工作交给Jenkins。当然，现实中是逐步实现的，并不是一步到位的。
+
+​	首先要有Jenkins。搭建Jenkins同样有现成的Ansible playbook：ansible-role-jenkins（https：//github.com/geerlingguy/ansible-role-jenkins）。注意，网上的大多文章告诉你的都是Jenkins需要手动安装插件，而我们使用的ansible-role-jenkins实现了自动安装插件，只需要增加一个配置变量jenkins plugins就可以了。官方例子如下：
+
+![](https://pic.imgdb.cn/item/6108d4e65132923bf84e64dd.jpg)
+
+![](https://pic.imgdb.cn/item/6108d4f75132923bf84e9984.jpg)
+
+​	搭建好Jenkins后，就要集成GitLab了。我们原来就有GitLab，所以不需要重新搭建。关于如何集成这里就不赘述了，网络上有很多文章介绍此内容。
+
+​	最终Jenkins搭建完成，示意图如图17-4所示。
+
+![](https://pic.imgdb.cn/item/6108d5445132923bf84f8af9.jpg)
+
+​	现在我们需要告诉Jenkins如何对业务代码进行编译打包。我们逐步在每个业务系统的根目录中加入相应的Jenkinsfile。在为每个业务系统写Jenkinsfile的过程中，注意这些业务系统的Jenkinsfile的共性，及时进行抽象，避免大量重复。
+
+​	提示：如果这些业务系统能标准化目录结构，那么Jenkinsfile及部署脚本将会简化很多。所以，笔者在实施自动化过程中，逐渐对所有业务系统的目录结构进行标准化。
+
+### 将制品交给Nexus管理
+
+​	采用Jenkins进行自动化编译打包后，我们遇到的第一个问题就是将打包出来的制品放在哪里。所以，在搭建好Jenkins后，就需要搭建Nexus了。
+
+### 让Jenkins帮助我们执行Ansible
+
+​	之前我们是在程序员的电脑中执行Ansible的，现在要把这项工作交给Jenkins。具体操作在第12章中详细介绍过，这里就不重复了。
+
+​	不过，这里有一个问题需要考虑：是将Ansible脚本和业务系统放在同一个代码仓库中，还是分别放在不同的仓库中？
+
+​	笔者推荐将部署脚本与业务系统放在同一个代码仓库中，结构如下：
+
+![](https://pic.imgdb.cn/item/6108d5805132923bf850492b.jpg)
+
+这样做的好处是：
+
+* 职责清晰。Jenkinsfile负责构建逻辑，deploy目录负责部署逻辑。
+* 标准化。所有需要部署的业务系统都可以使用此目录结构，而不论是Go项目还是Node.js项目。
+* 有助于推行DevOps。开发人员对构建逻辑和部署逻辑负责。虽然推行DevOps只是手段，不是目的。
+
+### 小结
+
+小团队自动化运维实施的顺序大致为：
+
+* 做基础监控。
+* 搭建GitLab。
+* 搭建Jenkins，并集成GitLab。
+* 使用Jenkins实现自动编译打包。
+* 将制品交给制品库管理。
+* 使用Jenkins执行Ansible。
+
+## ChatOps实践
+
+​	2013年，ChatOps由GitHub工程师Jesse Newland提出。表面上，ChatOps就是在一个聊天窗口中发送一个命令给运维机器人bot，然后bot执行预定义的操作，并返回执行结果。
+
+​	笔者认为，ChatOps更深层次的意义在于将重复性的手动运维工作自动化了，开发人员、运维人员可以自助实施一些简单的运维。
+
+​	ChatOps并不是由一个系统实现的，而是多个系统的集成。我们选择Rocket.Chat作为聊天窗口的实现、Hubot作为运维机器人、Jenkins实现任务的执行。其整体架构示意图如图17-5所示。
+
+![](https://pic.imgdb.cn/item/6108d6225132923bf8524f3e.jpg)
+
+​	我们通过Rocket.Chat客户端向Rocket.Chat服务器端发送消息。
+
+### Rocket.Chat
+
+​	Rocket.Chat（https：//github.com/RocketChat/Rocket.Chat）是一个开源的即时聊天平台，是Slack的开源替代解决方案。它的客户端是跨平台的，可以满足团队里不同人群的需要。
+
+​	关于搭建Rocket.Chat的过程，官方文档写得非常详细，这里不再叙述。搭建完成Rocket.Chat后，首先需要添加一个机器人用户，如图17-6所示。
+
+![](https://pic.imgdb.cn/item/6108d6455132923bf852be5d.jpg)
+
+​	注意：角色是bot。
+
+### Hubot
+
+​	Hubot（https：//hubot.github.com/）是GitHub出品的一个运维机器人程序。其本质上就是一个接收命令消息，执行预定义操作的程序。接收命令消息的组件在Hubot中被称为adapter。
+
+​	我们希望Hubot接收来自Rocket.Chat聊天窗口中的消息，所以就需要为Hubot安装一个Rocket.Chat的adapter。
+
+​	在Hubot官方网站中还有很多其他adapter（https://hubot.github.com/docs/adapters/），在开发自己的adapter前，可以先查一下看是否已经有人实现了。
+
+​	那么，当Hubot接收到命令消息后，怎么知道执行哪些操作呢？这部分就是我们的工作了。实际上就是通过写Coffescript脚本匹配adapter组件传过来的消息，然后执行操作的。这些脚本在Hubot中被称为scripts。
+
+​	实际上scripts就是通过正则表达式匹配命令消息，然后执行业务逻辑的。以下是一段scripts。
+
+![](https://pic.imgdb.cn/item/6108d6975132923bf853c668.jpg)
+
+​	安装完成Hubot后，再设置Rocket.Chat adapter所需的一些环境变量。
+
+![](https://pic.imgdb.cn/item/6108d6a95132923bf854021b.jpg)
+
+​	接下来，运行bin/hubot-a rocketchat命令启动Hubot。
+
+​	当Hubot启动后，Rocket.Chat的general房间就会显示jenkinsbot加入房间的消息，如图17-7所示。这就说明Rocket.Chat与Hubot集成成功了。
+
+![](https://pic.imgdb.cn/item/6108d6be5132923bf8544472.jpg)
+
+### Hubot与Jenkins集成
+
+​	Rocket.Chat与Hubot集成成功后，我们就可以在聊天窗口中@机器人，Hubot机器人就会收到消息内容。
+
+​	但是机器人收到消息后，怎么知道要做什么呢？我们希望Hubot执行Jenkins任务。这时，我们不要马上自己去写脚本，而是先查一查看是否已经有人实现了。如果已经有人实现了，则通过npm search hubot-scripts jenkins搜索与Jenkins相关的scripts，从列表中选择最近更新过的hubot-jenkins-enhanced（https：//www.npmjs.com/package/hubot-jenkins-enhanced）。
+
+​	其安装方式很简单，在Hubot所在机器上执行npm install--save hubot-jenkins-enhanced命令即可。
+
+![](https://pic.imgdb.cn/item/6108d7195132923bf85567c8.jpg)
+
+​	HUBOT_JENKINS_AUTH变量值的格式为“username：access-token”。其中access-token可以在Jenkins的个人设置页面（/user/configure）中找到，如图17-8所示。
+
+![](https://pic.imgdb.cn/item/6108d72c5132923bf855a60c.jpg)
+
+​	重启Hubot后，我们向Hubot发送一个help指令，看看它支持哪些命令，如图17-9所示。
+
+​	hubot-jenkins-enhanced scripts支持很多Jenkins命令。由于篇幅有限，这里只以发起一次构建为例，如图17-10所示。
+
+​	这样，基本的ChatOps平台就算搭建好了。如果要实现平台化，我们还有很多工作要做。
+
+![](https://pic.imgdb.cn/item/6108d74a5132923bf85606a1.jpg)
+
+![](https://pic.imgdb.cn/item/6108d7555132923bf8562f60.jpg)
+
+### Jenkins推送消息到Rocket.Chat
+
+​	当Jenkins pipeline完成时，可以将结果推送到Rocket.Chat中。rocketchatnotifier插件（https：//plugins.jenkins.io/rocketchatnotifier）提供了此功能。
+
+​	安装插件后，进入Manage Jenkins→Configure System页面，找到“GlobalRocketChat Notifier Settings”部分，配置如图17-11所示。
+
+![](https://pic.imgdb.cn/item/6108d7765132923bf85699da.jpg)
+
+​	配置项非常简单，这里就不一一介绍了。
+
+​	我们尝试在pipeline中发送一条消息：
+
+![](https://pic.imgdb.cn/item/6108d7905132923bf856f1f1.jpg)
+
+## 本章小结
+
+​	技术是死的，人是活的。现实是复杂的，通用的成功学并不是在任何时候都适合。本章所介绍的经验与案例的具体做法不是重点，重点是它们背后的动机与思路。
+
+# 如何设计pipeline
+
+## 设计pipeline的步骤
+
+​	当团队开始设计第一个pipeline时，该如何下手呢？以下是笔者的设计步骤，仅供参考。
+
+​	第1步：了解网站的整体架构。这个过程就是了解系统是如何服务用户的。其间，还可以识别出哪些是关键系统。
+
+​	第2步：找到服务之间、服务与组件之间、组件之间的依赖关系。
+
+​	第3步：找到对外依赖最少的组件，将其构建、打包、制品管理自动化。
+
+​	第4步：重复第3步，直到所有（不是绝对）的组件都使用制品库管理起来。
+
+​	第5步：了解当前架构中所有的服务是如何从源码到最终部署上线的。
+
+​	第6步：找出第一个相对不那么重要的服务，将在第5步中了解到的手动操作自动化。但是，通常不会直接照搬手动操作进行自动化，而是会进行一些改动，让pipeline更符合《持续交付》第5章中所介绍的“部署流水线相关实践”内容。
+
+​	另外，之所以先从一个不那么重要的服务下手，是因为即使自动化脚本出现错误，也不至于让大家对自动化失去信心。这个过程也是让团队适应自动化的过程。
+
+​	第7步：重复第6步，直到所有服务的所有阶段都自动化。这一步不是绝对的，也可以先自动化一部分服务，然后开始第8步。
+
+​	第8步：加入自动化集成测试的阶段。
+
+​	……
+
+​	在现实项目中，远没有这么简单。而且，整个过程并不一定是顺序进行的，而是需要几个来回。如果当前服务没有日志收集和监控，那么在第3步时就要开始准备了，免得后期返工。在第8步以后就要看团队的具体需求了。
+
+## 以X网站为例，设计pipeline
+
+​	假设存在一个X网站，我们需要使用上一节介绍的步骤来设计其pipeline。
+
+​	通过与X网站的团队进行沟通（通常不止一次沟通），总结出它的（不是严格意义的）架构，其示意图如图18-1所示。
+
+![](https://pic.imgdb.cn/item/6108d89c5132923bf85a644d.jpg)
+
+​	A和B都是后端服务，它们共同依赖于common组件。F是一个Node.js服务。LB1和LB2分别负责前端的负载和后端的负载。
+
+​	现在我们已经完成第1、2步。
+
+​	第3步，很容易就能找出依赖最少的组件：common。它的pipeline非常简单，只需要编译打包并上传到制品库即可。读者参考第2、3章就可以独立完成。
+
+​	第4步，省略。
+
+​	第5步，A服务承载的业务相对不那么重要，我们就从它开始。那么，之前A服务是怎么从源代码到最终部署上线的？笔者了解到X网站的成员都是自己打包自己所负责的服务的，然后把制品以邮件的方式发给运维人员，运维人员再把制品复制到目标服务器，然后逐台机器更新服务。
+
+​	第6步，开始设计A服务的pipeline。这个过程不是一次就能做到相对完善的，而是需要多次迭代调整才能实现。我们跳过这个演进过程，为A服务设置了以下几个阶段，如图18-2所示。
+
+![](https://pic.imgdb.cn/item/6108d8c45132923bf85ae3e0.jpg)
+
+​	A服务的Jenkinsfile内容如下：
+
+![](https://pic.imgdb.cn/item/6108d8de5132923bf85b337f.jpg)
+
+![](https://pic.imgdb.cn/item/6108d9145132923bf85bdade.jpg)
+
+![](https://pic.imgdb.cn/item/6108d9255132923bf85c12d9.jpg)
+
+## X网站pipeline详解
+
+### 尽可能将所有的具体操作都隐藏到共享库中
+
+​	在X网站pipeline中，凡是以“z”字母开头的步骤都是zpipelinelib共享库提供的步骤，如zMvn、zCodeAnalysis。换句话说，我们将pipeline的具体操作隐藏在zpipelinelib共享库中。这就像在编程语言中接口与具体实现类的关系。pipeline只负责调用接口，表达意图；共享库则负责实现接口。为什么这样做呢？有以下几个理由。
+
+* pipeline的设计者可以更关注设计。
+* pipeline的各阶段意图更清晰。
+* 可维护性更好。只需要修改zpipelinelib共享库，所有引用了该共享库的pipeline都会被修改。
+
+### 只生成一次制品
+
+​	只生成一次制品，这是《持续交付》中提到的一个非常重要的实践。
+
+​	在environment指令中，我们使用zGetVersion步骤获得版本号并赋值给变量`__version`。在构建阶段，我们使用`__version`的值生成制品，并上传到制品库。之后所有的阶段，都使用此版本号从制品库中获取制品。
+
+### 对不同环境采用同一种部署方式
+
+​	对不同环境采用同一种部署方式，这也是《持续交付》中提到的另一个非常重要的实践。
+
+​	X网站有三个环境：开发环境（dev）、预发布环境（staging）和生产环境（prod）。对于这三个环境，我们都使用同一个步骤完成——zDeployService。zDeployService步骤的关键参数是版本号及目标部署环境。
+
+​	实现这一步并不简单，因为要实现将同一制品部署到不同的环境，就必须做到制品与配置的分离。本例中A服务是基于Springboot框架实现的，配置使用了Springboot的Profiles特性，代码结构如下：
+
+![](https://pic.imgdb.cn/item/6108d98b5132923bf85d4e8b.jpg)
+
+​	那怎么分离呢？其实，制品与配置分离不是最终目的，最终目的是将配置项与配置值分离。部署脚本只存放配置项，配置值应该由类似于配置中心的地方提供。比如在部署脚本中，配置文件application.yml只存储配置项。
+
+![](https://pic.imgdb.cn/item/6108d98b5132923bf85d4e8b.jpg)
+
+### 配置版本化
+
+​	配置也是需要版本化的。environment指令中的三个__**config version变量用于指定不同环境的配置的版本。
+
+### 系统集成测试
+
+​	虽然A服务的单元测试覆盖率达到了100%，但是这也不能代表A服务与其他系统集成后，整个环境是可以正常工作的。因此，还要进行集成测试。
+
+​	也就是说，在部署A服务完成后执行集成测试。在A服务的pipeline中，zSitTest步骤的作用如图18-3所示，它会触发集成测试pipeline。
+
+![](https://pic.imgdb.cn/item/6108d9c75132923bf85e0c68.jpg)
+
+​	集成测试pipeline通常是一个独立的代码仓库。
+
+### 如何实现指定版本部署
+
+​	可以看出，目前A服务是无法指定版本部署的，pipeline执行的代码始终是代码仓库中最新版本的代码。那么怎么实现指定版本部署呢？
+
+​	其实不难，我们可以在A服务的pipeline中加入入参参数，用于指定部署版本。然后在pipeline中加入判断，当有指定版本参数传入时，就跳过构建阶段，而在其他阶段使用指定版本的制品。
+
+### 主干开发，分支发布
+
+​	pipeline的设计还与代码的分支管理策略有关。由于X网站上线频繁，所以采用主干开发、发布分支的策略。在发布到开发环境后的所有阶段都只对release-*分支有效。
+
+### 本章小结
+
+​	本章中A服务的pipeline只是为了演示如何设计pipeline，并没有讲解它真正的实现逻辑。因为笔者相信，读者在认真学习了前面的章节后，自然有能力根据自己团队项目的具体情况来实现。
+
+​	本章主要以个人经验介绍设计pipeline的步骤，并给出了相对完整的案例。总的来说，pipeline的设计尽量符合《持续交付》第5章“部署流水线解析”中介绍的实践内容。但并不是说它在所有情况下都是对的，而是因为毕竟前人踩过的“坑”，我们没有必要再踩一次。
+
+# 后记
+
+​	我曾经在团队中全面推行Jenkins pipeline。我遇到的最大问题并不是技术上的，而是团队中有决定权的人是否看清了pipeline带来的收益和成本，以及团队成员是否有时间、有意愿去学习。可能再过几年，当持续交付的概念变为软件行业的“常识”后，人们才会觉得写代码配置pipeline更简单。
+
+​	如果你的领导和同事愿意实践，那么恭喜你已经跨过了最艰难的一步。但是这并不意味着后面的路就会一帆风顺，可能还会遇到以下情况：
+
+* 团队中从来没有人实践过持续集成和持续交付。
+* 原来只需要关心开发的开发人员，突然要关心构建是否通过、关心运维了，会有一种“活比以前多了”的感觉。
+* 对保守的老员工是一种冲击，老员工的那种救火式的“个人英雄”会慢慢地被工程化所替代，老员工必须跟上发展的步伐。
+
+
+
+​	面对第1种情况，如果你有钱，则可以请行业内有经验的咨询师；如果没有钱，则可以从《持续集成》和《持续交付》中找答案。这两本书里讲了很多实践原则和大方向，你完全可以结合团队的实际情况走出自己的路。
