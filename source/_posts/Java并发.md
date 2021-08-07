@@ -474,3 +474,842 @@ c.await(); //等待
 
 ​	在MoreExecutors中还提供了对Future模式的扩展，这部分内容将在第5.5节Future模式中介绍。
 
+# 不要重复发明轮子：JDK的并发容器
+
+## 并发集合简介
+
+* ConcurrentHashMap：这是一个高效的并发HashMap。你可以把它理解为一个线程安全的HashMap。
+* CopyOnWriteArrayList：这是一个List，从名字看就知道它和ArrayList是一族的。在读多写少的场合，这个List的性能非常好，远远优于Vector。
+*  ConcurrentLinkedQueue：高效的并发队列，使用链表实现。可以看作一个线程安全的LinkedList。
+* BlockingQueue：这是一个接口，JDK内部通过链表、数组等方式实现了这个接口。表示阻塞队列，非常适合作为数据共享的通道。
+* ConcurrentSkipListMap：跳表的实现。这是一个Map，使用跳表的数据结构进行快速查找。
+
+
+
+​	除以上并发包中的专有数据结构以外，java.util下的Vector是线程安全的（虽然性能和上述专用工具没得比），另外Collections工具类可以帮助我们将任意集合包装成线程安全的集合。
+
+## 线程安全的HashMap
+
+* 一种可行的方法是使用Collections.synchronizedMap()方法包装我们的HashMap。
+
+* ConcurrentHashMap。
+
+## 有关List的线程安全
+
+* Vector
+* Collections.synchronizedList()
+
+## 高效读写的队列：ConcurrentLinkedQueue类
+
+​	ConcurrentLinkedQueue类应该算是在高并发环境中性能最好的队列就可以了。
+
+​	对Node进行操作时，使用了CAS。
+
+![](https://pic.imgdb.cn/item/610d407b5132923bf8b9bbdd.jpg)
+
+​	ConcurrentLinkedQueue类内部有两个重要的字段，head和tail，分别表示链表的头部和尾部，它们都是Node类型。对于head来说，它永远不会为null，并且通过head及succ()后继方法一定能完整地遍历整个链表。对于tail来说，它自然应该表示队列的末尾。
+
+​	但ConcurrentLinkedQueue类的内部实现非常复杂，它允许在运行时链表处于多个不同的状态。以tail为例，一般来说，我们期望tail总是为链表的末尾，但实际上，tail的更新并不是及时的，可能会产生拖延现象。图3.15显示了插入时tail的更新情况，可以看到tail的更新会产生滞后，并且每次更新会跳跃两个元素。
+
+![](https://pic.imgdb.cn/item/610d41755132923bf8bc2724.jpg)
+
+![](https://pic.imgdb.cn/item/610d41975132923bf8bc82cb.jpg)
+
+​	首先值得注意的是，这个方法没有任何锁操作。线程安全完全由CAS操作和队列的算法来保证。整个方法的核心是for循环，这个循环没有出口，直到尝试成功，这也符合CAS操作的流程。当第一次加入元素时，由于队列为空，因此p.next为null。程序进入第8行，并将p的next节点赋值为newNode，也就是将新的元素加入队列中。此时p==t成立，因此不会执行第12行的代码更新tail末尾。如果casNext()方法成功，则程序直接返回，如果失败，则再进行一次循环尝试，直到成功。因此，增加一个元素后，tail并不会被更新。
+
+![](https://pic.imgdb.cn/item/610d4a895132923bf8d28f46.jpg)
+
+​	通过这些说明，大家应该可以明显感觉到，不使用锁而单纯地使用CAS操作会要求在应用层面保证线程安全，并处理一些可能存在的不一致问题，大大增加了程序设计和实现的难度。它带来的好处就是可以使性能飞速提升，因此，在有些场合也是值得的。
+
+## 高效读取：不变模式下的CopyOnWriteArrayList类
+
+​	为了将读取的性能发挥到极致，JDK中提供了CopyOnWriteArrayList类。对它来说，读取是完全不用加锁的，并且更好的消息是：写入也不会阻塞读取操作。只有写入和写入之间需要进行同步等待。这样，读操作的性能就会大幅度提升。它是怎么做的呢？
+
+​	从这个类的名字我们可以看到，所谓CopyOnWrite就是在写入操作时，进行一次自我复制。换句话说，当这个List需要修改时，我并不修改原有的内容（这对于保证当前在读线程的数据一致性非常重要），而是对原有的数据进行一次复制，将修改的内容写入副本中。写完之后，再用修改完的副本替换原来的数据，这样就可以保证写操作不会影响读了。
+
+![](https://pic.imgdb.cn/item/610d4c7a5132923bf8d71a52.jpg)
+
+​	需要注意的是：读取代码没有任何同步控制和锁操作，理由就是内部数组array不会发生修改，只会被另外一个array替换，因此可以保证数据安全。大家也可以参考“5.2 不变模式”一节，相信可以有更深的认识。
+
+​	和简单的读取相比，写入操作就有些麻烦了。
+
+![](https://pic.imgdb.cn/item/610d4d8e5132923bf8d98f92.jpg)
+
+## 数据共享通道：BlockingQueue
+
+​	我们既希望线程A能够通知线程B，又希望线程A不知道线程B的存在。这样，如果将来进行重构或者升级，我们完全可以不修改线程A，而直接把线程B升级为线程C，保证系统的平滑过渡。而这中间的“意见箱”就可以使用BlockingQueue来实现。
+
+![](https://pic.imgdb.cn/item/610d50a95132923bf8e1383d.jpg)
+
+​	这里我们主要介绍ArrayBlockingQueue类和LinkedBlockingQueue类。从名字应该可以得知，ArrayBlockingQueue类是基于数组实现的，而LinkedBlockingQueue类是基于链表的。也正因为如此，ArrayBlockingQueue类更适合做有界队列，因为队列中可容纳的最大元素需要在队列创建时指定（毕竟数组的动态扩展不太方便）。而LinkedBlockingQueue类适合做无界队列，或者那些边界值非常大的队列，因为其内部元素可以动态增加，它不会因为初值容量很大，而占据一大半的内存。
+
+​	而BlockingQueue之所以适合作为数据共享的通道，其关键还在于Blocking上。Blocking是阻塞的意思，当服务线程（服务线程指不断获取队列中的消息，进行处理的线程）处理完成队列中所有的消息后，它如何知道下一条消息何时到来呢？
+
+​	一种最简单的做法是让这个线程按照一定的时间间隔不停地循环和监控这个队列。这是一种可行的方案，但显然造成了不必要的资源浪费，而且循环周期也难以确定。BlockingQueue很好地解决了这个问题。它会让服务线程在队列为空时进行等待，当有新的消息进入队列后，自动将线程唤醒，如图3.18所示。那它是如何实现的呢？我们以ArrayBlockingQueue类为例，来一探究竟。
+
+![](https://pic.imgdb.cn/item/610d544a5132923bf8ea717b.jpg)
+
+​	向队列中压入元素可以使用offer()方法和put()方法。对于offer()方法，如果当前队列已经满了，它就会立即返回false。如果没有满，则执行正常的入队操作。所以，我们不讨论这个方法。现在，我们需要关注的是put()方法。put()方法也是将元素压入队列末尾。但如果队列满了，它会一直等待，直到队列中有空闲的位置。
+
+​	从队列中弹出元素可以使用poll()方法和take()方法。它们都从队列的头部获得一个元素。不同之处在于：如果队列为空，那么poll()方法会直接返回null，而take()方法会等待，直到队列内有可用元素。
+
+​	从队列中弹出元素可以使用poll()方法和take()方法。它们都从队列的头部获得一个元素。不同之处在于：如果队列为空，那么poll()方法会直接返回null，而take()方法会等待，直到队列内有可用元素。
+
+​	因此，put()方法和take()方法才是体现Blocking的关键。为了做好等待和通知两件事，在ArrayBlockingQueue类内部定义了以下一些字段。
+
+![](https://pic.imgdb.cn/item/610d55075132923bf8ec2fca.jpg)
+
+​	当执行take()操作时，如果队列为空，则让当前线程在notEmpty上等待。新元素入队时，则进行一次notEmpty上的通知。
+
+​	下面的代码显示了take()方法的过程。
+
+![](https://pic.imgdb.cn/item/610d55bd5132923bf8edd303.jpg)
+
+​	第6行代码，就要求当前线程进行等待。当队列中有新元素时，线程会得到一个通知。下面是元素入队时的一段代码：
+
+​	![](https://pic.imgdb.cn/item/610d57045132923bf8f0e009.jpg)
+
+​	同理，对于put()方法的操作也是一样的，当队列满时，需要让压入线程等待，如下面第7行所示。
+
+![](https://pic.imgdb.cn/item/610d57f95132923bf8f34d0d.jpg)
+
+
+
+​	![](https://pic.imgdb.cn/item/610d58b05132923bf8f5193a.jpg)
+
+​	从实现上说，ArrayBlockingQueue类在物理上是一个数组，但在逻辑层面是一个环形结构。由于其数组的特性，其容量大小在初始化时就已经指定，并且无法动态调整。当有元素加入或者离开ArrayBlockingQueue类时，总是使用takeIndex和putIndex两个变量分别表示队列头部和尾部元素在数组中的位置。每一次入队和出队操作都会调整这两个重要的索引位置。下面的代码显示了对这两个索引的循环调整策略。
+
+![](https://pic.imgdb.cn/item/610d58d45132923bf8f570e7.jpg)
+
+## 随机数据结构：跳表（SkipList）
+
+​	在JDK的并发包中，除常用的哈希表外，还实现了一种有趣的数据结构—跳表。跳表是一种可以用来快速查找的数据结构，有点类似于平衡树。它们都可以对元素进行快速查找。但一个重要的区别是：对平衡树的插入和删除往往很可能导致平衡树进行一次全局的调整，而对跳表的插入和删除只需要对整个数据结构的局部进行操作即可。这样带来的好处是：在高并发的情况下，你会需要一个全局锁来保证整个平衡树的线程安全。而对于跳表，你只需要部分锁即可。这样，在高并发环境下，你就可以拥有更好的性能。就查询的性能而言，因为跳表的时间复杂度是O(log n)，所以在并发数据结构中，JDK使用跳表来实现一个Map。
+
+​	跳表的另外一个特点是随机算法。跳表的本质是同时维护了多个链表，并且链表是分层的。图3.19是跳表结构示意图。
+
+![](https://pic.imgdb.cn/item/610d59715132923bf8f6c2a7.jpg)
+
+​	底层的链表维护了跳表内所有的元素，每上面一层链表都是下面一层链表的子集，一个元素插入哪些层是完全随机的。因此，如果运气不好，你可能会得到一个性能很糟糕的结构。但是在实际工作中，它的表现是非常好的。
+
+​	实现这一数据结构的类是ConcurrentSkipListMap。下面展示了跳表的简单使用方法。
+
+![](https://pic.imgdb.cn/item/610d59a85132923bf8f733b5.jpg)
+
+![](https://pic.imgdb.cn/item/610d59ba5132923bf8f75b8a.jpg)
+
+![](https://pic.imgdb.cn/item/610d5a075132923bf8f7fa69.jpg)
+
+# 使用JMH进行性能测试
+
+​	JMH（Java Microbenchmark Harness）是一个在OpenJDK项目中发布的，专门用于性能测试的框架，其精度可以到达毫秒级。通过JMH可以对多个方法的性能进行定量分析。比如，当要知道执行一个函数需要多少时间，或者当对一个算法有多种不同实现时，需要选取性能最好的那个。
+
+## Hello JMH
+
+```xml
+<dependency>
+    <groupId>org.openjdk.jmh</groupId>
+    <artifactId>jmh-core</artifactId>
+    <version>1.32</version>
+</dependency>
+<!-- https://mvnrepository.com/artifact/org.openjdk.jmh/jmh-generator-annprocess -->
+<dependency>
+    <groupId>org.openjdk.jmh</groupId>
+    <artifactId>jmh-generator-annprocess</artifactId>
+    <version>1.32</version>
+    <scope>test</scope>
+</dependency>
+```
+
+​	一个最简单的JMH程序如下：
+
+![image-20210807094932823](C:\Users\81929\AppData\Roaming\Typora\typora-user-images\image-20210807094932823.png)
+
+https://blog.csdn.net/LiushaoMr/article/details/107729539
+
+## JMH的基本概念和配置
+
+**1.模式（Mode）**
+
+* Throughput：整体吞吐量，表示1秒内可以执行多少次调用。
+* AverageTime：调用的平均时间，指每一次调用所需要的时间。
+* SampleTime：随机取样，最后输出取样结果的分布，例如“99%的调用在xxx毫秒以内，99.99%的调用在xxx毫秒以内”。
+* SingleShotTime：以上模式都是默认一次Iteration是1秒，唯有SingleShotTime只运行一次。往往同时把 warmup 次数设为0，用于测试冷启动时的性能。
+
+**2.迭代（Iteration）**
+
+​	迭代是JMH的一次测量单位。在大部分测量模式下，一次迭代表示1秒。在这一秒内会不间断调用被测方法，并采样计算吞吐量、平均时间等。
+
+**3.预热（Warmup）**
+
+​	由于Java虚拟机的JIT的存在，同一个方法在JIT编译前后的时间将会不同。通常只考虑方法在JIT编译后的性能。
+
+**4.状态（State）**
+
+​	通过State可以指定一个对象的作用范围，范围主要有两种。一种为线程范围，也就是一个对象只会被一个线程访问。在多线程池测试时，会为每一个线程生成一个对象。另一种是基准测试范围（Benchmark），即多个线程共享一个实例。
+
+**配置类（Options/OptionsBuilder）**
+
+​	在测试开始前，首先要对测试进行配置。通常需要指定一些参数，比如指定测试类（include）、使用的进程个数（fork）、预热迭代次数（warmupIterations）。在配置启动测试时，需要使用配置类，比如：
+
+![](https://pic.imgdb.cn/item/610de9675132923bf8b0f441.jpg)
+
+## 理解JMH中的Mode
+
+略
+
+### 理解JMH中的State
+
+​	JMH中的State可以理解为变量或者数据模型的作用域，通常包括整个Benchmark级别和Thread线程级别。
+
+![](https://pic.imgdb.cn/item/610dea815132923bf8b28afd.jpg)
+
+## 有关性能的一些思考
+
+​	简单来说，性能调优就是要加快系统的执行，因此就是要尽可能使用执行速度快的组件。有时候，我们会不自觉地询问，哪个组件更快，哪个方法更快？但是，这个看起来很简单的问题却是没有答案的。在大部分场景中，并没有绝对的快或者慢。性能需要从不同角度、不同场景进行评估和取舍。一个典型的例子就是时间复杂度和空间复杂度的关系。如果一个算法时间上很快，但是消耗的内存空间极其庞大，还能说它是一个好的算法吗？反之，如果一个算法内存消耗很少，但是执行时间却很长，可能同样也是不可取的。
+
+​	对性能的优化和研究就是需要在各种不同的场景下，对组件进行全方位的性能分析，并结合实际应用情况进行取舍和权衡。
+
+# 提高锁性能
+
+* 减少锁持有时间
+* 减小锁粒度
+* 用读写分离锁来替换独占锁
+* 锁分离
+  * 如果将读写锁的思想进一步延伸，就是锁分离。读写锁根据读写操作功能上的不同，进行了有效的锁分离。依据应用程序的功能特点，使用类似的分离思想，也可以对独占锁进行分离。一个典型的案例就是java.util.concurrent.LinkedBlockingQueue的实现（我们在之前已经讨论了它的近亲ArrayBlockingQueue的内部实现）。
+  * 在JDK的实现中用两把不同的锁分离了take()方法和put()方法的操作。
+
+* 锁粗化
+
+# Java虚拟机对锁优化所做的努力
+
+* 锁偏向
+  * 如果一个线程获得了锁，那么锁就进入偏向模式。当这个线程再次请求锁时，无须再做任何同步操作。这样就节省了大量有关锁申请的操作，从而提高了程序性能。因此，对于几乎没有锁竞争的场合，偏向锁有比较好的优化效果，因为连续多次极有可能是同一个线程请求相同的锁。而对于锁竞争比较激烈的场合，其效果不佳。因为在竞争激烈的场合，最有可能的情况是每次都是不同的线程来请求相同的锁。这样偏向模式会失效，因此还不如不启用偏向锁。使用Java虚拟机参数-XX:+UseBiasedLocking可以开启偏向锁。
+* 轻量级锁
+  * 如果偏向锁失败，那么虚拟机并不会立即挂起线程，它还会使用一种称为轻量级锁的优化手段。轻量级锁的操作也很方便，它只是简单地将对象头部作为指针指向持有锁的线程堆栈的内部，来判断一个线程是否持有对象锁。如果线程获得轻量级锁成功，则可以顺利进入临界区。如果轻量级锁加锁失败，则表示其他线程抢先争夺到了锁，那么当前线程的锁请求就会膨胀为重量级锁。
+* 自旋锁
+  * 锁膨胀后，为了避免线程真实地在操作系统层面挂起，虚拟机还会做最后的努力—自旋锁。当前线程暂时无法获得锁，而且什么时候可以获得锁是一个未知数，也许在几个CPU时钟周期后就可以得到锁。如果这样，简单粗暴地挂起线程可能是一种得不偿失的操作。系统会假设在不久的将来，线程可以得到这把锁。因此，虚拟机会让当前线程做几个空循环（这也是自旋的含义），在经过若干次循环后，如果可以得到锁，那么就顺利进入临界区。如果还不能获得锁，才会真的将线程在操作系统层面挂起。
+* 锁消除
+  * 锁消除是一种更彻底的锁优化。Java虚拟机在JIT编译时，通过对运行上下文的扫描，去除不可能存在共享资源竞争的锁。通过锁消除，可以节省毫无意义的请求锁时间。
+  * 逃逸分析必须在-server模式下进行，可以使用-XX:+DoEscapeAnalysis参数打开逃逸分析。使用-XX:+EliminateLocks参数可以打开锁消除。
+
+# ThreadLocal
+
+## ThreadLocal的简单使用
+
+```java
+static TheadLocal<SimpleDateFormat> tl = new ThreadLocal<SimpleDateFormat>();
+tl.set(new SimpleDateFormat("yyyy-MM-dd"));
+tl.get();
+```
+
+## ThreadLocal的实现原理
+
+![](https://pic.imgdb.cn/item/610def415132923bf8b9bcb1.jpg)
+
+![](https://pic.imgdb.cn/item/610def555132923bf8b9d7d9.jpg)
+
+​	当线程退出时，Thread类会进行一些清理工作，其中就包括清理ThreadLocalMap，注意下述代码的加粗部分：
+
+![](https://pic.imgdb.cn/item/610def755132923bf8ba0996.jpg)
+
+​	因此，使用线程池就意味着当前线程未必会退出（比如固定大小的线程池，线程总是存在）。如果这样，将一些大的对象设置到ThreadLocal中（它实际保存在线程持有的threadLocalsMap内），可能会使系统出现内存泄漏的可能（这里我的意思是：你设置了对象到ThreadLocal中，但是不清理它，在你使用几次后，这个对象也不再有用了，但是它却无法被回收）。
+
+​	此时，如果你希望及时回收对象，最好使用ThreadLocal.remove()方法将这个变量移除。就像我们习惯性地关闭数据库连接一样。如果你确实不需要这个对象了，就应该告诉虚拟机，请把它回收，防止内存泄漏。
+
+​	另外一种有趣的情况是JDK也可能允许你像释放普通变量一样释放ThreadLocal。比如，我们有时候为了加速垃圾回收，会特意写出类似obj=null的代码。如果这么做，那么obj所指向的对象就会更容易地被垃圾回收器发现，从而加速回收。
+
+​	同理，如果对于ThreadLocal的变量，我们也手动将其设置为null，比如tl=null，那么这个ThreadLocal对应的所有线程的局部变量都有可能被回收。这里面的奥秘是什么呢？先来看一个简单的例子。
+
+# 无锁
+
+* 比较交换
+* AtomicInteger
+* Unsafe类
+* AtomicReference
+* AtomicStampedReference
+  * AtomicReference无法解决上述问题的根本原因是，对象在修改过程中丢失了状态信息，对象值本身与状态被画上了等号。因此，我们只要能够记录对象在修改过程中的状态值，就可以很好地解决对象被反复修改导致线程无法正确判断对象状态的问题。
+
+![](https://pic.imgdb.cn/item/610df23b5132923bf8bdeacc.jpg)
+
+* AtomicIntegerArray
+  * 当前可用的原子数组有：AtomicIntegerArray、AtomicLongArray和AtomicReferenceArray，分别表示整数数组、long型数组和普通的对象数组。
+  * AtomicIntegerArray本质上是对int[]类型的封装，使用Unsafe类通过CAS的方式控制int[]在多线程下的安全性。它提供了以下几个核心API。
+
+![](https://pic.imgdb.cn/item/610df2835132923bf8be4fee.jpg)
+
+* AtomicIntegerFieldUpdater
+  * 有时候，由于初期考虑不周，或者后期的需求变化，一些普通变量可能也会有线程安全的需求。如果改动不大，则可以简单地修改程序中每一个使用或者读取这个变量的地方。但显然，这样并不符合软件设计中的一条重要原则—开闭原则。也就是系统对功能的增加应该是开放的，而对修改应该是相对保守的。而且，如果系统里使用到这个变量的地方特别多，一个一个修改也是一件令人厌烦的事情（况且很多使用场景下可能是只读的，并无线程安全的强烈要求，完全可以保持原样）。
+  * 果你有这种困扰，在这里根本不需要担心，因为在原子包里还有一个实用的工具类AtomicIntegerFieldUpdater。它可以让你在不改动（或者极少改动）原有代码的基础上，让普通的变量也享受CAS操作带来的线程安全性，这样你可以通过修改极少的代码来获得线程安全的保证。这听起来是不是让人很激动呢？
+  * 根据数据类型不同，Updater有三种，分别是AtomicIntegerFieldUpdater、AtomicLong-FieldUpdater和AtomicReferenceFieldUpdater。顾名思义，它们分别可以对int、long和普通对象进行CAS修改。
+  * 第一，Updater只能修改它可见范围内的变量，因为Updater使用反射得到这个变量。如果变量不可见，就会出错。比如score声明为private，就是不可行的。
+  * 第二，为了确保变量被正确的读取，它必须是volatile类型的。如果我们原有代码中未声明这个类型，那么简单地声明一下就行，这不会引起什么问题。
+  * 第三，由于CAS操作会通过对象实例中的偏移量直接进行赋值，因此，它不支持static字段（Unsafe.objectFieldOffset()方法不支持静态变量）。
+
+![](https://pic.imgdb.cn/item/610df31a5132923bf8bf3d17.jpg)
+
+# 细看SynchronousQueue的实现
+
+​	SynchronousQueue的容量为0，任何一个对SynchronousQueue的写需要等待一个对SynchronousQueue的读，反之亦然。
+
+​	对SynchronousQueue来说，它将put()和take()两种功能截然不同的方法抽象为一个共同的方法Transferer.transfer()。从字面上看，这就是数据传递的意思。它的完整签名如下：
+
+![](https://pic.imgdb.cn/item/610df66d5132923bf8c41a73.jpg)
+
+​	SynchronousQueue内部会维护一个线程等待队列。等待队列中会保存等待线程及相关数据的信息。比如，生产者将数据放入SynchronousQueue时，如果没有消费者接收，那么数据本身和线程对象都会打包在队列中等待（因为SynchronousQueue容积为0，没有数据可以正常放入）。
+
+​	Transferer.transfer()函数的实现是SynchronousQueue的核心，它大体上分为三个步骤。
+
+（1）如果等待队列为空，或者队列中节点的类型和本次操作是一致的，那么将当前操作压入队列等待。比如，等待队列中是读线程等待，本次操作也是读，因此这两个读都需要等待。进入等待队列的线程可能会被挂起，它们会等待一个“匹配”操作。
+
+（2）如果等待队列中的元素和本次操作是互补的（比如等待操作是读，而本次操作是写），那么就插入一个“完成”状态的节点，并且让它“匹配”到一个等待节点上。接着弹出这两个节点，并且使得对应的两个线程继续执行。
+
+（3）如果线程发现等待队列的节点就是“完成”节点，那么帮助这个节点完成任务，其流程和步骤（2）是一致的。
+
+# 单例模式
+
+（1）对于频繁使用的对象，可以省略new操作花费的时间，这对于那些重量级对象而言，是非常可观的一笔系统开销。
+
+（2）由于new操作的次数减少，因而对系统内存的使用频率也会降低，这将减轻GC压力，缩短GC停顿时间。
+
+# 不变模式
+
+​	不变模式天生就是多线程友好的，它的核心思想是，一个对象一旦被创建，它的内部状态将永远不会发生改变。没有一个线程可以修改其内部状态和数据，同时其内部状态也绝不会自行发生改变。基于这些特性，对不变对象的多线程操作不需要进行同步控制。
+
+不变模式的主要使用场景需要满足以下两个条件。
+
+* 当对象创建后，其内部状态和数据不再发生任何变化。
+* 对象需要被共享，被多线程频繁访问。
+
+为确保对象被创建后，不发生任何改变，并保证不变模式正常工作，只需要注意以下四点即可。
+
+* 去除setter方法及所有修改自身属性的方法。
+* 将所有属性设置为私有，并用final标记，确保其不可修改。
+* 确保没有子类可以重载修改它的行为。
+* 有一个可以创建完整对象的构造函数。
+
+# 生产者-消费者模式
+
+​	在生产者-消费者模式中，通常有两类线程，即若干个生产者线程和若干个消费者线程。生产者线程负责提交用户请求，消费者线程则负责具体处理生产者提交的任务。生产者和消费者之间则通过共享内存缓冲区进行通信。
+
+​	生产者-消费者模式的核心组件是共享内存缓冲区，它作为生产者和消费者间的通信桥梁，避免了生产者和消费者直接通信，从而将生产者和消费者进行解耦。生产者不需要知道消费者的存在，消费者也不需要知道生产者的存在。
+
+![](https://pic.imgdb.cn/item/610df9995132923bf8c8f6db.jpg)
+
+
+
+# 无锁的缓存框架：Disruptor
+
+​		Disruptor框架是由LMAX公司开发的一款高效的无锁内存队列。它使用无锁的方式实现了一个环形队列（RingBuffer），非常适合实现生产者-消费者模式，比如事件和消息的发布。Disruptor框架别出心裁地使用了环形队列来代替普通线形队列，这个环形队列内部实现为一个普通的数组。对于一般的队列，势必要提供队列同步head和尾部tail两个指针，用于出队和入队，这样无疑增加了线程协作的复杂度。但如果队列是环形的，则只需要对外提供一个当前位置cursor，利用这个指针既可以进行入队操作，也可以进行出队操作。由于环形队列的缘故，队列的总大小必须事先指定，不能动态扩展。为了能够快速从一个序列（sequence）对应到数组的实际位置（每次有元素入队，序列就加1），Disruptor框架要求我们必须将数组的大小设置为2的整数次方。这样通过sequence ＆(queueSize-1)就能立即定位到实际的元素位置index，这比取余（%）操作快得多。
+
+![](https://pic.imgdb.cn/item/610df9fe5132923bf8c99ce8.jpg)
+
+![](https://pic.imgdb.cn/item/610dfa3f5132923bf8ca00c8.jpg)
+
+![](https://pic.imgdb.cn/item/610dfa4d5132923bf8ca1553.jpg)
+
+![](https://pic.imgdb.cn/item/610dfa565132923bf8ca223b.jpg)
+
+![](https://pic.imgdb.cn/item/610dfa775132923bf8ca4f19.jpg)
+
+## 提高消费者的响应时间：选择合适的策略
+
+​	当有新数据在Disruptor框架的环形缓冲区中产生时，消费者如何知道这些新产生的数据呢？或者说，消费者如何监控缓冲区中的信息呢？为此，Disruptor框架提供了几种策略，这些策略由WaitStrategy接口进行封装，主要有以下几种实现。
+
+* BlockingWaitStrategy：这是默认的策略。使用BlockingWaitStrategy和使用BlockingQueue是非常类似的，它们都使用锁和条件（Condition）进行数据的监控和线程的唤醒。因为涉及线程的切换，BlockingWaitStrategy策略最节省CPU，但是在高并发下它是性能表现最糟糕的一种等待策略。
+* SleepingWaitStrategy：这个策略对CPU的消耗与BlockingWaitStrategy类似。它会在循环中不断等待数据。它会先进行自旋等待，如果不成功，则使用Thread.yield()方法方法让出CPU，并最终使用LockSupport.parkNanos(1)进行线程休眠，以确保不占用太多的CPU数据。因此，这个策略对于数据处理可能会产生比较高的平均延时。它比较适合对延时要求不是特别高的场合，好处是它对生产者线程的影响最小。典型的应用场景是异步日志。
+* YieldingWaitStrategy：这个策略用于低延时的场合。消费者线程会不断循环监控缓冲区的变化，在循环内部，它会使用Thread.yield()方法让出CPU给别的线程执行时间。如果你需要一个高性能的系统，并且对延时有较为严格的要求，则可以考虑这种策略。使用这种策略时，相当于消费者线程变成了一个内部执行了Thread.yield()方法的死循环。因此，你最好有多于消费者线程数量的逻辑CPU数量（这里的逻辑CPU指的是“双核四线程”中的那个四线程，否则，整个应用程序恐怕都会受到影响）。
+* BusySpinWaitStrategy：这个是最疯狂的等待策略了。它就是一个死循环！消费者线程会尽最大努力疯狂监控缓冲区的变化。因此，它会吃掉所有的CPU资源。只有对延迟非常苛刻的场合可以考虑使用它（或者说，你的系统真的非常繁忙）。因为使用它等于开启了一个死循环监控，所以你的物理CPU数量必须要大于消费者的线程数。注意，我这里说的是物理CPU，如果你在一个物理核上使用超线程技术模拟两个逻辑核，另外一个逻辑核显然会受到这种超密集计算的影响而不能正常工作。
+
+## CPU Cache的优化：解决伪共享问题
+
+​	什么是伪共享问题呢？我们知道，为了提高CPU的速度，CPU有一个高速缓存Cache。在高速缓存中，读写数据的最小单位为缓存行（Cache Line），它是从主存（Memory）复制到缓存（Cache）的最小单位，一般为32字节到128字节。
+
+​	当两个变量存放在一个缓存行时，在多线程访问中，可能会影响彼此的性能。在图5.4中，假设变量X和Y在同一个缓存行，运行在CPU1上的线程更新了变量X，那么CPU2上的缓存行就会失效，同一行的变量Y即使没有修改也会变成无效，导致Cache无法命中。接着，如果在CPU2上的线程更新了变量Y，则导致CPU1上的缓存行失效（此时，同一行的变量X变得无法访问）。这种情况反复发生，无疑是一个潜在的性能杀手。如果CPU经常不能命中缓存，那么系统的吞吐量就会急剧下降。
+
+​	为了避免这种情况发生，一种可行的做法就是在变量X的前后空间都先占据一定的位置（把它叫作padding，用来填充用的）。这样，当内存被读入缓存时，这个缓存行中，只有变量X一个变量实际是有效的，因此就不会发生多个线程同时修改缓存行中不同变量而导致变量全体失效的情况，如图5.5所示。
+
+![](https://pic.imgdb.cn/item/610dfcac5132923bf8cda5d0.jpg)
+
+​	为了实现这个目的，我们可以这么做：
+
+![](https://pic.imgdb.cn/item/610dfcc55132923bf8cdcbc2.jpg)
+
+![](https://pic.imgdb.cn/item/610dfcd05132923bf8cddc3a.jpg)
+
+![](https://pic.imgdb.cn/item/610dfcdd5132923bf8cdee0b.jpg)
+
+​	最后，最关键的一点就是VolatileLong。在第48行，准备了7个long型变量用来填充缓存。实际上，只有VolatileLong.value是会被使用的。而p1、p2等仅仅用于将数组中第一个VolatileLong.value和第二个VolatileLong.value分开，防止它们进入同一个缓存行。
+
+![](https://pic.imgdb.cn/item/610dfd225132923bf8ce4c78.jpg)
+
+​	注意：由于各个JDK版本内部实现不一致，在某些JDK版本中（比如JDK 8），会自动优化不使用字段。这将直接导致这种padding的伪共享解决方案失效。更多详细内容大家可以参考第6章中有关LongAddr的介绍。
+
+​	Disruptor框架充分考虑了这个问题，它的核心组件Sequence会被频繁访问（每次入队，它都会被加1），其基本结构如下：
+
+![](https://pic.imgdb.cn/item/610dfd555132923bf8ce94a0.jpg)
+
+​	虽然在Sequence中，主要使用的只有value，但是通过LhsPadding和RhsPadding在这个value的前后安置了一些占位空间，使得value可以无冲突的存在于缓存中。
+
+​	此外，对于Disruptor框架的环形缓冲区RingBuffer，它内部的数组是通过以下语句构造的：
+
+![](https://pic.imgdb.cn/item/610dfd675132923bf8ceb1d1.jpg)
+
+# Future模式
+
+​	Future模式是多线程开发中非常常见的一种设计模式，它的核心思想是异步调用。当我们需要调用一个函数方法时，如果这个函数执行得很慢，那么我们就要进行等待。但有时候，我们可能并不急着要结果。因此，我们可以让被调者立即返回，让它在后台慢慢处理这个请求。对于调用者来说，则可以先处理一些其他任务，在真正需要数据的场合再去尝试获得需要的数据。
+
+​	对于Future模式来说，虽然它无法立即给出你需要的数据，但是它会返回一个契约给你，将来你可以凭借这个契约去重新获取你需要的信息。
+
+![](https://pic.imgdb.cn/item/610dff545132923bf8d18242.jpg)
+
+​	使用Future模式替换原来的实现方式，可以改进其调用过程，如图5.7所示。
+
+![](https://pic.imgdb.cn/item/610dff885132923bf8d1cf5e.jpg)
+
+## Future模式的主要角色
+
+![](https://pic.imgdb.cn/item/610dffa85132923bf8d20405.jpg)
+
+![](https://pic.imgdb.cn/item/610dffb85132923bf8d21a49.jpg)
+
+​	注意：FutureData是Future模式的关键。它实际上是真实数据RealData的代理，封装了获取RealData的等待过程。
+
+![](https://pic.imgdb.cn/item/610dffd85132923bf8d24c2e.jpg)
+
+​	RealData是最终需要使用的数据模型。它的构造很慢。用sleep()函数模拟这个过程，简单地模拟一个字符串的构造。
+
+![](https://pic.imgdb.cn/item/610dffe95132923bf8d266a7.jpg)
+
+## JDK中的Future模式
+
+​	Future模式很常用，因此JDK内部已经为我们准备好了一套完整的实现。显然，这个实现要比我们前面提出的方案复杂得多。本节简单向大家介绍一下它的使用方式。
+
+![](https://pic.imgdb.cn/item/610e00825132923bf8d33c72.jpg)
+
+​	Callable接口只有一个方法call()，它会返回需要构造的实际数据。这个Callable接口也是Future框架和应用程序之间的重要接口。要实现自己的业务系统，通常需要实现自己的Callable对象。此外，FutureTask类也与应用密切相关，通常可以使用Callable实例构造一个FutureTask实例，并将它提交给线程池。
+
+![](https://pic.imgdb.cn/item/610e00945132923bf8d35447.jpg)
+
+​	上述代码实现了Callable接口，它的call()方法会构造我们需要的真实数据并返回。当然这个过程可能是缓慢的，这里使用Thread.sleep()方法模拟它。
+
+![](https://pic.imgdb.cn/item/610e00a35132923bf8d369f4.jpg)
+
+​	除基本的功能外，JDK还为Future接口提供了一些简单的控制功能。
+
+![](https://pic.imgdb.cn/item/610e00c75132923bf8d39e0c.jpg)
+
+## Guava对Future模式的支持
+
+​	在JDK自带的简单Future模式中，虽然我们可以使用Future.get()方法得到Future的处理结果，但是这个方法是阻塞的，因此并不利于我们开发高并发应用。但在Guava中，增强了Future模式，增加了对Future模式完成时的回调接口，使得Future完成时可以自动通知应用程序进行后续处理。
+
+![](https://pic.imgdb.cn/item/610e01515132923bf8d46ada.jpg)
+
+![](https://pic.imgdb.cn/item/610e01675132923bf8d48b53.jpg)
+
+更一般的代码如下，增加了对异常的处理：
+
+![](https://pic.imgdb.cn/item/610e017b5132923bf8d4a64a.jpg)
+
+![](https://pic.imgdb.cn/item/610e01865132923bf8d4b583.jpg)
+
+# 并行流水线
+
+​	略
+
+# 并行搜索
+
+略
+
+# 并行排序
+
+![](https://pic.imgdb.cn/item/610e028a5132923bf8d64cf4.jpg)
+
+![](https://pic.imgdb.cn/item/610e02975132923bf8d65d00.jpg)
+
+## 改进的插入排序：希尔排序
+
+略
+
+# 并行算法：矩阵乘法
+
+略
+
+# 准备好了再通知我：网络NIO
+
+## 基于Socket的服务端多线程模式
+
+![](https://pic.imgdb.cn/item/610e097b5132923bf8e06cd0.jpg)
+
+​	但是，如果你想让你的程序工作得更加有效，就必须知道这种模式的一个重大弱点—它倾向于让CPU进行IO等待。
+
+## 使用NIO进行网络编程
+
+​	要了解NIO，首先需要知道在NIO中的一个关键组件Channel。Channel有点类似于流，一个Channel可以和文件或者网络Socket对应。如果Channel对应着一个Soceket，那么往这个Channel中写数据，就等于向Socket中写入数据。
+
+​	和Channel一起使用的另外一个重要组件就是Buffer。大家可以简单地把Buffer理解成一个内存区域或者byte数组。数据需要包装成Buffer的形式才能和Channel交互（写入或者读取）。
+
+​	另外一个与Channel密切相关的是Selector（选择器）。在Channel的众多实现中，有一个SelectableChannel实现，表示可被选择的通道。任何一个SelectableChannel都可以将自己注册到一个Selector中，因此这个Channel就能为Selector所管理。而一个Selector可以管理多个SelectableChannel。当SelectableChannel的数据准备好时，Selector就会接到通知，得到那些已经准备好的数据，而SocketChannel就是SelectableChannel的一种。因此，它们构成了如图5.20所示的结构。
+
+![](https://pic.imgdb.cn/item/610e0a125132923bf8e13bbb.jpg)
+
+![](https://pic.imgdb.cn/item/610e0b3c5132923bf8e2b9a6.jpg)
+
+![](https://pic.imgdb.cn/item/610e0b465132923bf8e2c5c1.jpg)
+
+![](https://pic.imgdb.cn/item/610e0b695132923bf8e2f984.jpg)
+
+# 读完了再通知我：AIO
+
+​	AIO是异步IO的缩写，即Asynchronized IO。虽然NIO在网络操作中提供了非阻塞的方法，但是NIO的IO行为还是同步的。对于NIO来说，我们的业务线程是在IO操作准备好时，得到通知，接着就由这个线程自行进行IO操作，IO操作本身还是同步的。
+
+​	但对于AIO来说，则更进了一步，它不是在IO准备好时再通知线程，而是在IO操作已经完成后，再给线程发出通知。因此，AIO是完全不会阻塞的。此时，我们的业务逻辑将变成一个回调函数，等待IO操作完成后，由系统自动触发。
+
+​	其他暂略
+
+# Java 8的函数式编程简介
+
+* 无副作用
+* 声明式的（Declarative）
+* 不变的对象
+* 易于并行
+* 更少的代码
+
+## FunctionalInterface注释
+
+![](https://pic.imgdb.cn/item/610e42575132923bf85b8892.jpg)
+
+## 接口默认方法
+
+![](https://pic.imgdb.cn/item/610e427d5132923bf85be3c9.jpg)
+
+## lambda表达式
+
+​	lambda表达式即匿名函数，它是一段没有函数名的函数体，可以作为参数直接传递给相关的调用者，lambda表达式极大地增强了Java语言的表达能力。
+
+## 方法引用
+
+*  静态方法引用：ClassName::methodName。
+* 实例上的实例方法引用：instanceReference::methodName。
+* 超类上的实例方法引用：super::methodName。
+* 类型上的实例方法引用：ClassName::methodName。
+* 构造方法引用：Class::new。
+* 数组构造方法引用：TypeName[]::new。
+
+## 并行流与并行排序
+
+![](https://pic.imgdb.cn/item/610e47835132923bf866ce90.jpg)
+
+**并行排序**
+
+![](https://pic.imgdb.cn/item/610e47a35132923bf8671989.jpg)
+
+# CompletableFuture
+
+​	CompletableFuture是Java 8新增的一个超大型工具类。为什么说它大呢？因为它实现了Future接口，而更重要的是，它也实现了CompletionStage接口。CompletionStage接口也是Java 8中新增的，它拥有多达约40种方法！是的，你没有看错，这看起来完全不符合设计中所谓的“单方法接口”原则，但是在这里，它就这么存在了。这个接口拥有如此众多的方法，是为函数式编程中的流式调用准备的。通过CompletionStage接口，我们可以在一个执行结果上进行多次流式调用，以此可以得到最终结果。比如，你可以在一个CompletionStage接口上进行如下调用：
+
+![](https://pic.imgdb.cn/item/610e48145132923bf867f3a4.jpg)
+
+## 异步执行任务
+
+![](https://pic.imgdb.cn/item/610e4b3b5132923bf86f6fad.jpg)
+
+## 流式调用
+
+![](https://pic.imgdb.cn/item/610e4b625132923bf86fd329.jpg)
+
+## CompletableFuture中的异常处理
+
+![](https://pic.imgdb.cn/item/610e4b7f5132923bf8701c17.jpg)
+
+## 组合多个CompletableFuture
+
+![](https://pic.imgdb.cn/item/610e4bd05132923bf870d2bf.jpg)
+
+![](https://pic.imgdb.cn/item/610e4be35132923bf8710182.jpg)
+
+## 支持timeout的 CompletableFuture
+
+![](https://pic.imgdb.cn/item/610e4c065132923bf8715c2b.jpg)
+
+# 读写锁的改进：StampedLock
+
+​	StampedLock是Java 8中引入的一种新的锁机制，可以认为它是读写锁的一个改进版本。读写锁虽然分离了读和写的功能，使得读与读之间可以完全并发。但是，读和写之间依然是冲突的。读锁会完全阻塞写锁，它使用的依然是悲观的锁策略，如果有大量的读线程，它也有可能引起写线程的“饥饿”。
+
+![](https://pic.imgdb.cn/item/610e57135132923bf88c8fab.jpg)
+
+​	StampedLock内部实现时，使用类似于CAS操作的死循环反复尝试的策略。在它挂起线程时，使用的是Unsafe.park()函数，而park()函数在遇到线程中断时，会直接返回（注意，不同于Thread.sleep()方法，它不会抛出异常）。而在StampedLock的死循环逻辑中，没有处理有关中断的逻辑。因此，这就会导致阻塞在park()方法上的线程被中断后，再次进入循环。而当退出条件得不到满足时，就会发生疯狂占用CPU的情况。
+
+​	StampedLock的内部实现是基于CLH锁的。CLH锁是一种自旋锁，它保证没有饥饿发生，并且可以保证FIFO（First-In-First-Out）的服务顺序。
+
+​	CLH锁的基本思想如下：锁维护一个等待线程队列，所有申请锁但是没有成功的线程都记录在这个队列中。每一个节点（一个节点代表一个线程）保存一个标记位（locked），用于判断当前线程是否已经释放锁。
+
+​	当一个线程试图获得锁时，取得当前等待队列的尾部节点作为其前序节点，并使用类似如下代码判断前序节点是否已经成功释放锁：
+
+![](https://pic.imgdb.cn/item/610e5cd25132923bf89a8ff0.jpg)
+
+![](https://pic.imgdb.cn/item/610e5ce75132923bf89ac76d.jpg)
+
+# 原子类的增强
+
+**更快的原子类：LongAdder**
+
+![](https://pic.imgdb.cn/item/610e5e145132923bf89db66b.jpg)
+
+​	在实际的操作中，LongAdder并不会一开始就动用数组进行处理，而是将所有数据都先记录在一个称为base的变量中。如果在多线程条件下，大家修改base都没有冲突，那么也没有必要扩展为cell数组。但是，一旦base修改发生冲突，就会初始化cell数组，使用新的策略。如果使用cell数组更新后，发现在某一个cell上的更新依然发生冲突，那么系统就会尝试创建新的cell，或者将cell的数量加倍，以减少冲突的可能。
+
+![](https://pic.imgdb.cn/item/610e5e5d5132923bf89e68ca.jpg)
+
+​	当然，在我们自己的代码中也可以使用sun.misc.Contended来解决伪共享问题，但是需要额外使用虚拟机参数-XX:-RestrictContended，否则，这个注释将被忽略。
+
+**LongAdder功能的增强版：LongAccumulator**
+
+​	LongAccumulator是LongAdder的“亲兄弟”，它们有公共的父类Striped64。因此，LongAccumulator内部的优化方式和LongAdder的是一样的。它们都将一个long型整数分割，并存储在不同的变量中，以防止多线程竞争。两者的主要逻辑是类似的，但是LongAccumulator是LongAdder的功能扩展。对于LongAdder来说，它只是每次对给定的整数执行一次加法，而LongAccumulator则可以实现任意函数操作。
+
+![](https://pic.imgdb.cn/item/610e61795132923bf8a52061.jpg)
+
+**ConcurrentHashMap的增强**
+
+* foreach
+* reduce
+* 条件插入
+  * computeIfAbsent
+* search操作
+  * search操作会在Map中找到第一个使得Function返回不为null的值。比如，下面的代码将找到Map中可以被25整除的一个数（由于Hash的随机性和并行的随机性，因此得到结果也是随机的）。
+* mappingCount()方法
+* newKeySet()方法
+
+# 发布和订阅模式
+
+​	在JDK 9中，引入了一种新的并发编程架构—反应式编程。那么什么是反应式编程呢？反应式编程用于处理异步流中的数据。每当应用收到数据项，便会对它进行处理。反应式编程以流的形式处理数据，因此其内存使用效率会更高。
+
+![](https://pic.imgdb.cn/item/610e64c15132923bf8a91c9e.jpg)
+
+![](https://pic.imgdb.cn/item/610e65965132923bf8aa287a.jpg)
+
+其中Subscriber是订阅者，用来处理数据。
+
+*  onSubscribe()：订阅者注册后被调用的第一个方法。
+*  onNext()：当有下一个数据项准备好时，进行通知。
+*  onError()：当发生无法恢复的异常时被调用。
+*  onComplete()：当没有更多数据需要处理时被调用。Subscription表示对订阅数据的处理。
+*  request()：设定请求的数据个数。
+*  cancel()：Subscriber停止接受新的消息。
+
+**数据处理链**
+
+![](https://pic.imgdb.cn/item/610e67d75132923bf8ad29de.jpg)
+
+![](https://pic.imgdb.cn/item/610e682e5132923bf8ad9d94.jpg)
+
+# 使用Akka构建高并发程序
+
+​	使用Akka能够给我们带来什么好处呢？
+
+* 首先，Akka提供了一种名为Actor的并发模型，其粒度比线程小，这意味着你可以在系统中启用大量的Actor。
+* 其次，Akka中提供了一套容错机制，允许在Actor出现异常时，进行一些恢复或者重置操作。
+* 再次，通过Akka不仅可以在单机上构建高并发程序，也可以在网络中构建分布式程序，并提供位置透明的Actor定位服务。
+
+**新并发模型：Actor**
+
+​	在Actor模型中，我们失去了对象的方法调用，我们并不是通过调用Actor对象的某一个方法来告诉Actor你需要做什么，而是给Actor发送一条消息。当一个Actor收到消息后，它有可能会根据消息的内容做出某些行为，包括更改自身状态。但是，在这种情况下，这个状态的更改是Actor自己进行的，并不是由外界被迫进行的。
+
+**Akka之Hello　World**
+
+![](https://pic.imgdb.cn/item/610e76615132923bf8c06796.jpg)
+
+与Greeter交流的另外一个Actor是HelloWorld，它的实现如下：
+
+![](https://pic.imgdb.cn/item/610e77175132923bf8c15d71.jpg)
+
+​	上述代码实现了一个名为HelloWorld的Actor。第5行的preStart()方法为Akka的回调方法，在Actor启动前，会被Akka框架调用，完成一些初始化的工作。在这里，我们在HelloWorld中创建了Greeter的实例（第6行），并且向它发送GREET消息（第8行）。此时，由于创建Greeter时使用的是HelloWorld的上下文，因此它属于HelloWorld的子Actor。
+
+​	最后，让我们看一下主函数main()：
+
+![](https://pic.imgdb.cn/item/610e77665132923bf8c1c7f3.jpg)
+
+![](https://pic.imgdb.cn/item/610e77d85132923bf8c26e9d.jpg)
+
+​	当系统内有多个Actor存在时，Akka会自动在线程池中选择线程来执行我们的Actor。因此，多个不同的Actor有可能会被同一个线程执行，同时，一个Actor也有可能被不同的线程执行。因此，一个值得注意的地方是：不要在一个Actor中执行耗时的代码，这样可能会导致其他Actor的调度出现问题。
+
+## 有关消息投递的一些说明
+
+​	作为并发程序中的核心组件，在Actor之间传递的消息应该满足不可变性，也就是不变模式。因为可变的消息无法高效的在并发环境中使用。理论上Akka中的消息可以使用任何对象实例，但在实际使用中，强烈推荐使用不可变的对象。
+
+​	对于消息投递，大家可能还有另外一个疑问，那就是消息投递究竟是以何种策略进行的呢？也就是发出的消息一定会被对方接收到吗？如果接收不到会重发吗？有没有可能重复接收消息呢？
+
+* 第一种，称为至多一次投递。在这种策略中，每一条消息最多会被投递一次。在这种情况下，可能偶尔会出现消息投递失败，而导致消息丢失。
+* 第二种，称为至少一次投递。在这种策略中，每一条消息至少会被投递一次，直到成功为止。因此在一些偶然的场合，接受者可能会收到重复的消息，但不会发生消息丢失。
+* 第三种，称为精确的消息投递。也就是所有的消息保证被精确地投递并成功接收一次。既不会有丢失，也不会有重复接收。
+
+
+
+​	很明显，第一种策略是最高性能、最低成本的。因为系统只要负责把消息送出去就可以了，不需要关注是否成功。第二种策略则需要保存消息投递的状态并不断充实。第三种策略则是成本最高且最不容易实现的。
+
+​	答案是否定的。实际上，我们没有必要在Akka层保证消息的可靠性。这样做成本太高了，也是没有必要的。消息的可靠性更应该从应用的业务层去维护，因为也许在有些时候，丢失一些消息完全是符合应用要求的。因此，在使用Akka时，需要在业务层对此进行保证。
+
+​	那我们是否真的需要保证消息投递的可靠性呢？
+
+​	答案是否定的。实际上，我们没有必要在Akka层保证消息的可靠性。这样做成本太高了，也是没有必要的。消息的可靠性更应该从应用的业务层去维护，因为也许在有些时候，丢失一些消息完全是符合应用要求的。因此，在使用Akka时，需要在业务层对此进行保证。
+
+​	此外，对于消息投递Akka可以在一定程度上保证顺序性。比如，Actor A1向ActorA2顺序发送了M1、M2和M3三条消息，Actor A3向Actor A2顺序发送了M4、M5和M6三条消息，那么系统可以保证：
+
+（1）如果M1没有丢失，那它一定先于M2和M3被Actor A2收到。
+
+（2）如果M2没有丢失，那它一定先于M3被Actor A2收到。
+
+（3）如果M4没有丢失，那它一定先于M5和M6被Actor A2收到。
+
+（4）如果M5没有丢失，那它一定先于M6被Actor A2收到。
+
+（5）对Actor A2来说，来自Actor A1和Actor A3的消息可能交织在一起，没有顺序保证。
+
+## Actor的生命周期
+
+![](https://pic.imgdb.cn/item/610e79bf5132923bf8c56aff.jpg)
+
+## 监督策略
+
+​	对于这种情况，Akka框架给予了我们足够的控制权。在Akka框架内，父Actor可以对子Actor进行监督，监控Actor的行为是否有异常。监督策略可以分为两种：一种是OneForOneStrategy策略的监督，另外一种是AllForOneStrategy策略的监督。
+
+​	对于OneForOneStrategy策略，父Actor只会对出问题的子Actor进行处理，比如重启或者停止，而对于AllForOneStrategy策略，父Actor会对出问题的子Actor及它所有的兄弟都进行处理。
+
+## 选择Actor
+
+![](https://pic.imgdb.cn/item/610e7a1f5132923bf8c5f914.jpg)
+
+## 消息收件箱（Inbox）
+
+​	我们已经知道，所有Actor之间的通信都是通过消息来进行的。这是否意味着我们必须构建一个Actor来控制整个系统呢？答案是否定的，我们并不一定要这么做，Akka框架已经为我们准备了一个名叫“收件箱”的组件，使用它可以很方便地对Actor进行消息发送和接收，大大方便了应用程序与Actor之间的交互。
+
+## 消息路由
+
+​	Akka提供了非常灵活的消息发送机制。有时候，我们也许会使用一组Actor而不是一个Actor来提供一项服务。这一组Actor中所有的Actor都是对等的，也就是说你可以找任何一个Actor来为你服务。这种情况下，如何才能快速有效地找到合适的Actor呢？或者说如何调度这些消息，才可以使负载更为均衡地分配在这一组Actor中。
+
+​	为了解决这个问题，Akka使用一个路由器组件（Router）来封装消息的调度。系统提供了几种实用的消息路由策略，比如，轮询选择Actor进行消息发送，随机消息发送，将消息发送给最为空闲的Actor，甚至是在组内广播消息。
+
+## Actor的内置状态转换
+
+​	在很多场景下，Actor的业务逻辑可能比较复杂，Actor可能需要根据不同的状态对同一条消息做出不同的处理。Akka已经为我们考虑到了这一点，一个Actor内部消息处理函数可以拥有多个不同的状态，在特定的状态下，可以对同一消息进行不同的处理，状态之间也可以任意切换。
+
+## 询问模式：Actor中的Future
+
+​	由于Actor之间都是通过异步消息通信的。当你发送一条消息给一个Actor后，你通常只能等待Actor的返回。与同步方法不同，在你发送异步消息后，接受消息的Actor可能根本来不及处理你的消息，调用方就已经返回了。
+
+​	这种模式与我们之前提到的Future模式非常相像。不同之处只是在传统的异步调用中，我们进行的是函数调用，但在这里，我们发送了一条消息。
+
+​	由于两者的行为方式如此相像，因此我们就会很自然地想到，当我们需要一个有返回值的调用时，Actor是不是也应该给我们一个契约（Future）呢？这样，就算我们当下没有办法立即获得Actor的处理结果，在将来，通过这个契约还是可以追踪到我们的请求的。
+
+## 多个Actor同时修改数据：Agent
+
+​	在Actor的编程模型中，Actor之间主要通过消息进行信息传递。因此，很少发生多个Actor需要访问同一个共享变量的情况。但在实际开发中，这种情况很难完全避免。如果多个Agent需要对同一个共享变量进行读写时，如何保证线程安全呢？
+
+​	在Akka中，使用一种叫作Agent的组件来实现这个功能。一个Agent提供了对一个变量的异步更新。当一个Actor希望改变Agent的值时，它会向Agent下发一个动作（action）。当多个Actor同时改变Agent时，这些action将会在ExecutionContext中被并发调度执行。在任意时刻，一个Agent最多只能执行一个action，对于某一个线程来说，它执行action的顺序与它的发生顺序一致，但对于不同线程来说，这些action可能会交织在一起。
+
+​	Agent的修改可以使用两种方法：send()和alter()。它们都可以向Agent发送一个修改动作。但是send()方法没有返回值，而alter()方法会返回一个Future对象，便于跟踪Agent的执行。
+
+## 像数据库一样操作内存数据：软件事务内存
+
+​	在一些函数式编程语言中，支持一种叫作软件事务内存（STM）的技术。什么是软件事务内存呢？这里的事务和数据库中所说的事务非常类似，具有隔离性、原子性和一致性。与数据库事务不同的是，内存事务不具备持久性（很显然内存数据不会保存下来）。
+
+## 一个有趣的例子：并发粒子群的实现
+
+略
+
+# 并行程序调试
+
+略
+
+# 多线程优化示例—Jetty核心代码分析
+
+## Jetty简介与架构
+
+![](https://pic.imgdb.cn/item/610e7dc85132923bf8cb0331.jpg)
+
+![](https://pic.imgdb.cn/item/610e7dfc5132923bf8cb5538.jpg)
+
+## Jetty服务器初始化
+
+​	为了满足自己特殊的需求及管理的需要，Jetty并没有直接使用JDK提供的线程池，而是完全独立开发了一套线程池。在初始化线程池时，使用的是QueuedThreadPool。
+
+​	QueuedThreadPool是一个可以设置最大和最小线程数，以及线程空闲退出时间的线程池。在默认情况下，最大线程数为200，最小线程数为8，线程空闲退出时间为1分钟。也就是说，线程池启动时，开启8个线程。在执行过程中，如果线程数不够用，则有机会向上扩展到最多200个线程。当空闲后，如果1个线程1分钟没有任务处理，则结束线程，但始终在线程池中保持8个活动线程。
+
+​	与JDK自带线程池最大的不同是：QueuedThreadPool没有核心线程数的概念，在不超过最大线程数的前提下，只要没有空闲线程处理新任务，它就会立即开启新的线程。
+
+​	类似于JDK自带线程池，QueuedThreadPool依然将任务放在BlockingQueue中。但出于优化的目的，Jetty实现了自己的BlockingQueue—BlockingArrayQueue。
+
+​	BlockingArrayQueue是一个基于数组的队列。它可以是有界的，也可以是无界动态扩展的。在QueuedThreadPool中，默认使用无界的BlockingArrayQueue。与LinkedBlockingQueue相比，BlockingArrayQueue采用数组形式，没有next指针，因此会比LinkedBlockingQueue更加节省内存（大量的next指针会占据较多的内存空间）。
+
+![](https://pic.imgdb.cn/item/610e7e475132923bf8cbc36e.jpg)
+
+​	与ArrayBlockingQueue不同的是，BlockingArrayQueue可以有效支持无限容量（实际上最大容量是Integer.MAX_VALUE，但可以认为它是近乎无限的），而由于ArrayBlockingQueue在初始化时必须分配所需的所有空间，无法动态扩展，因此超大容量很难做良好的支持。表9.1显示了这几种BlockingQueue的特性，无论从哪个角度看，BlockingArrayQueue都更适合Jetty的使用。
+
+![](https://pic.imgdb.cn/item/610e7e605132923bf8cbeadd.jpg)
+
+​	与ArrayBlockingQueue类似，BlockingArrayQueue也采用了环形数据结构。它们都使用两个变量来保存头部和尾部的当前索引。在BlockingArrayQueue中，使用如下代码：
+
+![](https://pic.imgdb.cn/item/610e7e775132923bf8cc0d8e.jpg)
+
+## 初始化ScheduledExecutorScheduler
+
+​	在Jetty的初始化过程中，为了实现对任务的调度，还需要初始化ScheduledExecutorScheduler。ScheduledExecutorScheduler是对JDK线程池ScheduledThreadPoolExecutor的包装，通过适配器模式将ScheduledThreadPoolExecutor的接口适配到Jetty的框架体系中，如图9.3所示。
+
+![](https://pic.imgdb.cn/item/610e7eeb5132923bf8ccb540.jpg)
+
+​	其中，ScheduledThreadPoolExecutor是JDK内置的线程池，用于任务调度。ScheduledExecutorScheduler为其在Jetty中的包装，通过定制ThreadFactory将调度者线程实例暴露给ScheduledExecutorScheduler，以完成线程dump等管理工作。
+
+## 初始化ByteBufferPool
+
+​	Java作为一门使用GC的计算机语言，受到了GC带来的好处，同时也得承受GC带来的弊端。一段糟糕的Java代码极有可能加重GC的负担，导致系统长时间的罢工，这将对系统的稳定性和性能都产生巨大的打击。难道在Java中就真的没有办法用更优雅的方式控制和优化内存了吗？当然有！Jetty在优化Java堆的使用上下足了功夫。ByteBufferPool就是其中一个极其重要的技术。通过ByteBufferPool可以在应用层维护和控制内存的使用，是一个值得细细体会的设计要点。
+
+​	顾名思义，ByteBufferPool就是一个ByteBuffer的对象池，其作用是复用ByteBuffer。相对于每次申请ByteBuffer而言，复用ByteBuffer，尤其是复用直接内存的ByteBuffer将会从一定程度上降低GC的压力。同时，由于不需要每次申请空间，也可以节省对象创建的开销，特别是对于直接内存（直接内存的申请比堆内存慢）会有更好的优化效果。因此可以极大地提高系统整体性能。
+
+## 维护ConnectionFactory
+
+​	在初始化过程中，Jetty还会维护一组ConnectionFactory对象，用来创建在一个Connector上的给定Connection。每当服务器接收一个连接，Jetty便会创建一个Connection对象来维护连接和相关数据。
+
+## 计算ServerConnector的线程数量
+
+![](https://pic.imgdb.cn/item/610e827b5132923bf8d1b381.jpg)
+
+## 启动Jetty服务器
+
+**设置启动状态**
+
+​	LifeCycle接口有一个抽象类实现AbstractLifeCycle，用以维护对象的基本运行状态。
+
+**注册ShutdownMonitor**
+
+​	在启动过程中，Jetty服务器会注册ShutdownMonitor服务用以接收远程关闭命令，使得服务器可以优雅地退出。ShutdownMonitor是一个典型的单例模式，使用Java内部类实现。在ShutdownMonitor中，将开启一个本地端口用于监听系统关闭消息。
+
+​	ShutdownMonitor内部维护了一组LifeCycle对象，并使用独立的线程监听给定的本地端口，一旦收到指令，则通知这些LifeCycle对象（比如Server）退出系统。
+
+**计算系统的线程数量**
+
+​	在启动过程中，Jetty会取得初始化过程中创建的QueuedThreadPool，同时计算所需的Acceptor线程和Selector线程的总数。
+
+![](https://pic.imgdb.cn/item/610e835f5132923bf8d2e442.jpg)
+
+**启动QueuedThreadPool**
+
+略
+
+**启动Connector**
+
+​	Connector是Server的核心，并代表一个服务端的端口，ServerConnector是该接口的一个重要实现，也是最重要的一个Connector，本节如无特殊说明，所指的Connector都表示ServerConnector。启动Connector才真正代表Jetty可以对外提供服务。首先，Connector要开启所有的Selector线程。
+
+![](https://pic.imgdb.cn/item/610e83915132923bf8d331d4.jpg)
+
+![](https://pic.imgdb.cn/item/610e83a45132923bf8d34e28.jpg)
+
+​	在Selector线程启动完成后，Jetty会尝试创建Acceptor线程。根据系统初始化时的设置，如果Acceptor线程数量大于1，则会创建并管理相关线程，在如下代码的第5行，将Acceptor提交到QueuedThreadPool线程池。
+
+## 处理HTTP请求
+
+**Accept成功**
+
+​	![](https://pic.imgdb.cn/item/610e83d45132923bf8d39503.jpg)
+
+**请求处理**
+
+​	当任务被提交到ManageredSelector后，ManageredSelector便开始处理提交的任务。在ManageredSelector中，使用一个特殊的ConcurrentArrayQueue队列来保存这些任务。
+
