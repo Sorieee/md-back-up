@@ -3226,3 +3226,798 @@ private void startConfigCenter() {
     private ConcurrentMap<String, ProviderModel> providersWithoutGroup = new ConcurrentHashMap<>();
 ```
 
+# 《深度剖析ApacheDubbo核心技术内幕》Start
+
+基于dubbo2.7
+
+# Dubbo基础
+
+```java
+public class ApiProvider {
+
+   public static void main(String[] args) throws IOException {
+      // 1.创建ServiceConfig实例
+      ServiceConfig<GreetingService> serviceConfig = new ServiceConfig<GreetingService>();
+      // 2.设置应用程序配置
+      serviceConfig.setApplication(new ApplicationConfig("first-dubbo-provider"));
+
+      // 3.设置服务注册中心信息
+      RegistryConfig registryConfig = new RegistryConfig("zookeeper://192.168.170.200:2181");
+      serviceConfig.setRegistry(registryConfig);
+      // 4.设置接口与实现类
+      serviceConfig.setInterface(GreetingService.class);
+      serviceConfig.setRef(new GreetingServiceImpl());
+
+      // 5.设置服务分组与版本 
+      serviceConfig.setVersion("1.0.0");
+      serviceConfig.setGroup("dubbo");
+
+      // 6.设置线程池策略
+//    HashMap<String, String> parameters = new HashMap<>();
+//    parameters.put("threadpool", "mythreadpool");
+//    serviceConfig.setParameters(parameters);
+
+      // 7.导出服务
+      serviceConfig.export();
+
+      // 8.挂起线程，避免服务停止
+      System.out.println("server is started");
+      System.in.read();
+   }
+}
+```
+
+```java
+public class APiConsumer {
+   public static void main(String[] args) throws InterruptedException {
+      // 10.创建服务引用对象实例
+      ReferenceConfig<GreetingService> referenceConfig = new ReferenceConfig<GreetingService>();
+      // 11.设置应用程序信息
+      referenceConfig.setApplication(new ApplicationConfig("first-dubbo-consumer"));
+      // 12.设置服务注册中心
+      referenceConfig.setRegistry(new RegistryConfig("zookeeper://192.168.170.200:2181"));
+      
+      //直连测试
+      //referenceConfig.setUrl("dubbo://192.168.0.109:20880");
+      
+      // 13.设置服务接口和超时时间
+      referenceConfig.setInterface(GreetingService.class);
+      referenceConfig.setTimeout(5000);
+      
+      // 14.设置自定义负载均衡策略与集群容错策略
+//		 referenceConfig.setLoadbalance("myroundrobin");
+//		 referenceConfig.setCluster("myCluster");
+//		 RpcContext.getContext().set("ip", "30.10.67.231");
+
+      // 15.设置服务分组与版本
+      referenceConfig.setVersion("1.0.0");
+      referenceConfig.setGroup("dubbo");
+
+      // 16.引用服务
+      GreetingService greetingService = referenceConfig.get();
+
+      // 17. 设置隐式参数
+      RpcContext.getContext().setAttachment("company", "alibaba");
+
+      // 18调用服务
+      System.out.println(greetingService.sayHello("world"));
+      
+      Thread.currentThread().join();
+   }
+}
+```
+
+**Dubbo 2.6.*版本提供的异步调用**
+
+```java
+public class APiAsyncConsumer {
+   public static void main(String[] args) throws InterruptedException, ExecutionException {
+      //1.创建引用实例，并设置属性
+      ReferenceConfig<GreetingService> referenceConfig = new ReferenceConfig<GreetingService>();
+      referenceConfig.setApplication(new ApplicationConfig("first-dubbo-consumer"));
+      referenceConfig.setRegistry(new RegistryConfig("zookeeper://127.0.0.1:2181"));
+      referenceConfig.setInterface(GreetingService.class);
+      referenceConfig.setVersion("1.0.0");
+      referenceConfig.setGroup("dubbo");
+      
+      //2. 设置为异步
+      referenceConfig.setAsync(true);
+
+      //3. 直接返回null
+      GreetingService greetingService = referenceConfig.get();
+      System.out.println(greetingService.sayHello("world"));
+
+      //4.等待结果
+      java.util.concurrent.Future<String> future = RpcContext.getContext().getFuture();
+      System.out.println(future.get());
+
+   }
+}
+```
+
+​	上面介绍的基于从返回的future对象调用get（）方法实现异步的缺点是当业务线程调用get（）方法后业务线程会被阻塞，这不是我们想要的，所以Dubbo提供了在future对象上设置回调函数的方式，让我们实现真正的异步调用。下面是Consumer模块的APiAsyncConsumerForCallBack类：
+
+```java
+public class APiAsyncConsumerForCallBack {
+   public static void main(String[] args) throws InterruptedException, ExecutionException {
+      // 1.创建引用实例，并设置属性
+      ReferenceConfig<GreetingService> referenceConfig = new ReferenceConfig<GreetingService>();
+      referenceConfig.setApplication(new ApplicationConfig("first-dubbo-consumer"));
+      referenceConfig.setRegistry(new RegistryConfig("zookeeper://127.0.0.1:2181"));
+      referenceConfig.setInterface(GreetingService.class);
+      referenceConfig.setTimeout(5000);
+      referenceConfig.setVersion("1.0.0");
+      referenceConfig.setGroup("dubbo");
+
+      // 2. 设置为异步
+      referenceConfig.setAsync(true);
+
+      // 3. 直接返回null
+      GreetingService greetingService = referenceConfig.get();
+      System.out.println(greetingService.sayHello("world"));
+      RpcContext.getContext().setAttachment("company", "alibaba");
+
+
+      // 4.异步执行回调
+      ((FutureAdapter) RpcContext.getContext().getFuture()).getFuture().setCallback(new ResponseCallback() {
+
+         @Override
+         public void done(Object response) {
+            System.out.println("result:" + response);
+         }
+
+         @Override
+         public void caught(Throwable exception) {
+            System.out.println("error:" + exception.getLocalizedMessage());
+         }
+      });
+      
+      Thread.currentThread().join();
+   }
+}
+```
+
+**Dubbo 2.7.*版本提供的异步调用**
+
+```java
+public class APiAsyncConsumerForCompletableFuture2 {
+	public static void main(String[] args) throws InterruptedException, ExecutionException {
+		// 1.创建服务引用对象，并设置数据
+		ReferenceConfig<GreetingService> referenceConfig = new ReferenceConfig<GreetingService>();
+		referenceConfig.setApplication(new ApplicationConfig("first-dubbo-consumer"));
+		referenceConfig.setRegistry(new RegistryConfig("zookeeper://192.168.170.200:2181"));
+		referenceConfig.setInterface(GreetingService.class);
+		referenceConfig.setTimeout(30000);
+		referenceConfig.setVersion("1.0.0");
+		referenceConfig.setGroup("dubbo");
+
+		// 2. 设置为异步
+		referenceConfig.setAsync(true);
+		RpcContext.getContext().setAttachment("company", "alibaba");
+
+		// 3. 直接返回null
+		GreetingService greetingService = referenceConfig.get();
+		System.out.println(greetingService.sayHello("world"));
+
+		// 4.异步执行回调
+		CompletableFuture<String> future = RpcContext.getContext().getCompletableFuture();
+		future.whenComplete((v, t) -> {
+			if (t != null) {
+				t.printStackTrace();
+			} else {
+				System.out.println(v);
+			}
+
+		});
+
+		System.out.println("over");
+		Thread.currentThread().join();
+	}
+}
+```
+
+## 服务提供端异步执行
+
+**1.基于定义CompletableFuture签名的接口实现异步执行**
+
+```java
+public class GrettingServiceAsyncImpl implements GrettingServiceAsync {
+
+   // 1.创建业务自定义线程池
+   private final ThreadPoolExecutor bizThreadpool = new ThreadPoolExecutor(8, 16, 1, TimeUnit.MINUTES,
+         new SynchronousQueue(), new NamedThreadFactory("biz-thread-pool"),
+         new ThreadPoolExecutor.CallerRunsPolicy());
+
+   // 2.创建服务处理接口，返回值为CompletableFuture
+   @Override
+   public CompletableFuture<String> sayHello(String name) {
+
+      // 2.1 为supplyAsync提供自定义线程池bizThreadpool，避免使用JDK公用线程池(ForkJoinPool.commonPool())
+      // 使用CompletableFuture.supplyAsync让服务处理异步化进行处理
+      // 保存当前线程的上下文
+      RpcContext context = RpcContext.getContext();
+
+      return CompletableFuture.supplyAsync(() -> {
+         try {
+            Thread.sleep(2000);
+         } catch (InterruptedException e) {
+            e.printStackTrace();
+         }
+         System.out.println("async return ");
+         return "Hello " + name + " " + context.getAttachment("company");
+      }, bizThreadpool);
+   }
+}
+```
+
+```java
+public class ApiProviderForAsync {
+
+   public static void main(String[] args) throws IOException {
+
+      // 1.创建服务发布实例，并设置
+      ServiceConfig<GrettingServiceAsync> serviceConfig = new ServiceConfig<GrettingServiceAsync>();
+      serviceConfig.setApplication(new ApplicationConfig("first-dubbo-provider"));
+      serviceConfig.setRegistry(new RegistryConfig("zookeeper://192.168.170.200:2181"));
+      serviceConfig.setInterface(GrettingServiceAsync.class);
+      serviceConfig.setRef(new GrettingServiceAsyncImpl());
+      serviceConfig.setVersion("1.0.0");
+      serviceConfig.setGroup("dubbo");
+
+      // 2.设置线程池策略
+      // HashMap<String, String> parameters = new HashMap<>();
+      // parameters.put("threadpool", "mythreadpool");
+      // serviceConfig.setParameters(parameters);
+
+      // 3.导出服务
+      serviceConfig.export();
+
+      // 4.阻塞线程
+      System.out.println("server is started");
+      System.in.read();
+   }
+}
+```
+
+```java
+public class APiConsumerForProviderAsync {
+   public static void main(String[] args) throws InterruptedException {
+      //1.创建服务引用实例，并设置
+      ReferenceConfig<GrettingServiceAsync> referenceConfig = new ReferenceConfig<GrettingServiceAsync>();
+      referenceConfig.setApplication(new ApplicationConfig("first-dubbo-consumer"));
+      referenceConfig.setRegistry(new RegistryConfig("zookeeper://127.0.0.1:2181"));
+      referenceConfig.setInterface(GrettingServiceAsync.class);
+      referenceConfig.setTimeout(5000);
+      //referenceConfig.setCluster("myCluster");
+
+      referenceConfig.setVersion("1.0.0");
+      referenceConfig.setGroup("dubbo");
+      
+      //2.服务引用
+      GrettingServiceAsync greetingService = referenceConfig.get();
+      
+      //3.设置隐士参数
+      RpcContext.getContext().setAttachment("company", "alibaba");
+      //RpcContext.getContext().set("ip", "30.39.148.197");
+      
+      //4.获取future并设置回调
+      CompletableFuture<String> future = greetingService.sayHello("world");
+      future.whenComplete((v, t) -> {
+         if (t != null) {
+            t.printStackTrace();
+         } else {
+            System.out.println(v);
+         }
+
+      });
+      
+      Thread.currentThread().join();
+
+   }
+}     
+```
+
+**使用AsyncContext实现异步执行**
+
+```java
+public class GrettingServiceAsyncContextImpl implements GrettingServiceRpcContext {
+
+   // 1.创建业务自定义线程池
+   private final ThreadPoolExecutor bizThreadpool = new ThreadPoolExecutor(8, 16, 1, TimeUnit.MINUTES,
+         new SynchronousQueue(), new NamedThreadFactory("biz-thread-pool"),
+         new ThreadPoolExecutor.CallerRunsPolicy());
+
+   // 2.创建服务处理接口，返回值为CompletableFuture
+   @Override
+   public String sayHello(String name) {
+
+      // 2.1开启异步
+      final AsyncContext asyncContext = RpcContext.startAsync();
+      bizThreadpool.execute(() -> {
+         // 2.2 如果要使用上下文，则必须要放在第一句执行
+         asyncContext.signalContextSwitch();
+         try {
+            Thread.sleep(500);
+         } catch (InterruptedException e) {
+            e.printStackTrace();
+         }
+         // 2.3写回响应
+         asyncContext.write("Hello " + name + " " + RpcContext.getContext().getAttachment("company"));
+      });
+
+      return null;
+   }
+}
+```
+
+## 服务消费端泛化调用
+
+​	泛化接口调用方式主要在服务消费端没有API接口类及模型类元（比如入参和出参的POJO类）的情况下使用，其参数及返回值中没有对应的POJO类，所以所有POJO参数均转换为Map表示。使用泛化调用时，服务消费模块不再需要引入SDK二方包。
+
+​	在Dubbo中，根据序列化方式的不同，分为三种泛化调用，分别为true、bean和nativejava。
+
+**1.generic=true方式**
+
+​	在Consumer模块的APiGenericConsumerForTrue类中演示了这种方式，其代码如下：代码1创建引用实例，这里需要注意的是，在泛型调用时，泛型参数固定为GenericService；代码2设置泛化调用类型为true；代码3获取引用，注意泛化值类型固定为GenericService。
+
+```java
+public class APiGenericConsumerForTrue {
+   public static void main(String[] args) throws IOException {
+      // 1.泛型参数固定为GenericService
+      ReferenceConfig<GenericService> referenceConfig = new ReferenceConfig<GenericService>();
+      referenceConfig.setApplication(new ApplicationConfig("first-dubbo-consumer"));
+      referenceConfig.setRegistry(new RegistryConfig("zookeeper://127.0.0.1:2181"));
+
+      referenceConfig.setVersion("1.0.0");
+      referenceConfig.setGroup("dubbo");
+
+      // 2. 设置为泛化引用，类型为true
+      referenceConfig.setInterface("com.books.dubbo.demo.api.GreetingService");
+      referenceConfig.setGeneric(true);
+
+      // 3.用org.apache.dubbo.rpc.service.GenericService替代所有接口引用
+      GenericService greetingService = referenceConfig.get();
+
+      // 4.泛型调用， 基本类型以及Date,List,Map等不需要转换，直接调用,如果返回值为POJO也将自动转成Map
+      Object result = greetingService.$invoke("sayHello", new String[] { "java.lang.String" },
+            new Object[] { "world" });
+
+      System.out.println(JSON.json(result));
+
+      // 5. POJO参数转换为map
+      Map<String, Object> map = new HashMap<String, Object>();
+      map.put("class", "com.books.dubbo.demo.api.PoJo");
+      map.put("id", "1990");
+      map.put("name", "jiaduo");
+
+      // 6.发起泛型调用
+      result = greetingService.$invoke("testGeneric", new String[] { "com.books.dubbo.demo.api.PoJo" },
+            new Object[] { map });
+      System.out.println((result));
+   }
+}
+```
+
+**2.generic=bean方式**
+
+```java
+public class APiGenericConsumerForBean {
+   public static void main(String[] args) throws IOException {
+      // 1.泛型参数固定为GenericService
+      ReferenceConfig<GenericService> referenceConfig = new ReferenceConfig<GenericService>();
+      referenceConfig.setApplication(new ApplicationConfig("first-dubbo-consumer"));
+      referenceConfig.setRegistry(new RegistryConfig("zookeeper://192.168.170.200:2181"));
+
+      referenceConfig.setVersion("1.0.0");
+      referenceConfig.setGroup("dubbo");
+      referenceConfig.setTimeout(30000);
+      // 2. 设置为泛化引用，并且泛化类型为bean
+      referenceConfig.setInterface("com.books.dubbo.demo.api.GreetingService");
+      referenceConfig.setGeneric("bean");
+
+      // 3.用org.apache.dubbo.rpc.service.GenericService替代所有接口引用
+      GenericService greetingService = referenceConfig.get();
+
+      // 4.泛型调用，参数使用JavaBean进行序列化
+      JavaBeanDescriptor param = JavaBeanSerializeUtil.serialize("world");
+      Object result = greetingService.$invoke("sayHello", new String[] { "java.lang.String" },
+            new Object[] { param });
+
+      // 5.结果反序列化
+      result = JavaBeanSerializeUtil.deserialize((JavaBeanDescriptor) result);
+      System.out.println(result);
+
+   }
+}
+```
+
+**3.generic=nativejava方式**
+
+```java
+public class APiGenericConsumerForNativeJava {
+   public static void main(String[] args) throws IOException, ClassNotFoundException {
+      // 1.泛型参数固定为GenericService
+      ReferenceConfig<GenericService> referenceConfig = new ReferenceConfig<GenericService>();
+      referenceConfig.setApplication(new ApplicationConfig("first-dubbo-consumer"));
+      referenceConfig.setRegistry(new RegistryConfig("zookeeper://127.0.0.1:2181"));
+
+      referenceConfig.setVersion("1.0.0");
+      referenceConfig.setGroup("dubbo");
+
+      // 2. 设置为泛化引用，并且泛化类型为nativejava
+      referenceConfig.setInterface("com.books.dubbo.demo.api.GreetingService");
+      referenceConfig.setGeneric("nativejava");
+
+      // 3.用org.apache.dubbo.rpc.service.GenericService替代所有接口引用
+      GenericService greetingService = referenceConfig.get();
+      UnsafeByteArrayOutputStream out = new UnsafeByteArrayOutputStream();
+
+      // 4.泛型调用， 需要把参数使用Java序列化为二进制
+      ExtensionLoader.getExtensionLoader(Serialization.class)
+            .getExtension(Constants.GENERIC_SERIALIZATION_NATIVE_JAVA).serialize(null, out).writeObject("world");
+
+      Object result = greetingService.$invoke("sayHello", new String[] { "java.lang.String" },
+            new Object[] { out.toByteArray() });
+
+      // 5.打印结果，需要把二进制结果使用Java反序列为对象
+      UnsafeByteArrayInputStream in = new UnsafeByteArrayInputStream((byte[]) result);
+      System.out.println(ExtensionLoader.getExtensionLoader(Serialization.class)
+            .getExtension(Constants.GENERIC_SERIALIZATION_NATIVE_JAVA).deserialize(null, in).readObject());
+
+   }
+}
+```
+
+## 服务消费端本地服务mock与服务降级
+
+**1.本地服务mock**
+
+```java
+public class APiConsumerMock {
+   public static void main(String[] args) throws InterruptedException {
+      // 0.创建服务引用对象实例
+      ReferenceConfig<GreetingService> referenceConfig = new ReferenceConfig<GreetingService>();
+      // 1.设置应用程序信息
+      referenceConfig.setApplication(new ApplicationConfig("first-dubbo-consumer"));
+      // 2.设置服务注册中心
+      referenceConfig.setRegistry(new RegistryConfig("zookeeper://192.168.170.200:2181"));
+      // 3.设置服务接口和超时时间
+      referenceConfig.setInterface(GreetingService.class);
+      referenceConfig.setTimeout(5000);
+
+      // 4.设置服务分组与版本
+      referenceConfig.setVersion("1.0.0");
+      referenceConfig.setGroup("dubbo");
+
+      // 5设置启动时候不检查服务提供者是否可用
+      referenceConfig.setCheck(false);
+      referenceConfig.setMock("true");
+      // 6.引用服务
+      GreetingService greetingService = referenceConfig.get();
+
+      // 7. 设置隐式参数
+      RpcContext.getContext().setAttachment("company", "alibaba");
+
+      // 8调用服务
+      System.out.println(greetingService.sayHello("world"));
+
+   }
+}
+```
+
+​	需要注意的是，在执行mock服务实现类mock（）方法前，会先发起远程调用，当远程调用失败（比如服务不存在）时，才会降级执行mock功能。
+
+**2.服务降级**
+
+* force：return策略：当服务调用方设置某个接口的降级策略为这种方式时，服务调用方在调用该接口服务时会直接在客户端内返回设置的mock值，而不会在通过远程调用方式调用服务提供者，比如配置URL为override：//0.0.0.0/com.books.dubbo.demo.api.GreetingService？category=configurators&dynamic=false&application=first-dubbo-consumer&"+"mock="+type+"：return+null&group=dubbo&version=1.0.0"，其中mock=force：return+null表示服务调用方在调用该服务的方法时都直接返回mock的null值，而不发起远程调用。需要注意的是，在URL里要指明是对哪个接口的哪个分组的哪个版本的服务进行降级，另外category必须为configurators，application为你的服务调用方的应用名称，也就是ApplicationConfig的name值。override：//0.0.0.0/标识该降级策略对所有的服务消费者生效。该URL会被保存到ZooKeeper中，持久化存放该设置，当消费端启动时会获取到该配置。
+* fail：return策略：表示服务调用方调用服务提供方的服务失败后再返回mock值，与force：return的区别是前者如果调用服务提供者成功，则返回正常的结果，如果调用失败则返回mock的值。这个功能和上一节讲解的本地服务mock功能一致。
+
+
+
+​	在Demo的Consumer的APiConsumerMockResult类中演示了如何对一个服务进行降级设置：
+
+```java
+public class APiConsumerMockResult {
+
+   public static void mockResult(String type) {
+      // (1)获取服务注册中心工厂
+      RegistryFactory registryFactory = ExtensionLoader.getExtensionLoader(RegistryFactory.class)
+            .getAdaptiveExtension();
+      // (2)根据zk地址，获取具体的zk注册中心的客户端实例
+      Registry registry2 = registryFactory.getRegistry(URL.valueOf("zookeeper://127.0.0.1:2181"));
+
+      // directory.subscribe(subscribeUrl.addParameter(CATEGORY_KEY,
+      // PROVIDERS_CATEGORY + "," + CONFIGURATORS_CATEGORY + "," + ROUTERS_CATEGORY));
+
+      // (3)注册降级方案到zk
+      registry2.register(URL.valueOf(
+            "override://0.0.0.0/com.books.dubbo.demo.api.GreetingService?category=configurators&dynamic=false&application=first-dubbo-consumer&"
+                  + "mock=" + type + ":return+null&group=dubbo&version=1.0.0"));
+
+      //(4)取消配置
+//    registry2.unregister(URL.valueOf(
+//          "override://0.0.0.0/com.books.dubbo.demo.api.GreetingService?category=configurators&dynamic=false&application=first-dubbo-consumer&"
+//                + "mock=" + type + ":return+null&group=dubbo&version=1.0.0"));
+   }
+
+   public static void main(String[] args) throws InterruptedException {
+
+      // mock=force:result+null;
+      mockResult("force");
+
+      // mock=fail:result+null;
+      // mockResult("fail");
+
+   }
+}
+```
+
+**隐式参数传递**
+
+```
+RpcContext.getContext().setAttachment("company", "alibaba");
+```
+
+## 本地服务暴露与引用
+
+![](https://pic.imgdb.cn/item/610f8d895132923bf82a0b19.jpg)
+
+​	其实Dubbo还提供了一种本地服务暴露与引用的方式，这在同一个JVM进程中同时发布与调用同一个服务时显得比较重要，因为如果当前JVM内要调用的服务在本JVM进程内有提供，则避免了一次远程过程调用，而是直接在JVM内进行通信，如图1.4所示。
+
+![](https://pic.imgdb.cn/item/610f8da25132923bf82a3081.jpg)
+
+```java
+public class APiConsumerInJvm {
+
+[...]
+
+   static public void referService() {
+      // 10.创建服务引用对象实例
+      ReferenceConfig<GreetingService> referenceConfig = new ReferenceConfig<GreetingService>();
+      // 12.设置服务注册中心
+      referenceConfig.setRegistry(new RegistryConfig("zookeeper://192.168.170.200:2181"));
+
+      // 13.设置服务接口和超时时间
+      referenceConfig.setInterface(GreetingService.class);
+      referenceConfig.setTimeout(5000);
+      referenceConfig.setAsync(true);
+
+      referenceConfig.setVersion("1.0.0");
+      referenceConfig.setGroup("dubbo");
+      referenceConfig.setCheck(false);
+
+      // 16.引用服务
+      GreetingService greetingService = referenceConfig.get();
+
+      // 17. 设置隐式参数
+      RpcContext.getContext().setAttachment("company", "alibaba");
+
+      // 18调用服务
+      System.out.println(greetingService.sayHello("world"));
+   }
+
+   public static void main(String[] args) throws InterruptedException {
+      // 导出服务
+      exportService();
+
+      // 引用服务
+      referService();
+
+      Thread.currentThread().join();
+   }
+}
+```
+
+​	在上面的代码中，exportService（）方法导出服务（包含本地服务与远程服务），referService（）方法进行服务引用，由于在JVM内存在要引用的服务，所以实际是进行了本地调用，大家可以在InjvmInvoker的invoke（）方法内添加断点以便验证是否真的调用了本地服务。
+
+# Dubbo框架内核原理剖析
+
+![](https://pic.imgdb.cn/item/610f8ea05132923bf82bb75f.jpg)
+
+* Service和Config层为API接口层，是为了让Dubbo使用方方便地发布服务和引用服务；对于服务提供方来说需要实现服务接口，然后使用ServiceConfig API来发布该服务；对于服务消费方来说需要使用ReferenceConfig对服务接口进行代理。Dubbo服务发布与引用方可以直接初始化配置类，也可以通过Spring配置自动生成配置类。
+* 其他各层均为SPI（Service Provider Interface，服务提供者接口）层，SPI意味着下面各层都是组件化的，是可以被替换的，这也是Dubbo设计比较好的一点。Dubbo增强了JDK中提供的标准SPI功能，在Dubbo中除了Service和Config层，其他各层都是通过实现扩展点接口来提供服务的；Dubbo增强的SPI增加了对扩展点IoC和AOP的支持，一个扩展点可以直接使用setter（）方法注入其他扩展点，并且不会一次性实例化扩展点的所有实现类，这就避免了当扩展点实现类初始化很耗时，但当前还没用上它的功能时仍进行加载实例化这种浪费资源的情况；增强的SPI是在具体用某一个实现类的时候才对具体实现类进行实例化。后续会具体讲解Dubbo增强的SPI的实现原理。
+* Proxy服务代理层：该层主要是对服务消费端使用的接口进行代理，把本地调用透明地转换为远程调用；另外对服务提供方的服务实现类进行代理，把服务实现类转换为Wrapper类，这是为了减少反射的调用，后面会具体讲解。Proxy层的SPI扩展接口为ProxyFactory，Dubbo提供的实现类主要有JavassistProxyFactory（默认使用）和JdkProxyFactory，用户可以实现ProxyFactory SPI接口，自定义代理服务层的实现。
+* Registry服务注册中心层：服务提供者启动时会把服务注册到服务注册中心，消费者启动时会去服务注册中心获取服务提供者的地址列表，Registry层主要功能是封装服务地址的注册与发现逻辑，扩展接口Registry对应的扩展实现为ZookeeperRegistry、RedisRegistry、MulticastRegistry、DubboRegistry等。扩展接口RegistryFactory对应的扩展接口实现为DubboRegistryFactory、DubboRegistryFactory、RedisRegistryFactory、ZookeeperRegistryFactory。另外，该层扩展接口Directory实现类有RegistryDirectory、StaticDirectory，用来透明地把Invoker列表转换为一个Invoker；用户可以实现该层的一系列扩展接口，自定义该层的服务实现。
+* Cluster路由层：封装多个服务提供者的路由规则、负载均衡、集群容错的实现，并桥接服务注册中心；扩展接口Cluster对应的实现类有FailoverCluster（失败重试）、FailbackCluster（失败自动恢复）、FailfastCluster（快速失败）、FailsafeCluster（失败安全）、ForkingCluster（并行调用）等；负载均衡扩展接口LoadBalance对应的实现类为RandomLoadBalance（随机）、RoundRobinLoadBalance（轮询）、LeastActiveLoadBalance（最小活跃数）、ConsistentHashLoadBalance（一致性Hash）等。用户可以实现该层的一系列扩展接口，自定义集群容错和负载均衡策略。
+* Monitor监控层：用来统计RPC调用次数和调用耗时时间，扩展接口为MonitorFactory，对应的实现类为DubboMonitorFactroy。用户可以实现该层的MonitorFactory扩展接口，实现自定义监控统计策略。
+* Protocol远程调用层：封装RPC调用逻辑，扩展接口为Protocol，对应实现有RegistryProtocol、DubboProtocol、InjvmProtocol等。
+* Exchange信息交换层：封装请求响应模式，同步转异步，扩展接口为Exchanger，对应的扩展实现有HeaderExchanger等。
+* Transport网络传输层：Mina和Netty抽象为统一接口。扩展接口为Channel，对应的实现有NettyChannel（默认）、MinaChannel等；扩展接口Transporter对应的实现类有GrizzlyTransporter、MinaTransporter、NettyTransporter（默认实现）；扩展接口Codec2对应的实现类有DubboCodec、ThriftCodec等。
+* Serialize数据序列化层：提供可以复用的一些工具，扩展接口为Serialization，对应的扩展实现有DubboSerialization、FastJsonSerialization、Hessian2Serialization、JavaSerialization等，扩展接口ThreadPool对应的扩展实现有FixedThreadPool、CachedThreadPool、LimitedThreadPool等。
+
+## Dubbo远程调用细节
+
+**服务提供者暴露一个服务的概要过程**
+
+![](https://pic.imgdb.cn/item/610f948e5132923bf83f3e84.jpg)
+
+​	首先，ServiceConfig类引用对外提供服务的实现类ref（如GreetingServiceImpl），然后通过ProxyFactory接口的扩展实现类的getInvoker（）方法使用ref生成一个AbstractProxyInvoker实例，到这一步就完成了具体服务到Invoker的转化。接下来就是Invoker转换到Exporter的过程。Dubbo协议的Invoker转为Exporter发生在DubboProtocol类的export（）方法中，Dubbo处理服务暴露的关键就在Invoker转换到Exporter的过程中，在这个过程中会先启动Netty Server监听服务连接，然后将服务注册到服务注册中心。
+
+![](https://pic.imgdb.cn/item/610f94d85132923bf8404ba3.jpg)
+
+​	首先ReferenceConfig类的init（）方法调用Protocol扩展接口实现类的refer（）方法生成Invoker实例（如图2.3中的左上角部分），这是服务消费的关键。接下来把Invoker转换为客户端需要的接口（如GreetingService）。
+
+​	Dubbo协议的Invoker转换为客户端需要的接口，发生在ProxyFactory接口的扩展实现类的getProxy（）方法中，它主要是使用代理对服务接口的调用转换为对Invoker的调用。
+
+## Dubbo的适配器原理
+
+​		首先我们看看什么是适配器模式，比如Dubbo提供的扩展接口Protocol，其定义如下：
+
+![](https://pic.imgdb.cn/item/610f95155132923bf8411d3e.jpg)
+
+​	Dubbo会使用我们下一节将要讲解的动态编译技术为接口Protocol生成一个适配器类Protocol$Adaptive的对象实例，在Dubbo框架中需要使用Protocol的实例时，实际上就是使用Protocol$Adaptive的对象实例来获取具体的SPI实现类的，其代码如下：
+
+![](https://pic.imgdb.cn/item/610f95345132923bf8418b8c.jpg)
+
+​	当调用protocol.export（wrapperInvoker）时，实际是调用Protocol$Adaptive的对象实例的export（）方法，然后后者根据wrapperInvoker中URL里面的协议类型参数执行；代码2使用Dubbo增强SPI方法getExtension（）获取对应的SPI实现类，然后调用代码3来执行具体SPI实现类的export（）方法。
+
+​	适配器类Protocol$Adaptive会根据传递的协议参数的不同，加载不同的Protocol的SPI实现。
+
+​	其实在Dubbo框架中，框架会给每个SPI扩展接口动态生成一个对应的适配器类，并根据参数来使用增强SPI以选择不同的SPI实现。比如扩展接口ProxyFactory的适配器类为ProxyFactory$Adaptive，其根据参数proxy来选择使用JdkProxyFactory还是使用JavassistProxyFactory做代理工厂；扩展接口Registry的适配器类Registry$Adaptive则根据参数register来决定使用ZookeeperRegistry、RedisRegistry、MulticastRegistry、DubboRegistry中的哪一个作为服务注册中心等。
+
+## Dubbo的动态编译原理
+
+​	上一节我们提到，在Dubbo框架中框架会给每个SPI扩展接口动态生成一个对应的适配器类，那么如何生成呢？这里就使用了动态编译技术，在Dubbo中提供了一个Compiler的SPI：
+
+![](https://pic.imgdb.cn/item/610f960a5132923bf8446652.jpg)
+
+​	我们打开ExtensionLoader的createAdaptiveExtensionClass（）方法，就是该方法将源文件动态编译为Class对象的，有了Class对象后，我们就可以使用newInstance（）方法创建对象实例了：
+
+![](https://pic.imgdb.cn/item/610f96375132923bf844f376.jpg)
+
+​	代码1是根据SPI扩展接口生成其对应的适配器类的源码，其返回的是一个字符串，比如对于Protocol扩展接口来说，返回的字符串内容为：
+
+​	Dubbo框架会为每个扩展接口生成其对应的适配器类的源码，然后选择具体的动态编译类的扩展实现对源码进行编译以生成适配器类的Class对象，然后就可以调用Class对象的newInstance（）方法生成扩展接口对应的适配器类的实例。
+
+## Dubbo增强SPI
+
+### JDK标准SPI
+
+​	JDK中的SPI是面向接口编程的，服务规则提供者会在JRE的核心API里提供服务访问接口，而具体实现则由其他开发商提供。
+
+​	例如，如果规范制定者在rt.jar包里定义了数据库的驱动接口java.sql.Driver，那么MySQL实现的开发商则会在MySQL的驱动包的META-INF/services文件夹下建立名称为java.sql.Driver的文件，文件内容就是MySQL对java.sql.Driver接口的实现类，如图2.4所示。
+
+**原理**
+
+​	Java核心API（比如rt.jar包）是使用Bootstrap ClassLoader类加载器加载的，而用户提供的Jar包是由AppClassLoader加载的。如果一个类由类加载器加载，那么这个类依赖的类也是由相同的类加载器加载的。
+
+​	用来搜索开发商提供的SPI扩展实现类的API类（ServiceLoader）是使用Bootstrap ClassLoader加载的，那么ServiceLoader里面依赖的类应该也是由Bootstrap ClassLoader加载的。而上面说了用户提供的包含SPI实现类的Jar包是由AppClassLoader加载的，所以这就需要一种违反双亲委派模型的方法，线程上下文类加载器ContextClassLoader就是用来解决这个问题的。
+
+![](https://pic.imgdb.cn/item/610f98c45132923bf84d3d73.jpg)
+
+​	下面我们看看ServiceLoader的load（）方法源码。
+
+![](https://pic.imgdb.cn/item/610f99175132923bf84e58e4.jpg)
+
+​	代码5获取了当前线程上下文加载器，这里是AppClassLoader。
+
+​	代码6将该类加载器传递给新构造的ServiceLoader的成员变量loader。那么这个loader在什么时候使用呢？下面我们看看LazyIterator的next（）方法。
+
+![](https://pic.imgdb.cn/item/610f99375132923bf84ed38d.jpg)
+
+​	代码7使用loader也就是AppClassLoader加载具体的驱动实现类的Class对象，代码8则使用Class对象调用newInstance（）方法来创建对象实例。至于cn是怎么来的，读者可以参见LazyIterator的hasNext（）方法：
+
+![](https://pic.imgdb.cn/item/610f99c65132923bf8509c15.jpg)
+
+## 增强SPI原理
+
+* JDK标准的SPI会一次性实例化扩展点的所有实现，如果有些扩展实现初始化很耗时，但又没用上，那么加载就很浪费资源。
+* 如果扩展点加载失败，是不会友好地向用户通知具体异常的。比如：对于JDK标准的ScriptEngine来说，如果Ruby ScriptEngine因为所依赖的jruby.jar不存在，导致Ruby ScriptEngine类加载失败，那么这个失败原因就被隐藏了，当用户执行Ruby脚本时，会报空指针异常，而不是报Ruby ScriptEngine不存在。
+* 增加了对扩展点IoC和AOP的支持，一个扩展点可以直接使用setter（）方法注入其他扩展点，也可以对扩展点使用Wrapper类进行功能增强。
+
+
+
+​	本节我们结合服务提供者配置类ServiceConfig来讲解如何使用增强SPI加载扩展接口Protocol的实现类，在ServiceConfig类中，有如下代码：
+
+![](https://pic.imgdb.cn/item/610f9a095132923bf8516047.jpg)
+
+
+
+​	这里的ExtensionLoader类似JDK标准SPI里的ServiceLoader类，代码ExtensionLoader.getExtensionLoader（Protocol.class）.getAdaptiveExtension（）的作用是获取Protocol接口的适配器类，在Dubbo中每个扩展接口都有一个对应的适配器类，前面所述这个适配器类是动态生成的一个类，这里我们给出Protocol扩展接口对应的适配器类的代码：
+
+![](https://pic.imgdb.cn/item/610f9a325132923bf851e4bc.jpg)
+
+​	所以当我们调用protocol.export（invoker）方法的时候实际调用的是动态生成的Protocol$Adaptive实例的export（invoker）方法，其内部代码1首先获取参数里的URL对象，然后从URL对象里获取用户设置的协议（Protocol）的实现类的名称，然后调用代码2根据名称获取具体的Protocol协议的实现类（后面我们会知道获取的是被使用Wrapper类增强后的实现类），最后代码3具体调用Protocol协议的实现类的export（invoker）方法。
+
+​	下面我们结合时序图（见图2.5）来讲解ExtensionLoader的getAdaptiveExtension（）方法是如何动态生成扩展接口对应的适配器类，以及getExtension（）方法如何根据扩展实现类的名称找到对应的扩展实现类的。
+
+![](https://pic.imgdb.cn/item/610f9aca5132923bf853c425.jpg)
+
+![](https://pic.imgdb.cn/item/610f9b9f5132923bf8565906.jpg)
+
+​	从上面的代码可以看到，第一次访问某个扩展接口时需要新建一个对应的ExtensionLoader并放入缓存，后面就直接从缓存中获取。
+
+​	步骤2获取当前扩展接口对应的适配器对象，getAdaptiveExtension（）方法的代码如下：
+
+```java
+public T getAdaptiveExtension() {
+    Object instance = cachedAdaptiveInstance.get();
+    if (instance == null) {
+        if (createAdaptiveInstanceError != null) {
+            throw new IllegalStateException("Failed to create adaptive instance: " +
+                    createAdaptiveInstanceError.toString(),
+                    createAdaptiveInstanceError);
+        }
+
+        synchronized (cachedAdaptiveInstance) {
+            instance = cachedAdaptiveInstance.get();
+            if (instance == null) {
+                try {
+                    instance = createAdaptiveExtension();
+                    cachedAdaptiveInstance.set(instance);
+                } catch (Throwable t) {
+                    createAdaptiveInstanceError = t;
+                    throw new IllegalStateException("Failed to create adaptive instance: " + t.toString(), t);
+                }
+            }
+        }
+    }
+
+    return (T) instance;
+}
+```
+
+​	上面的代码通过双重锁检查创建cachedAdaptiveInstance对象，接口对应的适配器对象就保存到这个对象里。
+
+```java
+private T createAdaptiveExtension() {
+    try {
+        return injectExtension((T) getAdaptiveExtensionClass().newInstance());
+    } catch (Exception e) {
+        throw new IllegalStateException("Can't create adaptive extension " + type + ", cause: " + e.getMessage(), e);
+    }
+}
+```
+
+​	这里首先调用了步骤4的getAdaptiveExtensionClass（）.newInstance（）以获取适配器对象的一个实例，然后调用步骤7的injectExtension（）方法进行扩展点相互依赖注入（扩展点之间的依赖自动注入）。下面首先看看步骤4的getAdaptiveExtensionClass（）方法是如何动态生成适配器类的Class对象的：
+
+```java
+private Class<?> getAdaptiveExtensionClass() {
+    getExtensionClasses();
+    if (cachedAdaptiveClass != null) {
+        return cachedAdaptiveClass;
+    }
+    return cachedAdaptiveClass = createAdaptiveExtensionClass();
+}
+```
+
+​	上面的代码首先调用了步骤5的getExtensionClasses（）方法获取了该扩展接口所有实现类的Class对象，然后调用了步骤6的createAdaptiveExtensionClass（）方法创建具体的适配器对象的Class对象。前面我们讲解过createAdaptiveExtensionClass（）方法，该方法根据字符串代码生成适配器的Class对象并返回，然后通过getAdaptiveExtensionClass（）.newInstance（）创建适配器类的一个对象实例。至此扩展接口的适配器对象已经创建完毕。
+
+​	下面，我们在看步骤7之前，先看看步骤5的getExtensionClasses（）方法是如何加载扩展接口的所有实现类的Class对象的。其内部最终调用了loadExtensionClasses（）方法进行加载，loadExtensionClasses（）方法的代码如下：
+
+```java
+private Map<String, Class<?>> loadExtensionClasses() {
+    cacheDefaultExtensionName();
+
+    Map<String, Class<?>> extensionClasses = new HashMap<>();
+
+    for (LoadingStrategy strategy : strategies) {
+        loadDirectory(extensionClasses, strategy.directory(), type.getName(), strategy.preferExtensionClassLoader(), strategy.overridden(), strategy.excludedPackages());
+        loadDirectory(extensionClasses, strategy.directory(), type.getName().replace("org.apache", "com.alibaba"), strategy.preferExtensionClassLoader(), strategy.overridden(), strategy.excludedPackages());
+    }
+
+    return extensionClasses;
+}
+private void cacheDefaultExtensionName() {
+    final SPI defaultAnnotation = type.getAnnotation(SPI.class);
+    if (defaultAnnotation == null) {
+        return;
+    }
+
+    String value = defaultAnnotation.value();
+    if ((value = value.trim()).length() > 0) {
+        String[] names = NAME_SEPARATOR.split(value);
+        if (names.length > 1) {
+            throw new IllegalStateException("More than 1 default extension name on extension " + type.getName()
+                    + ": " + Arrays.toString(names));
+        }
+        if (names.length == 1) {
+            cachedDefaultName = names[0];
+        }
+    }
+}
+```
+
+​	拿Protocol协议来说，这里SPI被注解为@SPI（"dubbo"），这里的cachedDefaultName就是dubbo。然后，loadDirectory（）方法到META-INF/dubbo/internal/、META-INF/dubbo/、META-INF/services/目录下去加载具体的扩展实现类。
+
+​	步骤7的injectExtension（）方法进行扩展点实现类相互依赖自动注入（IoC功能）：
