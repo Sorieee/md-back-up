@@ -786,3 +786,278 @@ To use Hamcrest in our projects, we need to add the required dependency to the p
 | equalToIgnoringWhiteSpace                                    | Tests a given string equals another one, by ignoring the white spaces. |
 | containsString, endsWith, startWith                          | Tests whether the given string contains, starts with or ends with a certain string. |
 
+# JUnit architecture
+
+* Demonstrating the concept and importance of software architecture
+* Comparing the JUnit 4 and JUnit 5 architectures
+
+## The concept and importance of software architecture
+
+Junit5 vs Junit4
+
+* smaller works better.
+* modularity improves the work. 
+
+## JUnit 4 architecture
+
+**JUnit 4 modularity**
+
+​	If a programmer wants to use JUnit 4 in a project, all they need to do is add that JAR file on the classpath.
+
+**JUnit 4 runners**
+
+​	A JUnit 4 *runner* is a class that extends the JUnit 4 abstract `Runner` class. A JUnit 4 runner is responsible for running JUnit tests. JUnit 4 remains a single JAR file, but it’s generally necessary to extend the functionality of this file. In other words, developers have the opportunity to add custom features to the functionality, such as executing additional things before and after running a test.
+
+**JUnit 4 rules**
+
+​	A JUnit 4 *rule* is a component that intercepts test method calls; it allows us to do something before a test method is run and something else after a test method has run. Rules are specific to JUnit 4.
+
+```java
+public class Calculator {
+    public double add(double number1, double number2) {
+        return number1 + number2;
+    }
+
+    public double sqrt(double x) {
+        if (x < 0) {
+            throw new IllegalArgumentException("Cannot extract the square root of a negative value");
+        }
+        return Math.sqrt(x);
+    }
+
+    public double divide(double x, double y) {
+        if (y == 0) {
+            throw new ArithmeticException("Cannot divide by zero");
+        }
+        return x / y;
+    }
+}
+```
+
+​	Listing 3.5 specifies which exception message is expected during the execution of the test code, using the new functionality of the `Calculator` class.
+
+```java
+public class RuleExceptionTester {
+    @Rule
+    public ExpectedException expectedException = ExpectedException.none();
+
+    private Calculator calculator = new Calculator();
+
+    @Test
+    public void expectIllegalArgumentException() {
+        expectedException.expect(IllegalArgumentException.class);
+        expectedException.expectMessage("Cannot extract the square root of a negative value");
+        calculator.sqrt(-1);
+    }
+
+    @Test
+    public void expectArithmeticException() {
+        expectedException.expect(ArithmeticException.class);
+        expectedException.expectMessage("Cannot divide by zero");
+        calculator.divide(1, 0);
+    }
+}
+```
+
+* We declare an `ExpectedException` field annotated with `@Rule`. The `@Rule` annotation must be applied to a public nonstatic field or a public nonstatic method (#A). The `ExpectedException.none()` factory method simply creates an unconfigured `ExpectedException`.
+* We initialize an instance of the `Calculator` class whose functionality we are testing (#B).
+* The `ExpectedException` is configured to keep the type of exception (#C) and message (#D) before it is thrown by invoking the `sqrt` method (#E).
+* he `ExpectedException` is configured to keep the type of exception (#F) and message #G before it is thrown by invoking the `divide` method (#H).
+
+**The RuleTester class**
+
+```
+public class RuleTester {
+    @Rule
+    public TemporaryFolder folder = new TemporaryFolder();
+    private static File createdFolder;
+    private static File createdFile;
+
+    @Test
+    public void testTemporaryFolder() throws IOException {
+        createdFolder = folder.newFolder("createdFolder");
+        createdFile = folder.newFile("createdFile.txt");
+        assertTrue(createdFolder.exists());
+        assertTrue(createdFile.exists());
+    }
+
+    @AfterClass
+    public static void cleanUpAfterAllTestsRan() {
+        assertFalse(createdFolder.exists());
+        assertFalse(createdFile.exists());
+    }
+}
+```
+
+* We declare a `TemporaryFolder` field annotated with `@Rule` and initialize it. The `@Rule` annotation must be applied to a public field or a public method (#A).
+*  We declare the static fields `createdFolder` and `createdFile` #B.
+* We use the `TemporaryFolder` field to create a folder and a file (#C), which are located in the `Temp` folder of our user profile in the operating system.
+* We check the existence of the temporary folder and of the temporary file (#D).
+* At the end of the execution of the tests, we check that the temporary resources do not exist any longer (#E).
+
+
+
+​	To write our own custom rule, we’ll have to create a class that implements the `TestRule` interface. Consequently, we’ll override the `apply(Statement, Description)` method, which must return an instance of `Statement`. Such an object represents the tests within the JUnit run time, and `Statement#evaluate()` runs them. The `Description` object describes the individual test; we can use this object to read information about the test through reflection.
+
+```java
+public class CustomRule implements TestRule {
+    private Statement base;
+    private Description description;
+
+    @Override
+    public Statement apply(Statement base, Description description) {
+        this.base = base;
+        this.description = description;
+        return new CustomStatement(base, description);
+    }
+}
+```
+
+*  We declare a `CustomRule` class that implements the `TestRule` interface (#A).
+* We keep references to a `Statement` field and to a `Description` field (#B), and we use them into the `apply` method that returns a `CustomStatement` (#C).
+
+
+
+```java
+public class CustomStatement extends Statement {
+    private Statement base;
+    private Description description;
+
+    public CustomStatement(Statement base, Description description) {
+        this.base = base;
+        this.description = description;
+    }
+
+    @Override
+    public void evaluate() throws Throwable {
+        System.out.println(this.getClass().getSimpleName() + " " + description.getMethodName() + " has started");
+        try {
+            base.evaluate();
+        } finally {
+            System.out.println(this.getClass().getSimpleName() + " " + description.getMethodName() + " has finished");
+        }
+    }
+}
+```
+
+* We declare our `CustomStatement` class that extends the `Statement` class (#A).
+* We keep references to a `Statement` field and a `Description` field (#B), and we use them as arguments of the constructor (#C).
+* We override the inherited `evaluate` method and call `base.evaluate()` inside it (#D).
+
+```java
+public class CustomRuleTester {
+
+    @Rule
+    public CustomRule myRule = new CustomRule();
+
+    @Test
+    public void myCustomRuleTest() {
+        System.out.println("Call of a test method");
+    }
+}
+```
+
+* We declare a public `CustomRule` field and annotate it with `@Rule` (#A).
+* We create the `myCustomRuleTest` method and annotate it with `@Test` (#B).
+
+**CustomRuleTester2**
+
+```java
+public class CustomRuleTester2 {
+
+    private CustomRule myRule = new CustomRule();
+
+    @Rule
+    public CustomRule getMyRule() {
+        return myRule;
+    }
+
+    @Test
+    public void myCustomRuleTest() {
+        System.out.println("Call of a test method");
+    }
+}
+```
+
+```xml
+<dependencies>
+	<dependency>
+		<groupId>org.junit.vintage</groupId>
+		<artifactId>junit-vintage-engine</artifactId>
+		<version>5.6.0</version>
+		<scope>provided</scope>
+	</dependency>
+</dependencies>
+```
+
+**Shortcomings of the JUnit 4 architecture**
+
+* The API provided by JUnit 4 was not flexible enough.
+
+## JUnit 5 architecture
+
+**JUnit 5 modularity**
+
+​	The architecture had to allow JUnit to interact with different programmatic clients that used different tools and IDEs. The logical separation of concerns required
+
+* An API to write tests, dedicated mainly to developers
+* A mechanism for discovering and running the tests
+* An API to allow easy interaction with IDEs and tools and to run the tests from them
+
+
+
+​	As a consequence, the JUnit 5 architecture contained three modules (figure 3.7):
+
+* *JUnit Platform*, which serves as a foundation for launching testing frameworks on the Java Virtual Machine (JVM). It also provides an API to launch tests from the console, IDEs, or build tools.
+* *JUnit Jupiter*, the combination of the new programming and extension model for writing tests and extensions in JUnit 5. The name comes from the fifth planet of our solar system, which is also the largest.
+* *JUnit Vintage*, a test engine for running JUnit 3- and JUnit 4-based tests on the platform, ensuring backward compatibility.
+
+![](https://pic.imgdb.cn/item/6110f8765132923bf8123b0e.jpg)
+
+**JUnit 5 platform**
+
+* `junit-platform-commons`, an internal common library of JUnit intended solely for use within the JUnit framework. Any use by external parties is not supported.
+* `junit-platform-console`, which provides support for discovering and executing tests on the JUnit Platform from the console.
+* `junit-platform-console-standalone`, an executable JAR with all dependencies included. This artifact is used by Console Launcher, a command-line Java application that lets us launch the JUnit Platform from the console. It can be used to run JUnit Vintage and JUnit Jupiter tests, for example, and to print test execution results to the console.
+* `junit-platform-engine`, a public API for test engines.
+* `junit-platform-launcher`, a public API for configuring and launching test plans; typically used by IDEs and build tools.
+* `junit-platform-runner`, a runner for executing tests and test suites on the JUnit Platform in a JUnit 4 environment.
+* `junit-platform-suite-api`, which contains the annotations for configuring test suites on the JUnit Platform.
+* `junit-platform-surefire-`provider, which provides support for discovering and executing tests on the JUnit Platform by using Maven Surefire.
+* `junit-platform-gradle-plugin`, which provides support for discovering and executing tests on the JUnit Platform by using Gradle.
+
+
+
+**JUnit 5 Jupiter**
+
+​	JUnit Jupiter is the combination of the new programming (annotations, classes, and methods) and extension model for writing tests and extensions in JUnit 5. 
+
+* `junit-jupiter-api`, the JUnit Jupiter API for writing tests and extensions
+* `junit-jupiter-engine`, the JUnit Jupiter test engine implementation, required only at run time
+* `junit-jupiter-params`, which provides support for parameterized tests in JUnit Jupiter
+* `junit-jupiter-migrationsupport`, which provides migration support from JUnit 4 to JUnit Jupiter and is required only for running selected JUnit 4 rules
+
+**JUnit 5 Vintage**
+
+​	JUnit Vintage provides a `TestEngine` for running JUnit 3- and JUnit 4-based tests on the platform. JUnit 5 Vintage contains only`junit-vintage-engine`, the engine implementation to execute tests written in JUnit 3 or 4. For this purpose, of course, we also need the JUnit 3 or 4 JARs.
+
+**The big picture of the JUnit 5 architecture**
+
+![](https://pic.imgdb.cn/item/6110f9b85132923bf814edb8.jpg)
+
+​	Detailing at the level of the jar files (figure 3.9):
+
+* The test APIs provide the facilities for different test engines: `junit-jupiter-api` for JUnit 5 tests, `junit-4.12` for legacy tests, and custom engines for third-party tests.
+*  The test engines mentioned earlier are created by extending the `junit-platform-engine` public API, which is part of the JUnit 5 Platform.
+* The `junit-platform-launcher` public API provides the facilities to discover tests inside the JUnit 5 Platform for build tools such as Maven or Gradle or for IDEs.
+
+![](https://pic.imgdb.cn/item/6110fa1a5132923bf815c884.jpg)
+
+
+
+
+
+# Migrating from JUnit 4 to JUnit 5
+
+略
+
