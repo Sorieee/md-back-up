@@ -4021,3 +4021,331 @@ private void cacheDefaultExtensionName() {
 ​	拿Protocol协议来说，这里SPI被注解为@SPI（"dubbo"），这里的cachedDefaultName就是dubbo。然后，loadDirectory（）方法到META-INF/dubbo/internal/、META-INF/dubbo/、META-INF/services/目录下去加载具体的扩展实现类。
 
 ​	步骤7的injectExtension（）方法进行扩展点实现类相互依赖自动注入（IoC功能）：
+
+```java
+private T injectExtension(T instance) {
+
+    if (objectFactory == null) {
+        return instance;
+    }
+
+    try {
+        for (Method method : instance.getClass().getMethods()) {
+            if (!isSetter(method)) {
+                continue;
+            }
+            /**
+             * Check {@link DisableInject} to see if we need auto injection for this property
+             */
+            if (method.getAnnotation(DisableInject.class) != null) {
+                continue;
+            }
+            Class<?> pt = method.getParameterTypes()[0];
+            if (ReflectUtils.isPrimitives(pt)) {
+                continue;
+            }
+
+            try {
+                String property = getSetterProperty(method);
+                Object object = objectFactory.getExtension(pt, property);
+                if (object != null) {
+                    method.invoke(instance, object);
+                }
+            } catch (Exception e) {
+                logger.error("Failed to inject via method " + method.getName()
+                        + " of interface " + type.getName() + ": " + e.getMessage(), e);
+            }
+
+        }
+    } catch (Exception e) {
+        logger.error(e.getMessage(), e);
+    }
+    return instance;
+}
+```
+
+​	至此，ExtensionLoader的getAdaptiveExtension（）方法是如何动态生成扩展接口对应的适配器类以及如何加载扩展接口的实现类的Class对象的就讲解完了，下面我们看看getExtension（）方法是如何根据扩展实现类的名称找到对应的实现类的：
+
+```java
+public T getExtension(String name, boolean wrap) {
+    if (StringUtils.isEmpty(name)) {
+        throw new IllegalArgumentException("Extension name == null");
+    }
+    if ("true".equals(name)) {
+        return getDefaultExtension();
+    }
+    final Holder<Object> holder = getOrCreateHolder(name);
+    Object instance = holder.get();
+    if (instance == null) {
+        synchronized (holder) {
+            instance = holder.get();
+            if (instance == null) {
+                instance = createExtension(name, wrap);
+                holder.set(instance);
+            }
+        }
+    }
+    return (T) instance;
+}
+```
+
+```java
+private T createExtension(String name, boolean wrap) {
+    Class<?> clazz = getExtensionClasses().get(name);
+    if (clazz == null || unacceptableExceptions.contains(name)) {
+        throw findException(name);
+    }
+    try {
+        T instance = (T) EXTENSION_INSTANCES.get(clazz);
+        if (instance == null) {
+            EXTENSION_INSTANCES.putIfAbsent(clazz, clazz.getDeclaredConstructor().newInstance());
+            instance = (T) EXTENSION_INSTANCES.get(clazz);
+        }
+        injectExtension(instance);
+
+
+        if (wrap) {
+
+            List<Class<?>> wrapperClassesList = new ArrayList<>();
+            if (cachedWrapperClasses != null) {
+                wrapperClassesList.addAll(cachedWrapperClasses);
+                wrapperClassesList.sort(WrapperComparator.COMPARATOR);
+                Collections.reverse(wrapperClassesList);
+            }
+
+            if (CollectionUtils.isNotEmpty(wrapperClassesList)) {
+                for (Class<?> wrapperClass : wrapperClassesList) {
+                    Wrapper wrapper = wrapperClass.getAnnotation(Wrapper.class);
+                    if (wrapper == null
+                            || (ArrayUtils.contains(wrapper.matches(), name) && !ArrayUtils.contains(wrapper.mismatches(), name))) {
+                        instance = injectExtension((T) wrapperClass.getConstructor(type).newInstance(instance));
+                    }
+                }
+            }
+        }
+
+        initExtension(instance);
+        return instance;
+    } catch (Throwable t) {
+        throw new IllegalStateException("Extension instance (name: " + name + ", class: " +
+                type + ") couldn't be instantiated: " + t.getMessage(), t);
+    }
+}
+```
+
+​	上面我们讲解的getExtension（String name）方法只会加载某一个扩展接口实现的Class对象的实例，但在有些情况下我们需要全部创建，比如ProtocolFilterWrapper类中的buildInvokerChain（）方法在建立Filter责任链时，需要把属于某一个group的所有Filter都放到责任链里，其是通过如下方式来获取属于某个组的Filter扩展实现类的：
+
+![](https://pic.imgdb.cn/item/610fd2e75132923bf8e31132.jpg)
+
+​	比如，当服务提供端启动时只会加载group为provider的Filter扩展实现类：
+
+![](https://pic.imgdb.cn/item/610fd30d5132923bf8e37739.jpg)
+
+​	当消费端启动时只会加载group为consumer的Filter扩展实现类：
+
+![](https://pic.imgdb.cn/item/610fd32d5132923bf8e3c869.jpg)
+
+​	另外还需要注意，并不是所有属于某个group的Filter都会被加载，还需要看其设置的value的值是否在URL里（用户是否设置了该value的属性），比如ActiveLimitFilter在默认情况下是不会在服务消费端加载到Filter链的，只有当消费端设置了并发活跃数actives属性时才会（设置后actives属性就会出现在URL里了），具体内容可以参见9.1节。这里我们以加载Filter为例看看getActivateExtension（）方法的实现原理：
+
+```java
+public List<T> getActivateExtension(URL url, String[] values, String group) {
+    List<T> activateExtensions = new ArrayList<>();
+    // solve the bug of using @SPI's wrapper method to report a null pointer exception.
+    TreeMap<Class, T> activateExtensionsMap = new TreeMap<>(ActivateComparator.COMPARATOR);
+    List<String> names = values == null ? new ArrayList<>(0) : asList(values);
+    if (!names.contains(REMOVE_VALUE_PREFIX + DEFAULT_KEY)) {
+        if (cachedActivateGroups.size() == 0) {
+            synchronized (cachedActivateGroups) {
+                if (cachedActivateGroups.size() == 0) {
+                    // 获取Filter所有的扩展实现
+                    getExtensionClasses();
+                    for (Map.Entry<String, Object> entry : cachedActivates.entrySet()) {
+                        // 遍历所有扩展实现
+                        String name = entry.getKey();
+                        Object activate = entry.getValue();
+
+                        String[] activateGroup, activateValue;
+
+                        if (activate instanceof Activate) {
+                            // 如果含有注解@Activate，则获取注解的group和value值
+                            activateGroup = ((Activate) activate).group();
+                            activateValue = ((Activate) activate).value();
+                        } else if (activate instanceof com.alibaba.dubbo.common.extension.Activate) {
+                            activateGroup = ((com.alibaba.dubbo.common.extension.Activate) activate).group();
+                            activateValue = ((com.alibaba.dubbo.common.extension.Activate) activate).value();
+                        } else {
+                            continue;
+                        }
+                        cachedActivateGroups.put(name, new HashSet<>(Arrays.asList(activateGroup)));
+                        cachedActivateValues.put(name, activateValue);
+                    }
+                }
+            }
+        }
+
+        cachedActivateGroups.forEach((name, activateGroup)->{
+            // 如果扩展的实现组和传递的group与我们传递的匹配，value值在URL存在。
+            if (isMatchGroup(group, activateGroup)
+                    && !names.contains(name)
+                    && !names.contains(REMOVE_VALUE_PREFIX + name)
+                    && isActive(cachedActivateValues.get(name), url)) {
+
+                activateExtensionsMap.put(getExtensionClass(name), getExtension(name));
+            }
+        });
+
+        if (!activateExtensionsMap.isEmpty()) {
+            activateExtensions.addAll(activateExtensionsMap.values());
+        }
+    }
+    List<T> loadedExtensions = new ArrayList<>();
+    for (int i = 0; i < names.size(); i++) {
+        String name = names.get(i);
+        if (!name.startsWith(REMOVE_VALUE_PREFIX)
+                && !names.contains(REMOVE_VALUE_PREFIX + name)) {
+            if (DEFAULT_KEY.equals(name)) {
+                if (!loadedExtensions.isEmpty()) {
+                    activateExtensions.addAll(0, loadedExtensions);
+                    loadedExtensions.clear();
+                }
+            } else {
+                loadedExtensions.add(getExtension(name));
+            }
+        }
+    }
+    if (!loadedExtensions.isEmpty()) {
+        activateExtensions.addAll(loadedExtensions);
+    }
+    return activateExtensions;
+}
+```
+
+​	如果是则还要看扩展接口实现的注解中的value值是否在URL中（这是isActive（）方法所做的事情），如下列代码所示：
+
+```java
+private boolean isActive(String[] keys, URL url) {
+    if (keys.length == 0) {
+        return true;
+    }
+    for (String key : keys) {
+        // @Active(value="key1:value1, key2:value2")
+        String keyValue = null;
+        if (key.contains(":")) {
+            String[] arr = key.split(":");
+            key = arr[0];
+            keyValue = arr[1];
+        }
+
+        String realValue = url.getParameter(key);
+        if (StringUtils.isEmpty(realValue)) {
+            realValue = url.getAnyMethodParameter(key);
+        }
+        if ((keyValue != null && keyValue.equals(realValue)) || (keyValue == null && ConfigUtils.isNotEmpty(realValue))) {
+            return true;
+        }
+    }
+    return false;
+}
+```
+
+​	上面的代码遍历当前扩展实现的value值，如果发现某一个值在URL中，则返回true，否则返回false。
+
+## 扩展点的自动包装
+
+​	在Spring AOP中，我们可以使用多个切面对指定类的方法进行增强，在Dubbo中也提供了类似的功能。在Dubbo中你可以指定多个Wrapper类对指定的扩展点的实现类的方法进行增强。
+
+​	如下面的代码所示，当执行protocol.export（wrapperInvoker）方法时，实际调用的是适配器Protocol$Adaptive的export（）方法，如果URL对象里面的protocol为dubbo，那么在没有扩展点自动包装时，protocol.export（）方法返回的就是DubboProtocol的对象。
+
+![](https://pic.imgdb.cn/item/610fd5345132923bf8e8ca4f.jpg)
+
+​	而在真正的情况下，Dubbo里使用ProtocolFilterWrapper、ProtocolListenerWrapper等Wrapper类对DubboProtocol对象进行包装增强。
+
+​	ProtocolFilterWrapper、ProtocolListenerWrapper、DubboProtocol三个类都有一个拷贝构造函数，这个拷贝构造函数的参数就是扩展接口Protocol。所谓包装，其含义如下：
+
+![](https://pic.imgdb.cn/item/610fd5875132923bf8e9997d.jpg)
+
+​	比如这里会进行两次包装，第一次首先使用ProtocolListenerWrapper类对DubboProtocol进行包装，这时ProtocolListenerWrapper类里的impl就是DubboProtocol，然后第二次使用ProtocolFilterWrapper对ProtocolListenerWrapper进行包装，也就是说ProtocolFilterWrapper里的impl是ProtocolListenerWrapper，这时会调用适配器Protocol$Adaptive的export（）方法，如果URL对象里面的protocol为dubbo，那么在扩展点自动包装时，protocol.export返回的就是ProtocolFilterWrapper的实例了。
+
+​	下面我们看看在Dubbo增强的SPI中如何去收集这些包装类，以及使用包装类对SPI实现类的自动包装（AOP功能）是如何实现的。
+
+​	其实，上一节所讲的getExtensionClasses里面的loadDirectory（）方法除了加载扩展接口的所有实现类的Class对象，还对包装类（Wrapper类）进行了收集，下面我们看看loadDirectory-＞loadResource中的loadClass（）方法的代码：
+
+```java
+private void loadClass(Map<String, Class<?>> extensionClasses, java.net.URL resourceURL, Class<?> clazz, String name,
+                       boolean overridden) throws NoSuchMethodException {
+    // 类型不匹配则抛出异常
+    if (!type.isAssignableFrom(clazz)) {
+        throw new IllegalStateException("Error occurred when loading extension class (interface: " +
+                type + ", class line: " + clazz.getName() + "), class "
+                + clazz.getName() + " is not subtype of interface.");
+    }
+    // 适配类，调用cacheAdaptiveClass缓存
+    if (clazz.isAnnotationPresent(Adaptive.class)) {
+        cacheAdaptiveClass(clazz, overridden);
+    } else if (isWrapperClass(clazz)) {
+        // Wrapper类， 调用cacheWrapperClass缓存
+        cacheWrapperClass(clazz);
+    } else {
+        // 剩下的则是扩展实现类
+        clazz.getConstructor();
+        if (StringUtils.isEmpty(name)) {
+            name = findAnnotationName(clazz);
+            if (name.length() == 0) {
+                throw new IllegalStateException("No such extension name for the class " + clazz.getName() + " in the config " + resourceURL);
+            }
+        }
+
+        String[] names = NAME_SEPARATOR.split(name);
+        if (ArrayUtils.isNotEmpty(names)) {
+            cacheActivateClass(clazz, names[0]);
+            for (String n : names) {
+                cacheName(clazz, n);
+                saveInExtensionClass(extensionClasses, clazz, n, overridden);
+            }
+        }
+    }
+}
+private boolean isWrapperClass(Class<?> clazz) {
+        try {
+            clazz.getConstructor(type);
+            return true;
+        } catch (NoSuchMethodException e) {
+            return false;
+        }
+    }
+```
+
+​	上面的代码使用isWrapperClass（）方法方法判断clazz是否为Wrapper类，其中调用了clazz.getConstructor（type）方法来判断SPI实现类clazz是否有参数类型为type的构造函数。如果没有，则直接抛出异常NoSuchMethodException，该异常被catch块捕获了，然后返回false；如果有，则说明clazz类为Wrapper类，此时返回true并调用cacheWrapperClass（）方法将Wrapper类的Class对象收集起来放入cachedWrapperClasses集合。至此，Wrapper类收集完毕。
+
+​	而对扩展实现类使用收集的Wrapper类进行自动包装是在createExtension（）方法里完成的：
+
+![](https://pic.imgdb.cn/item/610fd6505132923bf8eba38a.jpg)
+
+​	上面的代码遍历了所有Wrapper类，并使用injectExtension一层层对扩展实现类进行功能增强。
+
+## Dubbo使用JavaAssist减少反射调用开销
+
+​	Dubbo会给每个服务提供者的实现类生产一个Wrapper类，这个Wrapper类里面最终调用服务提供者的接口实现类，Wrapper类的存在是为了减少反射的调用。当服务提供方收到消费方发来的请求后，需要根据消费者传递过来的方法名和参数反射调用服务提供者的实现类，而反射本身是有性能开销的，Dubbo把每个服务提供者的实现类通过JavaAssist包装为一个Wrapper类以减少反射调用开销。那么Wrapper类为何能减少反射调用呢？
+
+​	假设我们的服务提供方实现类为GreetingServiceImpl，其代码如下：
+
+略
+
+那么其对应的Wrapper类的源码如下：
+
+![](https://pic.imgdb.cn/item/610fd7bc5132923bf8ef3f8e.jpg)
+
+![](https://pic.imgdb.cn/item/610fd7ce5132923bf8ef6e05.jpg)
+
+​	下面我们看看Dubbo是在哪里生成Wrapper类的。在Dubbo分层架构概述中，我们讲过Proxy层的SPI扩展接口为ProxyFactory，Dubbo提供的实现主要有JavassistProxyFactory（默认使用）和JdkProxyFactory，其实就是JavassistProxyFactory为每个服务提供者实现类生成了Wrapper类：
+
+![](https://pic.imgdb.cn/item/610fd87b5132923bf8f10877.jpg)
+
+# 远程服务发布与引用流程剖析
+
+## Dubbo服务发布端启动流程剖析
+
+![](https://pic.imgdb.cn/item/610fea985132923bf81e2a28.jpg)
+
+​	在2.2节中我们提到，服务提供方需要使用ServiceConfig API发布服务，具体来说就是执行图3.1中步骤1的export（）方法来激活发布服务。export（）方法的核心代码如下：通过上面的代码可知，Dubbo的延迟发布是通过使用ScheduledExecutorService来实现的，可以通过调用ServiceConfig的setDelay（Integer delay）方法来设置延迟发布时间，其中shouldDelay（）方法的代码如下：
+
