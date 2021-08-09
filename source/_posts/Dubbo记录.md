@@ -4021,3 +4021,4 @@ private void cacheDefaultExtensionName() {
 ​	拿Protocol协议来说，这里SPI被注解为@SPI（"dubbo"），这里的cachedDefaultName就是dubbo。然后，loadDirectory（）方法到META-INF/dubbo/internal/、META-INF/dubbo/、META-INF/services/目录下去加载具体的扩展实现类。
 
 ​	步骤7的injectExtension（）方法进行扩展点实现类相互依赖自动注入（IoC功能）：
+
