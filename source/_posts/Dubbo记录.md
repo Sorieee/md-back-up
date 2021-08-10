@@ -5450,3 +5450,1102 @@ protected <T> Invoker<T> interceptInvoker(ClusterInvoker<T> invoker, URL url, UR
 
 ​	图3.9中的步骤2、步骤3和步骤4用来从ZooKeeper获取服务提供者的地址列表，等ZooKeeper返回地址列表后会调用RegistryDirectory的notify（）方法：
 
+```java
+@Override
+public synchronized void notify(List<URL> urls) {
+    if (isDestroyed()) {
+        return;
+    }
+	// 对元数据分类
+    Map<String, List<URL>> categoryUrls = urls.stream()
+            .filter(Objects::nonNull)
+            .filter(this::isValidCategory)
+            .filter(this::isNotCompatibleFor26x)
+            .collect(Collectors.groupingBy(this::judgeCategory));
+	// 获取配置信息
+    List<URL> configuratorURLs = categoryUrls.getOrDefault(CONFIGURATORS_CATEGORY, Collections.emptyList());
+    this.configurators = Configurator.toConfigurators(configuratorURLs).orElse(this.configurators);
+	// 路由信息收集并保存
+    List<URL> routerURLs = categoryUrls.getOrDefault(ROUTERS_CATEGORY, Collections.emptyList());
+    toRouters(routerURLs).ifPresent(this::addRouters);
+
+    // providers
+   	// 服务提供者信息
+    List<URL> providerURLs = categoryUrls.getOrDefault(PROVIDERS_CATEGORY, Collections.emptyList());
+    /**
+     * 3.x added for extend URL address
+     */
+    ExtensionLoader<AddressListener> addressListenerExtensionLoader = ExtensionLoader.getExtensionLoader(AddressListener.class);
+    List<AddressListener> supportedListeners = addressListenerExtensionLoader.getActivateExtension(getUrl(), (String[]) null);
+    if (supportedListeners != null && !supportedListeners.isEmpty()) {
+        for (AddressListener addressListener : supportedListeners) {
+            providerURLs = addressListener.notify(providerURLs, getConsumerUrl(),this);
+        }
+    }
+    refreshOverrideAndInvoker(providerURLs);
+}
+```
+
+​	图3.9中的步骤6、步骤7和步骤8根据获取的最新的服务提供者URL地址，将其转换为具体的invoker列表，也就是说每个提供者的URL会被转换为一个Invoker对象，具体转换在toInvokers（）方法中进行：
+
+```java
+private Map<URL, Invoker<T>> toInvokers(List<URL> urls) {
+    Map<URL, Invoker<T>> newUrlInvokerMap = new ConcurrentHashMap<>();
+    if (urls == null || urls.isEmpty()) {
+        return newUrlInvokerMap;
+    }
+    String queryProtocols = this.queryMap.get(PROTOCOL_KEY);
+    for (URL providerUrl : urls) {
+        // If protocol is configured at the reference side, only the matching protocol is selected
+        if (queryProtocols != null && queryProtocols.length() > 0) {
+            boolean accept = false;
+            String[] acceptProtocols = queryProtocols.split(",");
+            for (String acceptProtocol : acceptProtocols) {
+                if (providerUrl.getProtocol().equals(acceptProtocol)) {
+                    accept = true;
+                    break;
+                }
+            }
+            if (!accept) {
+                continue;
+            }
+        }
+        if (EMPTY_PROTOCOL.equals(providerUrl.getProtocol())) {
+            continue;
+        }
+        if (!ExtensionLoader.getExtensionLoader(Protocol.class).hasExtension(providerUrl.getProtocol())) {
+            logger.error(new IllegalStateException("Unsupported protocol " + providerUrl.getProtocol() +
+                    " in notified url: " + providerUrl + " from registry " + getUrl().getAddress() +
+                    " to consumer " + NetUtils.getLocalHost() + ", supported protocol: " +
+                    ExtensionLoader.getExtensionLoader(Protocol.class).getSupportedExtensions()));
+            continue;
+        }
+        URL url = mergeUrl(providerUrl);
+
+        // Cache key is url that does not merge with consumer side parameters, regardless of how the consumer combines parameters, if the server url changes, then refer again
+        Map<URL, Invoker<T>> localUrlInvokerMap = this.urlInvokerMap; // local reference
+        Invoker<T> invoker = localUrlInvokerMap == null ? null : localUrlInvokerMap.remove(url);
+        if (invoker == null) { // Not in the cache, refer again
+            try {
+                boolean enabled = true;
+                if (url.hasParameter(DISABLED_KEY)) {
+                    enabled = !url.getParameter(DISABLED_KEY, false);
+                } else {
+                    enabled = url.getParameter(ENABLED_KEY, true);
+                }
+                if (enabled) {
+                    // 调用Dubbo协议转换服务到invoker
+                    invoker = protocol.refer(serviceType, url);
+                }
+            } catch (Throwable t) {
+                logger.error("Failed to refer invoker for interface:" + serviceType + ",url:(" + url + ")" + t.getMessage(), t);
+            }
+            if (invoker != null) { // Put new invoker in cache
+                newUrlInvokerMap.put(url, invoker);
+            }
+        } else {
+            newUrlInvokerMap.put(url, invoker);
+        }
+    }
+    return newUrlInvokerMap;
+}
+```
+
+​	从上面的代码可知，将服务接口转换到invoker对象是通过调用protocol.refer（serviceType，url）来完成的，这里的protocol对象也是Protocol扩展接口的适配器对象，所以调用protocol.refer实际上是调用适配器Protocol$Adaptive的refer（）方法。在URL中，协议默认为是Dubbo，所以适配器里调用的应该是DubboProtocol的refer（）方法。
+
+​	前面的章节已讲过，Dubbo默认提供了一系列Wrapper类对扩展实现类进行功能增强，当然这里也不例外，Dubbo使用了ProtocolListenerWrapper、ProtocolFilterWrapper等类对DubboProtocol进行了功能增强。所以，在这里经过一次次调用后才调用到DubboProtocol的refer（）方法，DubboProtocol的refer（）方法的代码如下：
+
+```java
+public <T> Invoker<T> refer(Class<T> type, URL url) throws RpcException {
+    return protocolBindingRefer(type, url);
+}
+public <T> Invoker<T> protocolBindingRefer(Class<T> serviceType, URL url) throws RpcException {
+        optimizeSerialization(url);
+
+        // create rpc invoker.
+        DubboInvoker<T> invoker = new DubboInvoker<T>(serviceType, url, getClients(url), invokers);
+        invokers.add(invoker);
+
+        return invoker;
+    }
+```
+
+​	从上面的代码可知，getClients（）方法创建服务消费端的NettyClient对象，其调用链的时序图如图3.10所示，其中NettyClient构造函数如下：
+
+```java
+public NettyClient(final URL url, final ChannelHandler handler) throws RemotingException {
+        super(url, wrapChannelHandler(url, handler));
+    }
+protected static ChannelHandler wrapChannelHandler(URL url, ChannelHandler handler) {
+        return ChannelHandlers.wrap(handler, url);
+    }
+public static ChannelHandler wrap(ChannelHandler handler, URL url) {
+        return ChannelHandlers.getInstance().wrapInternal(handler, url);
+    }
+
+protected ChannelHandler wrapInternal(ChannelHandler handler, URL url) {
+        return new MultiMessageHandler(new HeartbeatHandler(ExtensionLoader.getExtensionLoader(Dispatcher.class)
+                .getAdaptiveExtension().dispatch(handler, url)));
+    }
+```
+
+​	在ChannelHandlers.wrap函数内会确定消费端Dubbo内部的线程池模型（关于线程池模型，在后面的章节会做具体讲解）。
+
+​	NettyClient的父类AbstractClient的构造函数如下：
+
+```java
+public AbstractClient(URL url, ChannelHandler handler) throws RemotingException {
+    // 加载编解码器实现
+    super(url, handler);
+    // set default needReconnect true when channel is not connected
+    needReconnect = url.getParameter(Constants.SEND_RECONNECT_KEY, true);
+
+    initExecutor(url);
+
+    try {
+        // 调用子类的doOpen
+        doOpen();
+    } catch (Throwable t) {
+        close();
+        throw new RemotingException(url.toInetSocketAddress(), null,
+                "Failed to start " + getClass().getSimpleName() + " " + NetUtils.getLocalAddress()
+                        + " connect to the server " + getRemoteAddress() + ", cause: " + t.getMessage(), t);
+    }
+
+    try {
+        // connect.
+        // 发起远端连接
+        connect();
+        if (logger.isInfoEnabled()) {
+            logger.info("Start " + getClass().getSimpleName() + " " + NetUtils.getLocalAddress() + " connect to the server " + getRemoteAddress());
+        }
+    } catch (RemotingException t) {
+        if (url.getParameter(Constants.CHECK_KEY, true)) {
+            close();
+            throw t;
+        } else {
+            logger.warn("Failed to start " + getClass().getSimpleName() + " " + NetUtils.getLocalAddress()
+                    + " connect to the server " + getRemoteAddress() + " (check == false, ignore and retry later!), cause: " + t.getMessage(), t);
+        }
+    } catch (Throwable t) {
+        close();
+        throw new RemotingException(url.toInetSocketAddress(), null,
+                "Failed to start " + getClass().getSimpleName() + " " + NetUtils.getLocalAddress()
+                        + " connect to the server " + getRemoteAddress() + ", cause: " + t.getMessage(), t);
+    }
+}
+```
+
+​	在上面的代码中，首先调用了NettyClient的doOpen（）方法：
+
+```java
+protected void doOpen() throws Throwable {
+    NettyHelper.setNettyLoggerFactory();
+    // 创建启动器并配置
+    bootstrap = new ClientBootstrap(CHANNEL_FACTORY);
+    // config
+    // @see org.jboss.netty.channel.socket.SocketChannelConfig
+    bootstrap.setOption("keepAlive", true);
+    bootstrap.setOption("tcpNoDelay", true);
+    bootstrap.setOption("connectTimeoutMillis", getConnectTimeout());
+    // 创建业务handler
+    final NettyHandler nettyHandler = new NettyHandler(getUrl(), this);
+    // 添加handler到链接的管线
+    bootstrap.setPipelineFactory(new ChannelPipelineFactory() {
+        @Override
+        public ChannelPipeline getPipeline() {
+            NettyCodecAdapter adapter = new NettyCodecAdapter(getCodec(), getUrl(), NettyClient.this);
+            ChannelPipeline pipeline = Channels.pipeline();
+            // 解码器
+            pipeline.addLast("decoder", adapter.getDecoder());
+            // 编码器
+            pipeline.addLast("encoder", adapter.getEncoder());
+            // 框架内部使用的handler
+            pipeline.addLast("handler", nettyHandler);
+            return pipeline;
+        }
+    });
+}
+```
+
+​	上面的代码创建了一个启动NettyClient的bootstrap并对其进行设置，这里是把编解码器和自定义的nettyClientHandler添加到了链接Channel对应的管线里，在后面的第13章会做具体讲解。
+
+​	在调用doOpen（）方法后会调用NettyClient的doConnect（）方法与服务提供者建立TCP链接，其中NettyClient的doConnect（）方法的代码如下：
+
+```java
+protected void doConnect() throws Throwable {
+    long start = System.currentTimeMillis();
+    // 发起连接
+    ChannelFuture future = bootstrap.connect(getConnectAddress());
+    try {
+        boolean ret = future.awaitUninterruptibly(getConnectTimeout(), TimeUnit.MILLISECONDS);
+
+        if (ret && future.isSuccess()) {
+            Channel newChannel = future.getChannel();
+            newChannel.setInterestOps(Channel.OP_READ_WRITE);
+            try {
+                // Close old channel
+                Channel oldChannel = NettyClient.this.channel; // copy reference
+                if (oldChannel != null) {
+                    try {
+                        if (logger.isInfoEnabled()) {
+                            logger.info("Close old netty channel " + oldChannel + " on create new netty channel " + newChannel);
+                        }
+                        oldChannel.close();
+                    } finally {
+                        NettyChannel.removeChannelIfDisconnected(oldChannel);
+                    }
+                }
+            } finally {
+                if (NettyClient.this.isClosed()) {
+                    try {
+                        if (logger.isInfoEnabled()) {
+                            logger.info("Close new netty channel " + newChannel + ", because the client closed.");
+                        }
+                        newChannel.close();
+                    } finally {
+                        NettyClient.this.channel = null;
+                        NettyChannel.removeChannelIfDisconnected(newChannel);
+                    }
+                } else {
+                    NettyClient.this.channel = newChannel;
+                }
+            }
+        } else if (future.getCause() != null) {
+            throw new RemotingException(this, "client(url: " + getUrl() + ") failed to connect to server "
+                    + getRemoteAddress() + ", error message is:" + future.getCause().getMessage(), future.getCause());
+        } else {
+            throw new RemotingException(this, "client(url: " + getUrl() + ") failed to connect to server "
+                    + getRemoteAddress() + " client-side timeout "
+                    + getConnectTimeout() + "ms (elapsed: " + (System.currentTimeMillis() - start) + "ms) from netty client "
+                    + NetUtils.getLocalHost() + " using dubbo version " + Version.getVersion());
+        }
+    } finally {
+        if (!isConnected()) {
+            future.cancel();
+        }
+    }
+}
+```
+
+​	另外需要注意的是，在NettyClient的父类AbstractEndpoint中确定了编解码器，这里默认为DubboCodec：
+
+```java
+public AbstractEndpoint(URL url, ChannelHandler handler) {
+    super(url, handler);
+    this.codec = getChannelCodec(url);
+    this.connectTimeout = url.getPositiveParameter(Constants.CONNECT_TIMEOUT_KEY, Constants.DEFAULT_CONNECT_TIMEOUT);
+}
+
+protected static Codec2 getChannelCodec(URL url) {
+    String codecName = url.getProtocol(); // codec extension name must stay the same with protocol name
+    if (ExtensionLoader.getExtensionLoader(Codec2.class).hasExtension(codecName)) {
+        return ExtensionLoader.getExtensionLoader(Codec2.class).getExtension(codecName);
+    } else {
+        return new CodecAdapter(ExtensionLoader.getExtensionLoader(Codec.class)
+                .getExtension(codecName));
+    }
+}
+```
+
+​	然后，在doOpen（）方法中，代码NettyCodecAdapteradapter=new NettyCodecAdapter（getCodec（），getUrl（），NettyClient.this）；使用getCodec（）方法获取了该编解码器并封装到NettyCodecAdapter适配器中，然后把编解码器设置到链接Channel的管线中。关于编解码器的使用，后面有专门的章节进行讲解。
+
+​	这里需要注意三点：第一点，由于同一个服务提供者机器可以提供多个服务，那么消费者机器需要与同一个服务提供者机器提供的多个服务共享连接，还是与每个服务都建立一个连接？第二点，消费端是启动时就与服务提供者机器建立好连接吗？第三点，每个服务消费端与服务提供者集群中的所有机器都有连接吗？对于第三点，我们可以看看图3.9中的toRouters（）方法就可以找到答案，其内部是把具体服务的所有服务提供者的URL信息转换为了Invoker，也就是说服务消费端与服务提供者的所有机器都有连接。
+
+​	为了回答上面的问题，我们看看getClients（）方法的代码：
+
+```java
+private ExchangeClient[] getClients(URL url) {
+    // whether to share connection
+	// 不同服务是否共享连接
+    boolean useShareConnect = false;
+
+    int connections = url.getParameter(CONNECTIONS_KEY, 0);
+    List<ReferenceCountExchangeClient> shareClients = null;
+    // if not configured, connection is shared, otherwise, one connection for one service
+    // 如果没配置，则默认连接时共享的
+    if (connections == 0) {
+        useShareConnect = true;
+
+        /*
+         * The xml configuration should have a higher priority than properties.
+         */
+        // xml配置优先级高于属性配置
+        String shareConnectionsStr = url.getParameter(SHARE_CONNECTIONS_KEY, (String) null);
+        connections = Integer.parseInt(StringUtils.isBlank(shareConnectionsStr) ? ConfigUtils.getProperty(SHARE_CONNECTIONS_KEY,
+                DEFAULT_SHARE_CONNECTIONS) : shareConnectionsStr);
+        // 获取共享的NettyClient
+        shareClients = getSharedClient(url, connections);
+    }
+
+    ExchangeClient[] clients = new ExchangeClient[connections];
+    for (int i = 0; i < clients.length; i++) {
+        if (useShareConnect) {
+            // 共享则返回已存在的
+            clients[i] = shareClients.get(i);
+
+        } else {
+            // 否则创建新的
+            clients[i] = initClient(url);
+        }
+    }
+
+    return clients;
+}
+```
+
+​	通过上面的代码可知，在默认情况下当消费端引用同一个服务提供者机器上多个服务时，这些服务复用一个Netty连接，这里回答了第一个问题。
+
+​	下面我们从initClient（）方法里看第二个问题的答案：
+
+```java
+private ExchangeClient initClient(URL url) {
+
+    // client type setting.
+    String str = url.getParameter(CLIENT_KEY, url.getParameter(SERVER_KEY, DEFAULT_REMOTING_CLIENT));
+
+    url = url.addParameter(CODEC_KEY, DubboCodec.NAME);
+    // enable heartbeat by default
+    url = url.addParameterIfAbsent(HEARTBEAT_KEY, String.valueOf(DEFAULT_HEARTBEAT));
+
+    // BIO is not allowed since it has severe performance issue.
+    if (str != null && str.length() > 0 && !ExtensionLoader.getExtensionLoader(Transporter.class).hasExtension(str)) {
+        throw new RpcException("Unsupported client type: " + str + "," +
+                " supported client type is " + StringUtils.join(ExtensionLoader.getExtensionLoader(Transporter.class).getSupportedExtensions(), " "));
+    }
+
+    ExchangeClient client;
+    try {
+        // connection should be lazy
+        // 为惰性连接
+        if (url.getParameter(LAZY_CONNECT_KEY, false)) {
+            client = new LazyConnectExchangeClient(url, requestHandler);
+
+        } else {
+            // 为及时连接
+            client = Exchangers.connect(url, requestHandler);
+        }
+
+    } catch (RemotingException e) {
+        throw new RpcException("Fail to create remoting client for service(" + url + "): " + e.getMessage(), e);
+    }
+
+    return client;
+}
+```
+
+​	上面的代码默认lazy为false，所以当消费端启动时就与提供者建立了连接，这里回答了第二个问题。
+
+​	另外，从DubboProtocol的refer（）方法可知，其内部返回了一个DubboInvoker，这就是原生的invoker对象，服务消费方远程服务转换就是为了这个invoker。图3.9中的步骤17则是对这个invoker进行装饰，即使用一系列Filter形成了责任链，invoker被放到责任链的末尾。下面我们看看ProtocolFilterWrapper的buildInvokerChain（）方法是如何形成责任链的，具体代码如下：
+
+```java
+public <T> Invoker<T> buildInvokerChain(final Invoker<T> originalInvoker, String key, String group) {
+    Invoker<T> last = originalInvoker;
+    // 获取所有激活的Filter，然后使用链表的方式形成责任链
+    List<Filter> filters = ExtensionLoader.getExtensionLoader(Filter.class).getActivateExtension(originalInvoker.getUrl(), key, group);
+
+    if (!filters.isEmpty()) {
+        for (int i = filters.size() - 1; i >= 0; i--) {
+            final Filter filter = filters.get(i);
+            final Invoker<T> next = last;
+            last = new FilterChainNode<>(originalInvoker, next, filter);
+        }
+    }
+
+    return last;
+}
+```
+
+其中，扩展接口Filter对应的实现类如下所示：
+
+![](https://pic.imgdb.cn/item/611275015132923bf8bd612b.jpg)
+
+![](https://pic.imgdb.cn/item/611275895132923bf8be7387.jpg)
+
+​	其中，MonitorFilter和监控中心进行交互，FutureFilter用来实现异步调用，GenericFilter用来实现泛化调用，ActiveLimitFilter用来控制消费端最大并发调用量，ExecuteLimitFilter用来控制服务提供方最大并发处理量等，当然也可以写自己的Filter。
+
+​	需要注意的是，消费端启动时并不是把所有的Filter扩展实现都放到责任链中，而是把group=consumer并且value值在URL里的才会放到责任链中，这一点在2.5节中提到过。
+
+​	由于是责任链，所以ProtocolFilterWrapper的refer（）方法是将责任链头部的Filter返回到ProtocolListenerWrapper。ProtocolListenerWrapper的refer（）方法的代码如下：
+
+```java
+public <T> Invoker<T> refer(Class<T> type, URL url) throws RpcException {
+    if (UrlUtils.isRegistry(url)) {
+        return protocol.refer(type, url);
+    }
+
+    Invoker<T> invoker = protocol.refer(type, url);
+    if (StringUtils.isEmpty(url.getParameter(REGISTRY_CLUSTER_TYPE_KEY))) {
+        invoker = new ListenerInvokerWrapper<>(invoker,
+                Collections.unmodifiableList(
+                        ExtensionLoader.getExtensionLoader(InvokerListener.class)
+                                .getActivateExtension(url, INVOKER_LISTENER_KEY)));
+    }
+    return invoker;
+}
+```
+
+​	至此可知，在图3.10中，在RegistryDirectory里维护了所有服务者的invoker列表，消费端发起远程调用时就是根据集群容错和负载均衡算法以及路由规则从invoker列表里选择一个进行调用的，当服务提供者宕机的时候，ZooKeeper会通知更新这个invoker列表。
+
+![](https://pic.imgdb.cn/item/611276795132923bf8c06d08.jpg)
+
+​	到这里，我们就讲完了图3.9中directory.subscribe（）方法是如何订阅服务提供者服务的，并且把服务提供者所有的URL信息转换为了invoker列表，并保存到RegistryDirectory里。下面，我们接着讲解图3.9中RegistryProtocol的doRefer（）方法中的cluster.join（directory）是如何使用集群容错扩展将Dubbo协议的invoker客户端转换为需要的接口的。在默认情况下，cluster的扩展接口实现为FailoverCluster，所以这里是调用FailoverCluster的join（）方法，FailoverCluster的join（）方法的代码如下：
+
+```java
+public class FailoverCluster extends AbstractCluster {
+
+    public final static String NAME = "failover";
+
+    @Override
+    public <T> AbstractClusterInvoker<T> doJoin(Directory<T> directory) throws RpcException {
+        return new FailoverClusterInvoker<>(directory);
+    }
+
+}
+```
+
+​	这里是把directory对象包裹到了FailoverClusterInvoker里，需要注意的是，directory就是上面讲解的RegistryDirectory，其内部维护了所有服务提供者的invoker列表，而FailoverCluster就是集群容错策略。
+
+​	其实，Dubbo对cluster扩展接口实现类使用Wrapper类MockClusterWrapper进行增强，这一点从图3.11可以得到证明。
+
+![](https://pic.imgdb.cn/item/6112771b5132923bf8c1bdfa.jpg)
+
+​	实际上调用的时序图如图3.12所示。
+
+![](https://pic.imgdb.cn/item/6112772a5132923bf8c1dd8f.jpg)
+
+​	图3.12中的步骤3将FailbackClusterInvoker对象返回到步骤2，下面看看MockClusterWrapper类的代码：
+
+```java
+public class MockClusterWrapper implements Cluster {
+
+    private Cluster cluster;
+
+    public MockClusterWrapper(Cluster cluster) {
+        this.cluster = cluster;
+    }
+
+    @Override
+    public <T> Invoker<T> join(Directory<T> directory) throws RpcException {
+        return new MockClusterInvoker<T>(directory,
+                this.cluster.join(directory));
+    }
+
+}
+```
+
+​	从上面的代码可知，MockClusterWrapper类把FailoverClusterInvoker包装成了MockClusterInvoker实例，所以整个调用链最终调用返回的是MockClusterInvoker对象。也就是说，本节第一个时序图（见图3.8）中的步骤4返回的是MockClusterWrapper，然后执行图3.9中的步骤14以获取MockClusterInvoker的代理，实现invoker到客户端接口的转换，这里默认调用的是JavassistProxyFactory的getProxy（）方法，其代码如下：
+
+```java
+public <T> T getProxy(Invoker<T> invoker, Class<?>[] interfaces) {
+    return (T) Proxy.getProxy(interfaces).newInstance(new InvokerInvocationHandler(invoker));
+}
+```
+
+​	其中，InvokerInvocationHandler为具体拦截器。至此，我们按照逆序的方式把服务消费端启动流程讲解完了，下面一节讲解一次远程调用过程。
+
+## Dubbo服务消费端一次远程调用过程
+
+​	我们先看看整体时序图，如图3.13所示。
+
+![](https://pic.imgdb.cn/item/611277c05132923bf8c324f3.jpg)
+
+​	在3.3节中，我们提到服务消费端通过ReferenceConfig的get（）方法返回的是一个代理类，并且方法拦击器为InvokerInvocationHandler，所以当消费方调用了服务的接口方法后会被InvokerInvocationHandler拦截，执行图3.13所示的流程。
+
+​	在图3.13所示的流程中，步骤1的代码如下：
+
+```java
+@Override
+public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+    if (method.getDeclaringClass() == Object.class) {
+        return method.invoke(invoker, args);
+    }
+    String methodName = method.getName();
+    Class<?>[] parameterTypes = method.getParameterTypes();
+    if (parameterTypes.length == 0) {
+        if ("toString".equals(methodName)) {
+            return invoker.toString();
+        } else if ("$destroy".equals(methodName)) {
+            invoker.destroy();
+            return null;
+        } else if ("hashCode".equals(methodName)) {
+            return invoker.hashCode();
+        }
+    } else if (parameterTypes.length == 1 && "equals".equals(methodName)) {
+        return invoker.equals(args[0]);
+    }
+    RpcInvocation rpcInvocation = new RpcInvocation(method, invoker.getInterface().getName(), protocolServiceKey, args);
+    String serviceKey = url.getServiceKey();
+    rpcInvocation.setTargetServiceUniqueName(serviceKey);
+
+    // invoker.getUrl() returns consumer url.
+    RpcServiceContext.setRpcContext(url);
+
+    if (consumerModel != null) {
+        rpcInvocation.put(Constants.CONSUMER_MODEL, consumerModel);
+        rpcInvocation.put(Constants.METHOD_MODEL, consumerModel.getMethodModel(method));
+    }
+
+    return invoker.invoke(rpcInvocation).recreate();
+}
+```
+
+​	从上面的代码可知，这里创建了RpcInvocation，其中method为调用的方法，args为参数，这个RpcInvocation对象会一直传递，直到发起远程调用（下面对此会做讲解）。
+
+​	这里需要注意的一点是，如果服务接口的方法的返回值为CompletableFuture类或者其子类，则需要设置标记future_returntype为true和async=true，这些属性需要设置到附加属性RpcInvocation里：（3.0.1版本没看到)
+
+![](https://pic.imgdb.cn/item/611278f35132923bf8c5ba2a.jpg)
+
+​	这些内容在11.2.1小节会做具体讲解。
+
+​	步骤2和步骤3调用了默认的集群容错策略FailoverClusterInvoker，其内部首先根据设置的负载均衡策略LoadBalance的扩展实现，选择一个invoker作为FailoverClusterInvoker具体的远程调用者，如果调用发生异常，则根据FailoverClusterInvoker的策略重新选择一个invoker进行调用。
+
+​	在FailoverClusterInvoker内每次调用invoker的invoke（）方法时，都会走到步骤8和步骤9，后面的步骤10、步骤11和步骤12是在ProtocolFilterWrapper内创建的责任链，最后调用了原生的DubboInvoker，其使用NettyClient与服务提供者进行交互，其中DubboInvoker的doInvoke（）方法的内容如下：
+
+```java
+protected Result doInvoke(final Invocation invocation) throws Throwable {
+    // 设置附加
+    RpcInvocation inv = (RpcInvocation) invocation;
+    final String methodName = RpcUtils.getMethodName(invocation);
+    inv.setAttachment(PATH_KEY, getUrl().getPath());
+    inv.setAttachment(VERSION_KEY, version);
+	
+    // 获取远程调用Client
+    ExchangeClient currentClient;
+    if (clients.length == 1) {
+        currentClient = clients[0];
+    } else {
+        currentClient = clients[index.getAndIncrement() % clients.length];
+    }
+    // 执行远程调用
+    try {
+        // 是否为oneWay，也就是不需要响应结果的请求
+        boolean isOneway = RpcUtils.isOneway(getUrl(), invocation);
+        // 超时等待时间
+        int timeout = calculateTimeout(invocation, methodName);
+        invocation.put(TIMEOUT_KEY, timeout);
+        // 不需要响应的请求
+        if (isOneway) {
+            boolean isSent = getUrl().getMethodParameter(methodName, Constants.SENT_KEY, false);
+            currentClient.send(inv, isSent);
+            return AsyncRpcResult.newDefaultAsyncResult(invocation);
+        } else {
+            // 
+            ExecutorService executor = getCallbackExecutor(getUrl(), inv);
+            CompletableFuture<AppResponse> appResponseFuture =
+                    currentClient.request(inv, timeout, executor).thenApply(obj -> (AppResponse) obj);
+            // save for 2.6.x compatibility, for example, TraceFilter in Zipkin uses com.alibaba.xxx.FutureAdapter
+            FutureContext.getContext().setCompatibleFuture(appResponseFuture);
+            AsyncRpcResult result = new AsyncRpcResult(appResponseFuture, inv);
+            result.setExecutor(executor);
+            return result;
+        }
+    } catch (TimeoutException e) {
+        throw new RpcException(RpcException.TIMEOUT_EXCEPTION, "Invoke remote method timeout. method: " + invocation.getMethodName() + ", provider: " + getUrl() + ", cause: " + e.getMessage(), e);
+    } catch (RemotingException e) {
+        throw new RpcException(RpcException.NETWORK_EXCEPTION, "Failed to invoke remote method: " + invocation.getMethodName() + ", provider: " + getUrl() + ", cause: " + e.getMessage(), e);
+    }
+}
+```
+
+​	从上面的代码可知，程序首先获取远程调用Client，然后判断调用是否为异步调用、是否请求响应。
+
+​	如果请求不需要响应结果则直接使用远程Client发起请求调用，然后将RpcContext上下文的future设置为null，并且返回空的RpcResult。
+
+​	如果请求是异步请求，则保存远程Client发起请求后返回的future对象，并且设置到RpcContext上下文中，这样，调用方就可以通过RpcContext上下文获取该future。
+
+​	如果请求为同步请求，则首先设置RpcContext上下文中的future对象为null，然后使用远程Client发起请求，然后在返回的future对象上调用get（）方法，以同步等待远程调用结果的返回。
+
+# Directory目录与Router路由服务
+
+## Directory目录
+
+​	Directory代表了多个invoker（对于消费端来说，每个invoker代表了一个服务提供者），其内部维护着一个List，并且这个List的内容是动态变化的，比如当服务提供者集群新增或者减少机器时，服务注册中心就会推送当前服务提供者的地址列表，然后Directory中的List就会根据服务提供者地址列表相应变化。
+
+​	在Dubbo中，接口Directory的实现有RegistryDirectory和StaticDirectory两种，其中前者管理的invoker列表是根据服务注册中心的推送变化而变化的，而后者是当消费端使用了多注册中心时，其把所有服务注册中心的invoker列表汇集到一个invoker列表中。
+
+本章我们主要从下面几个方面来探讨RegistryDirectory：
+
+* 消费端启动时何时构建RegistryDirectory
+* RegistryDirectory管理的invoker列表如何动态变化
+* 路由信息是如何保存与变化的
+
+## RegistryDirectory的创建
+
+![](https://pic.imgdb.cn/item/61127c2d5132923bf8ccdf2b.jpg)
+
+​	通过图4.1可知，RegistryDirectory是在服务消费端启动时创建的。
+
+* 在2.1节中我们提到，ReferenceConfig代表一个要消费的服务的配置对象，调用ReferenceConfig的get（）方法，就意味着要创建一个对服务提供方的远程调用代理。
+* 在图4.1中，步骤2在创建对远程服务提供者的代理时，第一步是调用RegistryProtocol类的refer（）方法，由于RegistryProtocol是一个SPI，所以这里是通过其适配器类Protocol$Adaptive进行间接调用的。另外，这里的ProtocolListenerWrapper、QosProtocolWrapper和ProtocolFilterWrapper是对RegistryProtocol类的功能的增强。
+
+## RegistryDirectory中invoker列表的更新
+
+​	上一节探讨了RegistryDirectory何时被创建，本节我们看看其管理的invoker列表是何时被创建与更新的。
+
+​	下面看看RegistryDirectory中invoker列表的更新流程，如图4.2所示。
+
+​	通过图4.2可知，创建完RegistryDirectory后，调用了其subscribe（）方法，这里假设使用的服务注册中心为ZooKeeper，这样就会去ZooKeeper订阅需要调用的服务提供者的地址列表，然后步骤3添加了一个监听器，当ZooKeeper服务端发现服务提供者地址列表发生变化后，会将地址列表推送到服务消费端，然后zkClient会回调该监听器的notify（）方法。
+
+![](https://pic.imgdb.cn/item/61127c7d5132923bf8cda507.jpg)
+
+​	在步骤3设置完监听器后，同步返回了订阅的服务地址列表、路由规则、配置信息等，然后同步调用了RegistryDirectory的notify（）方法：
+
+```java
+	步骤6从ZooKeeper返回的服务提供者的信息里获取对应的路由规则，并使用步骤7保存到RouterChain里，这个路由规则是通过管理控制台进行配置的，如图4.3所示。
+        public synchronized void notify(List<URL> urls) {
+    if (isDestroyed()) {
+        return;
+    }
+
+    Map<String, List<URL>> categoryUrls = urls.stream()
+            .filter(Objects::nonNull)
+            .filter(this::isValidCategory)
+            .filter(this::isNotCompatibleFor26x)
+            .collect(Collectors.groupingBy(this::judgeCategory));
+
+    List<URL> configuratorURLs = categoryUrls.getOrDefault(CONFIGURATORS_CATEGORY, Collections.emptyList());
+    this.configurators = Configurator.toConfigurators(configuratorURLs).orElse(this.configurators);
+	// 动态配置信息
+    List<URL> routerURLs = categoryUrls.getOrDefault(ROUTERS_CATEGORY, Collections.emptyList());
+    toRouters(routerURLs).ifPresent(this::addRouters);
+
+    // providers
+    List<URL> providerURLs = categoryUrls.getOrDefault(PROVIDERS_CATEGORY, Collections.emptyList());
+    /**
+     * 3.x added for extend URL address
+     */
+    ExtensionLoader<AddressListener> addressListenerExtensionLoader = ExtensionLoader.getExtensionLoader(AddressListener.class);
+    List<AddressListener> supportedListeners = addressListenerExtensionLoader.getActivateExtension(getUrl(), (String[]) null);
+    // 服务提供者列表信息
+    if (supportedListeners != null && !supportedListeners.isEmpty()) {
+        for (AddressListener addressListener : supportedListeners) {
+            providerURLs = addressListener.notify(providerURLs, getConsumerUrl(),this);
+        }
+    }
+    // 刷新invoker列表
+    refreshOverrideAndInvoker(providerURLs);
+}
+```
+
+![](https://pic.imgdb.cn/item/611280f75132923bf8d87000.jpg)
+
+​	步骤9根据服务降级信息，重写URL（也就是把mock=returnnull等信息拼接到URL中）并保存到overrideDirectoryUrl中，然后执行步骤10，把服务提供者的URL列表转换为invoker列表，并保存到RouterChain里：
+
+```java
+private void refreshInvoker(List<URL> invokerUrls) {
+    Assert.notNull(invokerUrls, "invokerUrls should not be null");
+	// 只有一个服务提供者时
+    if (invokerUrls.size() == 1
+            && invokerUrls.get(0) != null
+            && EMPTY_PROTOCOL.equals(invokerUrls.get(0).getProtocol())) {
+        this.forbidden = true; // Forbid to access
+        this.invokers = Collections.emptyList();
+        routerChain.setInvokers(this.invokers);
+        destroyAllInvokers(); // Close all invokers
+    } else {
+        // 多个提供者时
+        this.forbidden = false; // Allow to access
+        Map<URL, Invoker<T>> oldUrlInvokerMap = this.urlInvokerMap; // local reference
+        if (invokerUrls == Collections.<URL>emptyList()) {
+            invokerUrls = new ArrayList<>();
+        }
+        if (invokerUrls.isEmpty() && this.cachedInvokerUrls != null) {
+            invokerUrls.addAll(this.cachedInvokerUrls);
+        } else {
+            this.cachedInvokerUrls = new HashSet<>();
+            this.cachedInvokerUrls.addAll(invokerUrls);//Cached invoker urls, convenient for comparison
+        }
+        if (invokerUrls.isEmpty()) {
+            return;
+        }
+        // URL转换为invoker对象
+        Map<URL, Invoker<T>> newUrlInvokerMap = toInvokers(invokerUrls);// Translate url list to Invoker map
+
+        /**
+         * If the calculation is wrong, it is not processed.
+         *
+         * 1. The protocol configured by the client is inconsistent with the protocol of the server.
+         *    eg: consumer protocol = dubbo, provider only has other protocol services(rest).
+         * 2. The registration center is not robust and pushes illegal specification data.
+         *
+         */
+        if (CollectionUtils.isEmptyMap(newUrlInvokerMap)) {
+            logger.error(new IllegalStateException("urls to invokers error .invokerUrls.size :" + invokerUrls.size() + ", invoker.size :0. urls :" + invokerUrls
+                    .toString()));
+            return;
+        }
+		// 设置newInvokers到routerChain
+        List<Invoker<T>> newInvokers = Collections.unmodifiableList(new ArrayList<>(newUrlInvokerMap.values()));
+        // pre-route and build cache, notice that route cache should build on original Invoker list.
+        // toMergeMethodInvokerMap() will wrap some invokers having different groups, those wrapped invokers not should be routed.
+        routerChain.setInvokers(newInvokers);
+        this.invokers = multiGroup ? toMergeInvokerList(newInvokers) : newInvokers;
+        this.urlInvokerMap = newUrlInvokerMap;
+		// 关闭无用的invokers
+        try {
+            destroyUnusedInvokers(oldUrlInvokerMap, newUrlInvokerMap); // Close the unused Invoker
+        } catch (Exception e) {
+            logger.warn("destroyUnusedInvokers error. ", e);
+        }
+
+        // notify invokers refreshed
+        this.invokersChanged();
+    }
+}
+```
+
+​	另外，RouterChain里也保存了可用服务提供者对应的invokers列表和路由规则信息，当服务消费方的集群容错策略要获取可用服务提供者对应的invoker列表时，会调用RouterChain的route（）方法，其内部根据路由规则信息和invokers列表来提供服务，流程如图4.4所示。
+
+![](https://pic.imgdb.cn/item/611283055132923bf8dd866c.jpg)
+
+```java
+public List<Invoker<T>> route(URL url, Invocation invocation) {
+
+    AddrCache<T> cache = this.cache.get();
+    if (cache == null) {
+        throw new RpcException(RpcException.ROUTER_CACHE_NOT_BUILD, "Failed to invoke the method "
+            + invocation.getMethodName() + " in the service " + url.getServiceInterface()
+            + ". address cache not build "
+            + " on the consumer " + NetUtils.getLocalHost()
+            + " using the dubbo version " + Version.getVersion()
+            + ".");
+    }
+    BitList<Invoker<T>> finalBitListInvokers = new BitList<>(invokers, false);
+    for (StateRouter stateRouter : stateRouters) {
+        if (stateRouter.isEnable()) {
+            RouterCache<T> routerCache = cache.getCache().get(stateRouter.getName());
+            finalBitListInvokers = stateRouter.route(finalBitListInvokers, routerCache, url, invocation);
+        }
+    }
+
+    List<Invoker<T>> finalInvokers = new ArrayList<>(finalBitListInvokers.size());
+
+    for(Invoker<T> invoker: finalBitListInvokers) {
+        finalInvokers.add(invoker);
+    }
+
+    for (Router router : routers) {
+        finalInvokers = router.route(finalInvokers, url, invocation);
+    }
+    return finalInvokers;
+}
+```
+
+​	总结一下就是，在服务消费端应用中，每个需要消费的服务都被包装为ReferenceConfig，在应用启动时会调用每个服务对应的ReferenceConfig的get（）方法，然后会为每个服务创建一个自己的RegistryDirectory对象，每个RegistryDirectory管理该服务提供者的地址列表、路由规则、动态配置等信息，当服务提供者的信息发生变化时，RegistryDirectory会动态地得到变化通知，并自动更新。
+
+​	至于RouterChain链是什么时候创建的，我们已经在3.3节提到过，即RouterChain链是在消费端启动过程中通过RegistryProtocol的doRefer（）方法调用RegistryDirectory的buildRouterChain（）方法创建的。
+
+# Dubbo消费端服务mock与服务降级策略原理
+
+## 服务降级原理
+
+### 降级策略注册
+
+​	在基础篇中，我们介绍了使用下面的代码可以将服务降级信息注册到ZooKeeper：
+
+![](https://pic.imgdb.cn/item/611286855132923bf8e595a0.jpg)
+
+​	当以参数force调用上述代码时，降级策略就会写入ZooKeeper服务器com.books.dubbo.demo.api.GreetingService子树中Type为configurators的下面，如图5.1所示。当然，也可以使用admin手动配置服务降级策略。
+
+![](https://pic.imgdb.cn/item/611286ca5132923bf8e63f82.jpg)
+
+​	当服务消费者启动时，会去订阅com.books.dubbo.demo.api.GreetingService子树中的信息，比如Providers（服务提供者列表）、Routes（路由信息）、Configurators（服务降级策略）等信息，这些内容在第4章已经讲过。
+
+​	当服务消费者发起远程调用时，会看是否设置了force：return降级策略，如果设置了则不发起远程调用并直接返回mock值，否则发起远程调用。当远程调用结果OK时，直接返回远程调用返回的结果；如果远程调用失败了，则看当前是否设置了fail：return的降级策略，如果设置了，则直接返回mock值，否则返回调用远程服务失败的具体原因。
+
+### 服务消费端使用降级策略
+
+​	首先，我们看一幅简化的时序图，了解一下从消费端发起远程调用的流程，如图5.2所示。
+
+![](https://pic.imgdb.cn/item/611287175132923bf8e6f895.jpg)
+
+​	从图中可以看出，服务消费端是在MockClusterInvoker类的invoke（）方法里使用降级策略并在DubboInvoker的invoke（）方法里发起远程调用的，所以服务降级是在消费端还没有发起远程调用时完成的。
+
+​	本节主要讲解服务降级，所以我们看看MockClusterInvoker类的代码：
+
+```java
+public Result invoke(Invocation invocation) throws RpcException {
+    Result result = null;
+	// 查看url里面是否有mock字段
+    String value = getUrl().getMethodParameter(invocation.getMethodName(), MOCK_KEY, Boolean.FALSE.toString()).trim();
+    // 如果没有，或者值为默认的false，则说明没有设置降级策略
+    if (value.length() == 0 || "false".equalsIgnoreCase(value)) {
+        //no mock
+        // 没有mock。正常发起远程调用
+        result = this.invoker.invoke(invocation);
+    } else if (value.startsWith("force")) {
+        // 设置了force:return降级策略
+        if (logger.isWarnEnabled()) {
+            logger.warn("force-mock: " + invocation.getMethodName() + " force-mock enabled , url : " + getUrl());
+        }
+        //force:direct mock
+        result = doMockInvoke(invocation, null);
+    } else {
+        // 设置了fail-mock
+        //fail-mock
+        try {
+            result = this.invoker.invoke(invocation);
+
+            //fix:#4585
+            if(result.getException() != null && result.getException() instanceof RpcException){
+                RpcException rpcException= (RpcException)result.getException();
+                if(rpcException.isBiz()){
+                    throw  rpcException;
+                }else {
+                    result = doMockInvoke(invocation, rpcException);
+                }
+            }
+
+        } catch (RpcException e) {
+            if (e.isBiz()) {
+                throw e;
+            }
+
+            if (logger.isWarnEnabled()) {
+                logger.warn("fail-mock: " + invocation.getMethodName() + " fail-mock enabled , url : " + getUrl(), e);
+            }
+            result = doMockInvoke(invocation, e);
+        }
+    }
+    return result;
+}
+```
+
+​	通过上面的代码可知，其中directory.getUrl（）方法获取的就是上一节我们讲解overrideDirectoryUrl，代码1查看该URL里面是否含有mock的值，如果没有或者有但是值为false，说明没有设置降级策略，则执行代码2.1，也就是正常发起远程调用。
+
+​	如果URL里面含有mock字段，并且其值以force开头，则说明设置了force：return降级策略，那么直接调用doMockInvoke（）方法（其内部会调用创建的MockInvoker的invoke（）方法），返回mock值，而不发起远程调用。
+
+​	如果URL里面含有mock字段，并且其值以fail开头，则说明设置了fail：return降级策略，那么先发起远程调用。如果远程调用成功，则直接返回远程返回的结果（如果这里使用了默认的集群容错策略，则代码4.1会调用FailoverClusterInvokerd的invoke（）方法发起远程调用）；如果发起远程调用失败，则执行代码4.3，直接返回mock的值。
+
+## 本地服务mock原理
+
+### mock合法性检查
+
+​	在3.3节我们讲解了在服务引用启动时会在ReferenceConfig的init（）方法内调用checkMock来检查设置的mock的正确性，下面我们看看相应的代码：
+
+```java
+public static void checkMock(Class<?> interfaceClass, AbstractInterfaceConfig config) {
+    // 没有设置mock，则直接返回
+    String mock = config.getMock();
+    if (ConfigUtils.isEmpty(mock)) {
+        return;
+    }
+	// 格式化mock方式
+    String normalizedMock = MockInvoker.normalizeMock(mock);
+    // 检查mock值是否合法，不合法则抛出异常
+    if (normalizedMock.startsWith(RETURN_PREFIX)) {
+        normalizedMock = normalizedMock.substring(RETURN_PREFIX.length()).trim();
+        try {
+            //Check whether the mock value is legal, if it is illegal, throw exception
+            MockInvoker.parseMockValue(normalizedMock);
+        } catch (Exception e) {
+            throw new IllegalStateException("Illegal mock return in <dubbo:service/reference ... " +
+                "mock=\"" + mock + "\" />");
+        }
+    } else if (normalizedMock.startsWith(THROW_PREFIX)) {
+        normalizedMock = normalizedMock.substring(THROW_PREFIX.length()).trim();
+        if (ConfigUtils.isNotEmpty(normalizedMock)) {
+            try {
+                //Check whether the mock value is legal
+                MockInvoker.getThrowable(normalizedMock);
+            } catch (Exception e) {
+                throw new IllegalStateException("Illegal mock throw in <dubbo:service/reference ... " +
+                    "mock=\"" + mock + "\" />");
+            }
+        }
+    } else {
+        //Check whether the mock class is a implementation of the interfaceClass, and if it has a default constructor
+        MockInvoker.getMockObject(normalizedMock, interfaceClass);
+    }
+}
+```
+
+​	如果代码1没有设置mock规则，则直接返回，否则代码2对mock规则进行格式化：
+
+![](https://pic.imgdb.cn/item/611289b35132923bf8ed2b60.jpg)
+
+​	例如，如果设置mock为return，则格式化后为return null。
+
+​	代码将检查mock值是否合法，不合法将抛出异常。由于我们的Demo是将mock设置为true，所以我们会看到代码4将检查mock接口的实现类是否符合规则，MockInvoker.getMockObject的代码如下：
+
+```java
+public static Object getMockObject(String mockService, Class serviceType) {
+    // 如果mock类型为true或者default
+    boolean isDefault = ConfigUtils.isDefault(mockService);
+    if (isDefault) {
+        mockService = serviceType.getName() + "Mock";
+    }
+	// 反射加载字节码创建Class对象
+    Class<?> mockClass;
+    try {
+        mockClass = ReflectUtils.forName(mockService);
+    } catch (Exception e) {
+        if (!isDefault) {// does not check Spring bean if it is default config.
+            ExtensionFactory extensionFactory =
+                    ExtensionLoader.getExtensionLoader(ExtensionFactory.class).getAdaptiveExtension();
+            Object obj = extensionFactory.getExtension(serviceType, mockService);
+            if (obj != null) {
+                return obj;
+            }
+        }
+        throw new IllegalStateException("Did not find mock class or instance "
+                + mockService
+                + ", please check if there's mock class or instance implementing interface "
+                + serviceType.getName(), e);
+    }
+    if (mockClass == null || !serviceType.isAssignableFrom(mockClass)) {
+        throw new IllegalStateException("The mock class " + mockClass.getName() +
+                " not implement interface " + serviceType.getName());
+    }
+	// 创建实例
+    try {
+        return mockClass.newInstance();
+    } catch (InstantiationException e) {
+        throw new IllegalStateException("No default constructor from mock class " + mockClass.getName(), e);
+    } catch (IllegalAccessException e) {
+        throw new IllegalStateException(e);
+    }
+}
+```
+
+​	如果代码5中的mock类型为true或者deafult，则mockService被设置为接口名称加上Mock，例如，如果接口为com.books.dubbo.demo.api.GreetingServic并且mock设置为true，则这里的mockService就是com.books.dubbo.demo.api.GreetingServicMock，然后代码6加载com.books.dubbo.demo.api.GreetingServicMock的字节码文件以创建Class对象，代码7则创建实例。上面这些代码的作用是查看用户程序的classpath下是否存在mock类的实现com.books.dubbo.demo.api.GreetingServicMock，如果不存在，则抛出异常。
+
+### 服务消费端使用mock服务
+
+​	mock服务与服务降级策略一样，也是在MockClusterInvoker中实现的，这里我们再看看其中的invoke（）方法：
+
+```java
+public Result invoke(Invocation invocation) throws RpcException {
+        Result result = null;
+
+        String value = getUrl().getMethodParameter(invocation.getMethodName(), MOCK_KEY, Boolean.FALSE.toString()).trim();
+    	// 没有mock
+        if (value.length() == 0 || "false".equalsIgnoreCase(value)) {
+            //no mock
+            result = this.invoker.invoke(invocation);
+        } else if (value.startsWith("force")) {
+            // force
+            if (logger.isWarnEnabled()) {
+                logger.warn("force-mock: " + invocation.getMethodName() + " force-mock enabled , url : " + getUrl());
+            }
+            //force:direct mock
+            result = doMockInvoke(invocation, null);
+        } else {
+            //fail-mock
+            // force:direct mock
+            try {
+                result = this.invoker.invoke(invocation);
+
+                //fix:#4585
+                if(result.getException() != null && result.getException() instanceof RpcException){
+                    RpcException rpcException= (RpcException)result.getException();
+                    if(rpcException.isBiz()){
+                        throw  rpcException;
+                    }else {
+                        result = doMockInvoke(invocation, rpcException);
+                    }
+                }
+
+            } catch (RpcException e) {
+                if (e.isBiz()) {
+                    throw e;
+                }
+
+                if (logger.isWarnEnabled()) {
+                    logger.warn("fail-mock: " + invocation.getMethodName() + " fail-mock enabled , url : " + getUrl(), e);
+                }
+                result = doMockInvoke(invocation, e);
+            }
+        }
+        return result;
+    }
+```
+
+​	由于我们设置的mock为true，所以这里的value为true，代码会执行到步骤3也就是fail-mock阶段，这也说明了服务mock与服务降级的fail-mock功能相似，不同之处在于前者会设置mock服务实现类，而后者是返回设置的静态返回值。代码3会首先发起远程RPC，如果成功则不会执行mock操作，否则执行doMockInvoke。
+
+```java
+private Result doMockInvoke(Invocation invocation, RpcException e) {
+    Result result = null;
+    Invoker<T> minvoker;
+
+    List<Invoker<T>> mockInvokers = selectMockInvoker(invocation);
+    if (CollectionUtils.isEmpty(mockInvokers)) {
+        minvoker = (Invoker<T>) new MockInvoker(getUrl(), directory.getInterface());
+    } else {
+        minvoker = mockInvokers.get(0);
+    }
+    try {
+        result = minvoker.invoke(invocation);
+    } catch (RpcException me) {
+        if (me.isBiz()) {
+            result = AsyncRpcResult.newDefaultAsyncResult(me.getCause(), invocation);
+        } else {
+            throw new RpcException(me.getCode(), getMockExceptionMessage(e, me), me.getCause());
+        }
+    } catch (Throwable me) {
+        throw new RpcException(getMockExceptionMessage(e, me), me.getCause());
+    }
+    return result;
+}
+```
+
+​	MockInvoker的invoke（）方法如下：
+
+```java
+public Result invoke(Invocation invocation) throws RpcException {
+    if (invocation instanceof RpcInvocation) {
+        ((RpcInvocation) invocation).setInvoker(this);
+    }
+    String mock = null;
+    // mock类型
+    if (getUrl().hasMethodParameter(invocation.getMethodName())) {
+        mock = getUrl().getParameter(invocation.getMethodName() + "." + MOCK_KEY);
+    }
+    if (StringUtils.isBlank(mock)) {
+        mock = getUrl().getParameter(MOCK_KEY);
+    }
+
+    if (StringUtils.isBlank(mock)) {
+        throw new RpcException(new IllegalAccessException("mock can not be null. url :" + url));
+    }
+    // 格式化
+    mock = normalizeMock(URL.decode(mock));
+    // 不同的类型，返回不同的mock值
+    if (mock.startsWith(RETURN_PREFIX)) {
+        mock = mock.substring(RETURN_PREFIX.length()).trim();
+        try {
+            Type[] returnTypes = RpcUtils.getReturnTypes(invocation);
+            Object value = parseMockValue(mock, returnTypes);
+            return AsyncRpcResult.newDefaultAsyncResult(value, invocation);
+        } catch (Exception ew) {
+            throw new RpcException("mock return invoke error. method :" + invocation.getMethodName()
+                    + ", mock:" + mock + ", url: " + url, ew);
+        }
+    } else if (mock.startsWith(THROW_PREFIX)) {
+        mock = mock.substring(THROW_PREFIX.length()).trim();
+        if (StringUtils.isBlank(mock)) {
+            throw new RpcException("mocked exception for service degradation.");
+        } else { // user customized class
+            Throwable t = getThrowable(mock);
+            throw new RpcException(RpcException.BIZ_EXCEPTION, t);
+        }
+    } else { //impl mock
+        try {
+            Invoker<T> invoker = getInvoker(mock);
+            return invoker.invoke(invocation);
+        } catch (Throwable t) {
+            throw new RpcException("Failed to create mock implementation class " + mock, t);
+        }
+    }
+}
+```
+
+​	通过上面的代码可知，根据mock类型的不同，返回不同的mock值。这里我们重点看看代码7，即mock实现类GreetingServiceMock如何返回mock值：
+
+![](https://pic.imgdb.cn/item/61128c405132923bf8f338c7.jpg)
+
+![](https://pic.imgdb.cn/item/61128c4c5132923bf8f3580b.jpg)
+
+​	通过上面的代码可知，如果缓存里含有mock实现类对应的invoker对象，则直接返回，否则使用getMockObject（）方法创建对象实例，并进行代理后保存到缓存，然后返回。在调用代理的invoke（）方法后，就会调用mock实现类GreetingServiceMock的方法。
+
