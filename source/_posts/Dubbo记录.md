@@ -6549,3 +6549,822 @@ public Result invoke(Invocation invocation) throws RpcException {
 
 ​	通过上面的代码可知，如果缓存里含有mock实现类对应的invoker对象，则直接返回，否则使用getMockObject（）方法创建对象实例，并进行代理后保存到缓存，然后返回。在调用代理的invoke（）方法后，就会调用mock实现类GreetingServiceMock的方法。
 
+# Dubbo集群容错与负载均衡策略
+
+## Dubbo集群容错策略概述
+
+下面让我们看看Dubbo提供的集群容错模式。
+
+* Failover Cluster：失败重试
+
+​	当服务消费方调用服务提供者失败后，会自动切换到其他服务提供者服务器进行重试，这通常用于读操作或者具有幂等的写操作。需要注意的是，重试会带来更长延迟。可以通过retries="2"来设置重试次数（不含第1次）。
+
+​	可以使用＜dubbo：reference retries="2"/＞来进行接口级别配置的重试次数，当服务消费方调用服务失败后，此例子会再重试两次，也就是说最多会做3次调用，这里的配置对该接口的所有方法生效。
+
+​	当然你也可以针对某个方法配置重试次数，比如：
+
+![](https://pic.imgdb.cn/item/6113c40d5132923bf8e77d9a.jpg)
+
+* Failfast Cluster：快速失败
+
+​	当服务消费方调用服务提供者失败后，立即报错，也就是只调用一次。通常，这种模式用于非幂等性的写操作。
+
+* Failsafe Cluster：安全失败
+
+  当服务消费者调用服务出现异常时，直接忽略异常。这种模式通常用于写入审计日志等操作。
+
+* Failback Cluster：失败自动恢复
+
+  当服务消费端调用服务出现异常后，在后台记录失败的请求，并按照一定的策略后期再进行重试。这种模式通常用于消息通知操作。
+
+* Forking Cluster：并行调用
+
+  当消费方调用一个接口方法后，Dubbo Client会并行调用多个服务提供者的服务，只要其中有一个成功即返回。这种模式通常用于实时性要求较高的读操作，但需要浪费更多服务资源。如下代码可通过forks="4"来设置最大并行数：
+
+![](https://pic.imgdb.cn/item/6113c4935132923bf8e995bd.jpg)
+
+* Broadcast Cluster：广播调用
+
+  当消费者调用一个接口方法后，Dubbo Client会逐个调用所有服务提供者，任意一台服务器调用异常则这次调用就标志失败。这种模式通常用于通知所有提供者更新缓存或日志等本地资源信息。
+
+​	可以根据Dubbo提供的扩展接口Cluster进行定制。
+
+​	首先，我们来看看服务消费端发起远程调用的一个简化时序图，如图6.1所示。
+
+![](https://pic.imgdb.cn/item/6113c4da5132923bf8eab327.jpg)
+
+​	图6.1是采用默认的FailOver集群容错方法时的调用时序图，从中可以看到，调用集群容错是在服务降级策略后进行的，集群容错FailoverClusterInvoker内部首先会调用父类AbstractClusterInvoker的list（）方法来获取invoker列表，即从RegistryDirectory管理的RouterChain的route（）方法中获取保存的invoker列表（参见第4章）。
+
+## Failfast Cluster策略源码分析
+
+​	在Dubbo中，实现快速失败策略的是FailfastClusterInvoker类，这里我们看看具体实现，主要看看doInvoke（）方法的代码：
+
+```java
+public Result doInvoke(Invocation invocation, List<Invoker<T>> invokers, LoadBalance loadbalance) throws RpcException {
+    checkInvokers(invokers, invocation);
+    // 负载均衡策略选择一个服务提供者
+    Invoker<T> invoker = select(loadbalance, invocation, invokers, null);
+    try {
+        // 执行远程调用
+        return invokeWithContext(invoker, invocation);
+    } catch (Throwable e) {
+        // 出错则抛出异常
+        if (e instanceof RpcException && ((RpcException) e).isBiz()) { // biz exception.
+            throw (RpcException) e;
+        }
+        throw new RpcException(e instanceof RpcException ? ((RpcException) e).getCode() : 0,
+                "Failfast invoke providers " + invoker.getUrl() + " " + loadbalance.getClass().getSimpleName()
+                        + " for service " + getInterface().getName()
+                        + " method " + invocation.getMethodName() + " on consumer " + NetUtils.getLocalHost()
+                        + " use dubbo version " + Version.getVersion()
+                        + ", but no luck to perform the invocation. Last error is: " + e.getMessage(),
+                e.getCause() != null ? e.getCause() : e);
+    }
+}
+```
+
+## Failsafe Cluster策略源码分析
+
+​	在Dubbo中，实现失败安全的是FailsafeClusterInvoker类，这里我们看看具体实现，主要看看doInvoke（）方法的代码：
+
+```java
+public Result doInvoke(Invocation invocation, List<Invoker<T>> invokers, LoadBalance loadbalance) throws RpcException {
+    try {
+        checkInvokers(invokers, invocation);
+        Invoker<T> invoker = select(loadbalance, invocation, invokers, null);
+        return invokeWithContext(invoker, invocation);
+    } catch (Throwable e) {
+        logger.error("Failsafe ignore exception: " + e.getMessage(), e);
+        return AsyncRpcResult.newDefaultAsyncResult(null, null, invocation); // ignore
+    }
+}
+```
+
+​	代码1根据具体的负载均衡策略选择一个服务提供者对应的invoker对象。
+
+​	代码2使用选择的invoker对象发起远程RPC调用。
+
+​	与Failfast的不同之处在于，该策略不会把异常抛给调用者。
+
+## Failover Cluster策略源码分析
+
+​	在Dubbo中，实现失败重试的是FailoverClusterInvoker类，这里我们看看具体实现，主要看看doInvoke（）方法的代码：
+
+```java
+public Result doInvoke(Invocation invocation, final List<Invoker<T>> invokers, LoadBalance loadbalance) throws RpcException {
+    // 所有服务提供者
+    List<Invoker<T>> copyInvokers = invokers;
+    checkInvokers(copyInvokers, invocation);
+    String methodName = RpcUtils.getMethodName(invocation);
+    // 重试次数
+    int len = calculateInvokeTimes(methodName);
+    // retry loop.
+    RpcException le = null; // last exception.
+    List<Invoker<T>> invoked = new ArrayList<Invoker<T>>(copyInvokers.size()); // invoked invokers.
+    Set<String> providers = new HashSet<String>(len);
+    for (int i = 0; i < len; i++) {
+        // 重试时，进行重新选择，避免重试时invoker列表已发生变化
+        // 注意: 如果列表发生了变化，那么invoked判断会失效，因为实例已经改变
+        //Reselect before retry to avoid a change of candidate `invokers`.
+        //NOTE: if `invokers` changed, then `invoked` also lose accuracy.
+        if (i > 0) {
+            // 实例销毁就抛出异常
+            checkWhetherDestroyed();
+            // 重新获取所有服务提供者
+            copyInvokers = list(invocation);
+            // check again
+            // 重新检查一下
+            checkInvokers(copyInvokers, invocation);
+        }
+        // 选择负载均衡策略
+        Invoker<T> invoker = select(loadbalance, invocation, copyInvokers, invoked);
+        invoked.add(invoker);
+        RpcContext.getServiceContext().setInvokers((List) invoked);
+        // 具体发起调用
+        try {
+            Result result = invokeWithContext(invoker, invocation);
+            if (le != null && logger.isWarnEnabled()) {
+                logger.warn("Although retry the method " + methodName
+                        + " in the service " + getInterface().getName()
+                        + " was successful by the provider " + invoker.getUrl().getAddress()
+                        + ", but there have been failed providers " + providers
+                        + " (" + providers.size() + "/" + copyInvokers.size()
+                        + ") from the registry " + directory.getUrl().getAddress()
+                        + " on the consumer " + NetUtils.getLocalHost()
+                        + " using the dubbo version " + Version.getVersion() + ". Last error is: "
+                        + le.getMessage(), le);
+            }
+            return result;
+        } catch (RpcException e) {
+            if (e.isBiz()) { // biz exception.
+                throw e;
+            }
+            le = e;
+        } catch (Throwable e) {
+            le = new RpcException(e.getMessage(), e);
+        } finally {
+            providers.add(invoker.getUrl().getAddress());
+        }
+    }
+    throw new RpcException(le.getCode(), "Failed to invoke the method "
+            + methodName + " in the service " + getInterface().getName()
+            + ". Tried " + len + " times of the providers " + providers
+            + " (" + providers.size() + "/" + copyInvokers.size()
+            + ") from the registry " + directory.getUrl().getAddress()
+            + " on the consumer " + NetUtils.getLocalHost() + " using the dubbo version "
+            + Version.getVersion() + ". Last error is: "
+            + le.getMessage(), le.getCause() != null ? le.getCause() : le);
+}
+```
+
+​	代码2从URL参数里获取设置的重试次数，如果用户没有设置重试次数，则取默认值，默认值是重试2次。这里需要注意的是，代码2将获取的配置重试次数又加1了，这说明总共调用次数=重试次数+1（1是正常调用），用户可以通过＜dubbo：reference retries="2"/＞设置重试次数。
+
+## Failback Cluster策略源码分析
+
+​	在Dubbo中，实现失败后定时重试的是FailbackClusterInvoker类，这里我们看看具体实现，主要看看doInvoke（）方法的代码：
+
+```java
+protected Result doInvoke(Invocation invocation, List<Invoker<T>> invokers, LoadBalance loadbalance) throws RpcException {
+    Invoker<T> invoker = null;
+    try {
+        // 检查invoker合法性
+        checkInvokers(invokers, invocation);
+        // 复杂均衡选择调用
+        invoker = select(loadbalance, invocation, invokers, null);
+        return invokeWithContext(invoker, invocation);
+    } catch (Throwable e) {
+        logger.error("Failback to invoke method " + invocation.getMethodName() + ", wait for retry in background. Ignored exception: "
+                + e.getMessage() + ", ", e);
+        addFailed(loadbalance, invocation, invokers, invoker);
+        return AsyncRpcResult.newDefaultAsyncResult(null, null, invocation); // ignore
+    }
+}
+```
+
+​	如果执行代码1和代码2抛出了异常，则执行代码3，即把当前请求上下文添加到定时器后，将一个空的RpcResult返回调用方。其中addFailed（）方法的代码如下：
+
+```java
+private void addFailed(LoadBalance loadbalance, Invocation invocation, List<Invoker<T>> invokers, Invoker<T> lastInvoker) {
+    // 创建自定义定时器实例
+    if (failTimer == null) {
+        synchronized (this) {
+            if (failTimer == null) {
+                failTimer = new HashedWheelTimer(
+                        new NamedThreadFactory("failback-cluster-timer", true),
+                        1,
+                        TimeUnit.SECONDS, 32, failbackTasks);
+            }
+        }
+    }
+    // 创建重试任务，并启动
+    RetryTimerTask retryTimerTask = new RetryTimerTask(loadbalance, invocation, invokers, lastInvoker, retries, RETRY_FAILED_PERIOD);
+    try {
+        failTimer.newTimeout(retryTimerTask, RETRY_FAILED_PERIOD, TimeUnit.SECONDS);
+    } catch (Throwable e) {
+        logger.error("Failback background works error,invocation->" + invocation + ", exception: " + e.getMessage());
+    }
+}
+```
+
+​	代码4创建了一个自定义定时器，代码5创建了重试任务，并把任务添加到定时器，然后延迟5s执行定时任务，下面我们看看RetryTimerTask的任务内容：
+
+```java
+public void run(Timeout timeout) {
+    try {
+        Invoker<T> retryInvoker = select(loadbalance, invocation, invokers, Collections.singletonList(lastInvoker));
+        lastInvoker = retryInvoker;
+        invokeWithContext(retryInvoker, invocation);
+    } catch (Throwable e) {
+        logger.error("Failed retry to invoke method " + invocation.getMethodName() + ", waiting again.", e);
+        // 不再重试
+        if ((++retryTimes) >= retries) {
+            logger.error("Failed retry times exceed threshold (" + retries + "), We have to abandon, invocation->" + invocation);
+        } else {
+            // 否则再次重试
+            rePut(timeout);
+        }
+    }
+}
+ private void rePut(Timeout timeout) {
+            if (timeout == null) {
+                return;
+            }
+
+            Timer timer = timeout.timer();
+            if (timer.isStop() || timeout.isCancelled()) {
+                return;
+            }
+
+            timer.newTimeout(timeout.task(), tick, TimeUnit.SECONDS);
+        }
+```
+
+## Forking Cluster策略源码分析
+
+​	在Dubbo中，实现并行调用的是ForkingClusterInvoker类，这里我们看看具体实现，主要看看doInvoke（）方法的代码：
+
+```java
+public Result doInvoke(final Invocation invocation, List<Invoker<T>> invokers, LoadBalance loadbalance) throws RpcException {
+    try {
+        checkInvokers(invokers, invocation);
+        final List<Invoker<T>> selected;
+        // 获取配置参数
+        final int forks = getUrl().getParameter(FORKS_KEY, DEFAULT_FORKS);
+        final int timeout = getUrl().getParameter(TIMEOUT_KEY, DEFAULT_TIMEOUT);
+        if (forks <= 0 || forks >= invokers.size()) {
+            // 获取并行执行的invoker列表
+            selected = invokers;
+        } else {
+            selected = new ArrayList<>(forks);
+            while (selected.size() < forks) {
+                // 在invoker列表(排除selected)后，如果没有选够，则存在重复循环问题
+                Invoker<T> invoker = select(loadbalance, invocation, invokers, selected);
+                if (!selected.contains(invoker)) {
+                    //Avoid add the same invoker several times.
+                    selected.add(invoker);
+                }
+            }
+        }
+        // 使用线程池让invoker列表的invoker并发执行
+        RpcContext.getServiceContext().setInvokers((List) selected);
+        final AtomicInteger count = new AtomicInteger();
+        final BlockingQueue<Object> ref = new LinkedBlockingQueue<>();
+        for (final Invoker<T> invoker : selected) {
+            executor.execute(() -> {
+                try {
+                    Result result = invokeWithContext(invoker, invocation);
+                    ref.offer(result);
+                } catch (Throwable e) {
+                    // 让所有的invoker都调用失败则记录错误
+                    int value = count.incrementAndGet();
+                    if (value >= selected.size()) {
+                        ref.offer(e);
+                    }
+                }
+            });
+        }
+        try {
+            // 获取执行结果并返回
+            Object ret = ref.poll(timeout, TimeUnit.MILLISECONDS);
+            if (ret instanceof Throwable) {
+                Throwable e = (Throwable) ret;
+                throw new RpcException(e instanceof RpcException ? ((RpcException) e).getCode() : 0, "Failed to forking invoke provider " + selected + ", but no luck to perform the invocation. Last error is: " + e.getMessage(), e.getCause() != null ? e.getCause() : e);
+            }
+            return (Result) ret;
+        } catch (InterruptedException e) {
+            throw new RpcException("Failed to forking invoke provider " + selected + ", but no luck to perform the invocation. Last error is: " + e.getMessage(), e);
+        }
+    } finally {
+        // clear attachments which is binding to current thread.
+        RpcContext.getClientAttachment().clearAttachments();
+    }
+}
+```
+
+​	代码1获取并行执行的参数，其中forks为并行执行的invoker个数，timeout为调用线程获取执行结果的超时时间（默认为1000ms），这个超时时间与下面配置的接口的timeout超时时间一致：
+
+![](https://pic.imgdb.cn/item/6113c9d85132923bf8fe27fc.jpg)
+
+​	代码2根据设置的forks参数获取并行执行的invoker列表，如果forks参数值小于等于0或者大于服务提供者机器的个数，则设置forks为提供者机器个数。
+
+## Broadcast Cluster策略源码分析
+
+​	在Dubbo中，实现广播调用的是BroadcastClusterInvoker类，这里我们看看具体实现，主要看看doInvoke（）方法的代码：
+
+```java
+public Result doInvoke(final Invocation invocation, List<Invoker<T>> invokers, LoadBalance loadbalance) throws RpcException {
+    checkInvokers(invokers, invocation);
+    RpcContext.getServiceContext().setInvokers((List) invokers);
+    RpcException exception = null;
+    Result result = null;
+    URL url = getUrl();
+    // The value range of broadcast.fail.threshold must be 0～100.
+    // 100 means that an exception will be thrown last, and 0 means that as long as an exception occurs, it will be thrown.
+    // see https://github.com/apache/dubbo/pull/7174
+    int broadcastFailPercent = url.getParameter(BROADCAST_FAIL_PERCENT_KEY, MAX_BROADCAST_FAIL_PERCENT);
+
+    if (broadcastFailPercent < MIN_BROADCAST_FAIL_PERCENT || broadcastFailPercent > MAX_BROADCAST_FAIL_PERCENT) {
+        logger.info(String.format("The value corresponding to the broadcast.fail.percent parameter must be between 0 and 100. " +
+                "The current setting is %s, which is reset to 100.", broadcastFailPercent));
+        broadcastFailPercent = MAX_BROADCAST_FAIL_PERCENT;
+    }
+
+    int failThresholdIndex = invokers.size() * broadcastFailPercent / MAX_BROADCAST_FAIL_PERCENT;
+    int failIndex = 0;
+    // 每个机器都进行调用，result是最后一个机器的结果
+    for (Invoker<T> invoker : invokers) {
+        try {
+            result = invokeWithContext(invoker, invocation);
+            if (null != result && result.hasException()) {
+                Throwable resultException = result.getException();
+                if (null != resultException) {
+                    exception = getRpcException(result.getException());
+                    logger.warn(exception.getMessage(), exception);
+                    if (failIndex == failThresholdIndex) {
+                        break;
+                    } else {
+                        failIndex++;
+                    }
+                }
+            }
+        } catch (Throwable e) {
+            exception = getRpcException(e);
+            logger.warn(exception.getMessage(), exception);
+            if (failIndex == failThresholdIndex) {
+                break;
+            } else {
+                failIndex++;
+            }
+        }
+    }
+
+    if (exception != null) {
+        if (failIndex == failThresholdIndex) {
+            logger.debug(
+                    String.format("The number of BroadcastCluster call failures has reached the threshold %s", failThresholdIndex));
+        } else {
+            logger.debug(String.format("The number of BroadcastCluster call failures has not reached the threshold %s, fail size is %s",
+                    failIndex));
+        }
+        throw exception;
+    }
+
+    return result;
+}
+```
+
+## 如何基于扩展接口自定义集群容错策略
+
+​	前面已经讲过，Dubbo本身提供了丰富的集群容错策略，但是如果你有定制化需求，可以根据Dubbo提供的扩展接口Cluster进行定制。
+
+​	为了自定义扩展实现，首先需要实现Cluster接口：
+
+![](https://pic.imgdb.cn/item/6113cae85132923bf8021b12.jpg)
+
+​	然后，需要集成AbstractClusterInvoker类创建自己的ClusterInvoker类：
+
+![](https://pic.imgdb.cn/item/6113caf85132923bf8025265.jpg)
+
+​	通过上面的代码可知，doInvoke方法需要重写，在该方法内用户就可以实现自己的集群容错策略。
+
+​	然后，在org.apache.dubbo.rpc.cluster.Cluster目录下创建文件，并在文件里添加myCluster=org.apache.dubbo.demo.cluster.MyCluster，如图6.2所示。
+
+![](https://pic.imgdb.cn/item/6113cb355132923bf8031aff.jpg)
+
+​	最后，使用下面的方法将集群容错模式切换为myCluster：
+
+![](https://pic.imgdb.cn/item/6113cb475132923bf8035784.jpg)
+
+* Random LoadBalance：随机策略。按照概率设置权重，比较均匀，并且可以动态调节提供者的权重。
+* RoundRobin LoadBalance：轮循策略。轮循，按公约后的权重设置轮循比率。会存在执行比较慢的服务提供者堆积请求的情况，比如一个机器执行得非常慢，但是机器没有宕机（如果宕机了，那么当前机器会从ZooKeeper的服务列表中删除），当很多新的请求到达该机器后，由于之前的请求还没处理完，会导致新的请求被堆积，久而久之，消费者调用这台机器上的所有请求都会被阻塞。
+*  LeastActive LoadBalance：最少活跃调用数。如果每个提供者的活跃数相同，则随机选择一个。在每个服务提供者里维护着一个活跃数计数器，用来记录当前同时处理请求的个数，也就是并发处理任务的个数。这个值越小，说明当前服务提供者处理的速度越快或者当前机器的负载比较低，所以路由选择时就选择该活跃度最底的机器。如果一个服务提供者处理速度很慢，由于堆积，那么同时处理的请求就比较多，也就是说活跃调用数目较大（活跃度较高），这时，处理速度慢的提供者将收到更少的请求。
+
+*  ConsistentHash LoadBalance一致性Hash策略。一致性Hash，可以保证相同参数的请求总是发到同一提供者，当某一台提供者机器宕机时，原本发往该提供者的请求，将基于虚拟节点平摊给其他提供者，这样就不会引起剧烈变动。
+
+
+
+​	如上所述，Dubbo提供了丰富的负载均衡策略，但是如果你有定制化需求，可以基于Dubbo提供的扩展接口LoadBalance进行定制。
+
+​	AbstractLoadBalance实现了LoadBalance接口，上面的各种负载均衡策略实际上就是继承了AbstractLoadBalance方法，但重写了其doSelect（）方法，所以下面我们重点看看每种负载均衡策略的doSelect（）方法。
+
+​	我们先看看从消费端发起请求到处理负载均衡的时序图，如图6.3所示。
+
+![](https://pic.imgdb.cn/item/6113d11b5132923bf8158eb9.jpg)
+
+​	从图6.3可以看到，消费端发起远程调用后会先经过步骤4进行服务降级检查，如果发现没有设置降级策略，则会执行步骤5进入集群容错invoker，其内部会先执行步骤6，以便从RegistryDirectory里获取经过服务路由规则过滤后的服务提供者的invokers列表。然后，执行步骤8～步骤11，以便根据具体负载均衡策略从invoker列表中选择一个invoker，最后使用所选的invoker，执行步骤12以发起远程调用。
+
+## Random LoadBalance策略源码分析
+
+```java
+protected <T> Invoker<T> doSelect(List<Invoker<T>> invokers, URL url, Invocation invocation) {
+    // Number of invokers
+    int length = invokers.size();
+
+    if (!needWeightLoadBalance(invokers,invocation)){
+        return invokers.get(ThreadLocalRandom.current().nextInt(length));
+    }
+
+    // Every invoker has the same weight?
+    boolean sameWeight = true;
+    // the maxWeight of every invokers, the minWeight = 0 or the maxWeight of the last invoker
+    int[] weights = new int[length];
+    // The sum of weights
+    int totalWeight = 0;
+    for (int i = 0; i < length; i++) {
+        int weight = getWeight(invokers.get(i), invocation);
+        // Sum
+        totalWeight += weight;
+        // save for later use
+        weights[i] = totalWeight;
+        if (sameWeight && totalWeight != weight * (i + 1)) {
+            sameWeight = false;
+        }
+    }
+    if (totalWeight > 0 && !sameWeight) {
+        // If (not every invoker has the same weight & at least one invoker's weight>0), select randomly based on totalWeight.
+        int offset = ThreadLocalRandom.current().nextInt(totalWeight);
+        // Return a invoker based on the random value.
+        for (int i = 0; i < length; i++) {
+            if (offset < weights[i]) {
+                return invokers.get(i);
+            }
+        }
+    }
+    // If all invokers have the same weight value or totalWeight=0, return evenly.
+    return invokers.get(ThreadLocalRandom.current().nextInt(length));
+}
+```
+
+​	需要注意的是，这里没有使用Random而是使用了ThreadLocalRandom，这是出于性能上的考虑，因为Random在高并发下会导致大量线程竞争同一个原子变量，导致大量线程原地自旋，从而浪费CPU资源（参见笔者编写的《Java并发编程之美》一书）。
+
+​	在代码7中，如果所有服务提供者权重不一样，那么在正常情况下应该选择权重最大的提供者来提供服务，但是Dubbo还考虑到另外一个因素，就是服务预热时间。如果服务提供者A的权重比服务提供者B的权重大，但服务提供者A是刚启动的，而服务提供者B已经服务了一些时间，则这时候Dubbo会选择服务提供者B而不是服务提供者A来进行调用。为此，我们可以看看计算权重的getWeight（）方法的代码：
+
+```java
+int getWeight(Invoker<?> invoker, Invocation invocation) {
+    int weight;
+    URL url = invoker.getUrl();
+    // Multiple registry scenario, load balance among multiple registries.
+    if (REGISTRY_SERVICE_REFERENCE_PATH.equals(url.getServiceInterface())) {
+        weight = url.getParameter(REGISTRY_KEY + "." + WEIGHT_KEY, DEFAULT_WEIGHT);
+    } else {
+        weight = url.getMethodParameter(invocation.getMethodName(), WEIGHT_KEY, DEFAULT_WEIGHT);
+        if (weight > 0) {
+            long timestamp = invoker.getUrl().getParameter(TIMESTAMP_KEY, 0L);
+            if (timestamp > 0L) {
+                long uptime = System.currentTimeMillis() - timestamp;
+                if (uptime < 0) {
+                    return 1;
+                }
+                int warmup = invoker.getUrl().getParameter(WARMUP_KEY, DEFAULT_WARMUP);
+                if (uptime > 0 && uptime < warmup) {
+                    weight = calculateWarmupWeight((int)uptime, warmup, weight);
+                }
+            }
+        }
+    }
+    return Math.max(weight, 0);
+}
+```
+
+​	代码6.1获取用户对该服务提供者设置的权重，默认情况下权重都是100。
+
+​	代码6.2获取该服务提供者发布服务时的时间timestamp。
+
+​	代码6.3计算该服务已经发布了多少时间。
+
+​	代码6.4获取用户设置的该服务的预热时间，默认是10分钟。
+
+​	在代码6.5中，如果该服务提供者还没过预热期，则让该服务提供者的预热时间参与计算权重calculateWarmupWeight：
+
+```java
+static int calculateWarmupWeight(int uptime, int warmup, int weight) {
+    int ww = (int) ( uptime / ((float) warmup / weight));
+    return ww < 1 ? 1 : (Math.min(ww, weight));
+}
+```
+
+​	上面代码中的int ww=（int）（（float）uptime/（（float）warmup/（float）weight））；等价于int ww=（int）（（float）uptime/（float）warmup*（float）weight）；，也就是说如果当前服务提供者还没过预热期，则用户设置的权重将通过（float）uptime/（float）warmup打折扣。如果一个服务提供者设置的权重很大，但是还没过预热时间，那么重新计算出来的权重就比实际的小。
+
+​	如果服务提供者已经过了预热期，则这时就会按照用户设置的权重的大小来选择使用哪个服务提供者。
+
+## RoundRobin LoadBalance策略源码分析
+
+​	在Dubbo中，实现轮询选择策略的是RoundRobinLoadBalance类，这里我们看看具体实现，主要看看doSelect（）方法的代码：
+
+```java
+protected <T> Invoker<T> doSelect(List<Invoker<T>> invokers, URL url, Invocation invocation) {
+    // 获取调用方法的key
+    String key = invokers.get(0).getUrl().getServiceKey() + "." + invocation.getMethodName();
+    // 获取该调用方法对应的每个服务提供者的WeightedRoundRobin组成的Map
+    ConcurrentMap<String, WeightedRoundRobin> map = methodWeightMap.computeIfAbsent(key, k -> new ConcurrentHashMap<>());
+    // 遍历所有提供者，计算总权重和权重最大的提供者
+    int totalWeight = 0;
+    long maxCurrent = Long.MIN_VALUE;
+    long now = System.currentTimeMillis();
+    Invoker<T> selectedInvoker = null;
+    WeightedRoundRobin selectedWRR = null;
+    for (Invoker<T> invoker : invokers) {
+        String identifyString = invoker.getUrl().toIdentityString();
+        int weight = getWeight(invoker, invocation);
+        WeightedRoundRobin weightedRoundRobin = map.computeIfAbsent(identifyString, k -> {
+            WeightedRoundRobin wrr = new WeightedRoundRobin();
+            wrr.setWeight(weight);
+            return wrr;
+        });
+
+        if (weight != weightedRoundRobin.getWeight()) {
+            // 权重变化
+            //weight changed
+            weightedRoundRobin.setWeight(weight);
+        }
+        long cur = weightedRoundRobin.increaseCurrent();
+        weightedRoundRobin.setLastUpdate(now);
+        if (cur > maxCurrent) {
+            maxCurrent = cur;
+            selectedInvoker = invoker;
+            selectedWRR = weightedRoundRobin;
+        }
+        totalWeight += weight;
+    }
+    if (invokers.size() != map.size()) {
+        map.entrySet().removeIf(item -> now - item.getValue().getLastUpdate() > RECYCLE_PERIOD);
+    }
+    if (selectedInvoker != null) {
+        selectedWRR.sel(totalWeight);
+        return selectedInvoker;
+    }
+    // should not happen here
+    return invokers.get(0);
+}
+```
+
+​	RECYCLE_PERIOD是清理周期，如果服务提供者耗时RECYCLE_PERIOD还没有更新自己的WeightedRoundRobin对象，则会被自动回收；updateLock用来确保更新methodWeightMap的线程安全，这里使用了原子变量的CAS操作，减少了因为使用锁带来的开销。
+
+​	com.books.dubbo.demo.api.GreetingService接口的String sayHello（String name）方法，并且每个机器设置的提供者的权重分别为1、2、3，下面我们看看如何实现轮询调用。
+
+![](https://pic.imgdb.cn/item/6113e2385132923bf84b3420.jpg)
+
+​	在消费端第一次调用服务时，服务提供者A、B、C对应的WeightedRoundRobin对象里的weight和current如图6.4中的第二列所示，代码3执行完毕后，对应的weight和current值如图6.4中的第三列所示，这时最大权重的机器是C，所以轮询算法选择了机器C来提供服务。
+
+​	消费端第二次调用服务，如图6.5所示。
+
+![](https://pic.imgdb.cn/item/6113e28a5132923bf84c2f05.jpg)
+
+​	在消费端第二次调用服务时，服务提供者A、B、C对应的WeightedRoundRobin对象里的weight和current如图6.5中的第二列所示，代码3执行完毕后，对应的weight和current值如图6.5中的第三列所示，这时最大权重的机器是B，所以轮询算法选择了机器B来提供服务。
+
+​	消费端第三次调用服务，如图6.6所示。
+
+![](https://pic.imgdb.cn/item/6113e2ae5132923bf84c9a84.jpg)
+
+​	在消费端第三次调用服务时，服务提供者A、B、C对应的WeightedRoundRobin对象里的weight和current如图6.6中的第二列所示，代码3执行完毕后，对应的weight和current值如图6.6中的第三列所示，这时最大权重的机器是A，所以轮询算法选择了机器A来提供服务。
+
+​	消费端第四次调用服务，如图6.7所示。
+
+![](https://pic.imgdb.cn/item/6113e2c65132923bf84ce116.jpg)
+
+​	在消费端第四次调用服务时，服务提供者A、B、C对应的WeightedRoundRobin对象里的weight和current如图6.7中的第二列所示，代码3执行完毕后，对应的weight和current值如图6.7中的第三列所示，这时最大权重的机器是C，所以轮询算法选择了机器C来提供服务。
+
+​	消费端第五次调用服务，如图6.8所示。
+
+![](https://pic.imgdb.cn/item/6113e2d85132923bf84d1c68.jpg)
+
+​	在消费端第五次调用服务时，服务提供者A、B、C对应的WeightedRoundRobin对象里的weight和current如图6.8中的第二列所示，代码3执行完毕后，对应的weight和current值如图6.8中的第三列所示，这时最大权重的机器是B，所以轮询算法选择了机器B来提供服务。
+
+​	消费端第六次调用服务，如图6.9所示。
+
+![](https://pic.imgdb.cn/item/6113e2f05132923bf84d617a.jpg)
+
+​	在消费端第六次调用服务时，服务提供者A、B、C对应的WeightedRoundRobin对象里的weight和current如图6.9中的第二列所示，代码3执行完毕后，对应的weight和current值如图6.9中的第三列所示，这时最大权重的机器是C，所以轮询算法选择了机器C来提供服务。下一次再次调用时就又回到了第一次调用的情况，也就是说6次调用完成一次轮询。
+
+​	这里的RR算法并不是严格意义上的RR，因为选择提供者时还参考了其设置的权重，如上所述，调用6次服务并不是严格按照A—B—C—A—B—C这样的次序提供服务的，这是因为我们设置的每台机器的权重不一样。如果大家把A、B、C的权重设置成一样的，那么就会发现将以顺序方式选中机器A、B、C作为服务提供者。
+
+## LeastActive LoadBalance策略源码分析
+
+​	在Dubbo中，实现最少活跃调用策略的是LeastActiveLoadBalance类，这里我们看看具体实现，主要看看doSelect（）方法的代码：
+
+```java
+protected <T> Invoker<T> doSelect(List<Invoker<T>> invokers, URL url, Invocation invocation) {
+    // Number of invokers
+    int length = invokers.size();
+    // The least active value of all invokers
+    int leastActive = -1;
+    // The number of invokers having the same least active value (leastActive)
+    int leastCount = 0;
+    // The index of invokers having the same least active value (leastActive)
+    int[] leastIndexes = new int[length];
+    // the weight of every invokers
+    int[] weights = new int[length];
+    // The sum of the warmup weights of all the least active invokers
+    int totalWeight = 0;
+    // The weight of the first least active invoker
+    int firstWeight = 0;
+    // Every least active invoker has the same weight value?
+    boolean sameWeight = true;
+
+
+    // Filter out all the least active invokers
+    for (int i = 0; i < length; i++) {
+        Invoker<T> invoker = invokers.get(i);
+        // Get the active number of the invoker
+        int active = RpcStatus.getStatus(invoker.getUrl(), invocation.getMethodName()).getActive();
+        // Get the weight of the invoker's configuration. The default value is 100.
+        int afterWarmup = getWeight(invoker, invocation);
+        // save for later use
+        weights[i] = afterWarmup;
+        // If it is the first invoker or the active number of the invoker is less than the current least active number
+        if (leastActive == -1 || active < leastActive) {
+            // Reset the active number of the current invoker to the least active number
+            leastActive = active;
+            // Reset the number of least active invokers
+            leastCount = 1;
+            // Put the first least active invoker first in leastIndexes
+            leastIndexes[0] = i;
+            // Reset totalWeight
+            totalWeight = afterWarmup;
+            // Record the weight the first least active invoker
+            firstWeight = afterWarmup;
+            // Each invoke has the same weight (only one invoker here)
+            sameWeight = true;
+            // If current invoker's active value equals with leaseActive, then accumulating.
+        } else if (active == leastActive) {
+            // Record the index of the least active invoker in leastIndexes order
+            leastIndexes[leastCount++] = i;
+            // Accumulate the total weight of the least active invoker
+            totalWeight += afterWarmup;
+            // If every invoker has the same weight?
+            if (sameWeight && afterWarmup != firstWeight) {
+                sameWeight = false;
+            }
+        }
+    }
+    // Choose an invoker from all the least active invokers
+    if (leastCount == 1) {
+        // If we got exactly one invoker having the least active value, return this invoker directly.
+        return invokers.get(leastIndexes[0]);
+    }
+    if (!sameWeight && totalWeight > 0) {
+        // If (not every invoker has the same weight & at least one invoker's weight>0), select randomly based on 
+        // totalWeight.
+        int offsetWeight = ThreadLocalRandom.current().nextInt(totalWeight);
+        // Return a invoker based on the random value.
+        for (int i = 0; i < leastCount; i++) {
+            int leastIndex = leastIndexes[i];
+            offsetWeight -= weights[leastIndex];
+            if (offsetWeight < 0) {
+                return invokers.get(leastIndex);
+            }
+        }
+    }
+    // If all invokers have the same weight value or totalWeight=0, return evenly.
+    return invokers.get(leastIndexes[ThreadLocalRandom.current().nextInt(leastCount)]);
+}
+```
+
+​	如果最小调用次数的invoker有多个并且权重一样，则随机选择一个。
+
+## ConsistentHash LoadBalance策略源码分析
+
+### 一致性Hash负载均衡策略原理
+
+​	分布式系统中，负载均衡的问题可以使用Hash算法让固定的一部分请求落到同一台服务器上，这样每台服务器就会固定处理一部分请求（并维护这些请求的信息），从而起到负载均衡的作用。
+
+​	但是普通的余数Hash（用户ID）算法伸缩性很差，当新增或者下线服务器机器时，用户ID与服务器的映射关系会大量失效。一致性Hash则利用Hash环对其进行了改进。
+
+​	为了能直观地理解一致性Hash原理，这里结合一个简单的例子来讲解。假设有4台服务器，地址为IP1、IP2、IP3、IP4。
+
+* 一致性Hash，首先计算4个IP地址对应的Hash值：Hash（IP1）、Hash（IP2）、Hash（IP3）、Hash（IP4），计算出来的Hash值是0～最大正整数之间的一个值，这4个值在一致性Hash环上的呈现如图6.10所示。
+
+![](https://pic.imgdb.cn/item/6113e5575132923bf8548c43.jpg)
+
+* 在Hash环上按顺时针从整数0开始，一直到最大正整数，我们根据4个IP计算的Hash值肯定会落到这个Hash环上的某一个点，至此我们把服务器的4个IP映射到了一致性Hash环上。
+* 当用户在客户端进行请求时，首先根据Hash（用户ID）计算路由规则（Hash值），然后看Hash值落到了Hash环的哪个地方，根据Hash值在Hash环上的位置顺时针找距离最近的IP作为路由IP，如图6.11所示。
+* 通过图6.11可知，user1、user2的请求会落到服务器IP2进行处理，user3的请求会落到服务器IP3进行处理，user4的请求会落到服务器IP4进行处理，user5、user6的请求会落到服务器IP1进行处理。
+
+![](https://pic.imgdb.cn/item/6113e5805132923bf854fd71.jpg)
+
+​	下面考虑一下当IP2的服务器宕机时会出现什么情况。
+
+​	当IP2的服务器宕机时，一致性Hash环大致如图6.12所示。
+
+![](https://pic.imgdb.cn/item/6113e5965132923bf8553a77.jpg)
+
+​	根据顺时针规则可知，user1、user2的请求会被服务器IP3进行处理，而其他用户的请求所对应的处理服务器不变，也就是只有之前被IP2处理的一部分用户的映射关系被破坏了，并且其负责处理的请求被顺时针的下一个节点处理。
+
+​	下面考虑一下当有新增机器加入时会出现什么情况。
+
+​	在新增一个IP5的服务器后，一致性Hash环大致如图6.13所示。
+
+![](https://pic.imgdb.cn/item/6113e5ab5132923bf8557806.jpg)
+
+​	根据顺时针规则可知，之前user5的请求应该被IP1服务器处理，现在被新增的IP5服务器处理，其他用户的请求处理服务器不变，也就是说距新增的服务器顺时针最近的服务器的一部分请求，会被新增的服务器所替代。
+
+**一致性Hash的特性**
+
+* 单调性（Monotonicity）：单调性是指如果已经有一些请求通过Hash分派到了相应的服务器进行处理，当又有新的服务器加入到系统中时，应保证原有的请求可以被映射到原有的或者新增的服务器上，而不会被映射到原来的其他服务器上。这一点通过上面新增的服务器IP5就可以证明，在新增了IP5后，原来被IP1处理的user6现在还是被IP1处理，原来被IP1处理的user5现在被新增的IP5处理。
+* · 分散性（Spread）：在分布式环境中，当客户端请求时可能不知道所有服务器的存在，可能只知道其中一部分服务器，从客户端看来，它看到的部分服务器会形成一个完整的Hash环。如果多个客户端都把部分服务器作为一个完整Hash环，那么可能会导致同一个用户的请求被路由到不同的服务器进行处理。这种情况显然是应该避免的，因为它不能保证同一个用户的请求落到同一台服务器。所谓分散性是指上述情况发生的严重程度。
+* 平衡性（Balance）：平衡性也就是指负载均衡，是指客户端Hash后的请求应该能够分散到不同的服务器上。一致性Hash可以做到每个服务器都进行处理请求，但是不能保证每个服务器处理的请求的数量大致相同，如图6.14所示。
+
+![](https://pic.imgdb.cn/item/6113e5fe5132923bf8565f97.jpg)
+
+​	服务器IP1、IP2、IP3经过Hash后落到了一致性Hash环上，从图中Hash值的分布可知，IP1会负责处理大概80%的请求，而IP2和IP3则只会负责处理大概20%的请求，虽然三个机器都在处理请求，但明显每个机器的负载不均衡，这样称为一致性Hash的倾斜，虚拟节点的出现就是为了解决这个问题。
+
+**虚拟节点**
+
+​	当服务器节点比较少的时候会出现上面所说的一致性Hash倾斜问题，一种解决方法是多加机器，但加机器是有成本的，那么就加虚拟节点，比如上面三台机器，每台机器引入1个虚拟节点后的一致性Hash环如图6.15所示。
+
+![](https://pic.imgdb.cn/item/6113e62b5132923bf856e080.jpg)
+
+​	图中的IP1-1是IP1的虚拟节点，IP2-1是IP2的虚拟节点，IP3-1是IP3的虚拟节点。
+
+​	当物理机器数目为M，虚拟节点为N的时候，实际Hash环上节点个数为M*（N+1）。
+
+**均匀一致性Hash**
+
+​	上一小节我们使用虚拟节点后的图看起来比较均衡，但如果生成虚拟节点的算法不够好，则很可能会得到如图6.16所示的环。
+
+![](https://pic.imgdb.cn/item/6113e6575132923bf8575810.jpg)
+
+​	每个服务节点引入1个虚拟节点后，相比没有引入前均衡性有所改善，但是并不均衡。
+
+​	均衡的一致性Hash应该如图6.17所示。
+
+![](https://pic.imgdb.cn/item/6113e66d5132923bf85794e8.jpg)
+
+​	均匀一致性Hash的目标是，如果服务器有N台，客户端的Hash值有M个，那么每台服务器应该处理大概M/N个用户的请求，也就是说每台服务器负载尽量均衡。
+
+### 源码分析
+
+​	在Dubbo中，实现一致性Hash策略的是ConsistentHashLoadBalance类，这里我们看看具体实现，主要看看doSelect（）方法的代码：
+
+```java
+protected <T> Invoker<T> doSelect(List<Invoker<T>> invokers, URL url, Invocation invocation) {
+    String methodName = RpcUtils.getMethodName(invocation);
+    String key = invokers.get(0).getUrl().getServiceKey() + "." + methodName;
+    // using the hashcode of list to compute the hash only pay attention to the elements in the list
+    int invokersHashCode = invokers.hashCode();
+    ConsistentHashSelector<T> selector = (ConsistentHashSelector<T>) selectors.get(key);
+    if (selector == null || selector.identityHashCode != invokersHashCode) {
+        selectors.put(key, new ConsistentHashSelector<T>(invokers, methodName, invokersHashCode));
+        selector = (ConsistentHashSelector<T>) selectors.get(key);
+    }
+    return selector.select(invocation);
+}
+```
+
+​	在上面的代码中，一致性Hash策略主要是ConsistentHashSelector类实现，其构造函数如下：
+
+```java
+ConsistentHashSelector(List<Invoker<T>> invokers, String methodName, int identityHashCode) {
+    this.virtualInvokers = new TreeMap<Long, Invoker<T>>();
+    this.identityHashCode = identityHashCode;
+    URL url = invokers.get(0).getUrl();
+    // 设置虚拟节点的个数 默认160
+    this.replicaNumber = url.getMethodParameter(methodName, HASH_NODES, 160);
+    String[] index = COMMA_SPLIT_PATTERN.split(url.getMethodParameter(methodName, HASH_ARGUMENTS, "0"));
+    argumentIndex = new int[index.length];
+    for (int i = 0; i < index.length; i++) {
+        argumentIndex[i] = Integer.parseInt(index[i]);
+    }
+    for (Invoker<T> invoker : invokers) {
+        String address = invoker.getUrl().getAddress();
+        for (int i = 0; i < replicaNumber / 4; i++) {
+            byte[] digest = Bytes.getMD5(address + i);
+            for (int h = 0; h < 4; h++) {
+                long m = hash(digest, h);
+                virtualInvokers.put(m, invoker);
+            }
+        }
+    }
+}
+```
+
+## 如何基于扩展接口自定义负载均衡策略
+
+​	自定义扩展实现，首先需要实现LoadBalance接口，由于Dubbo本身提供了一个抽象类AbstractLoadBalance，所以我们可以直接继承该类：
+
+![](https://pic.imgdb.cn/item/6113e84b5132923bf85c9446.jpg)
+
+​	在上面的代码中，MyLoadBalance实现了LoadBalance的doSelect接口。然后，在org.apache.dubbo.rpc.cluster.LoadBalance目录下创建文件，并在文件里添加myLoadBalance=com.books.dubbo.demo.loadbalance.MyLoadBalance，如图6.18所示。
+
+![](https://pic.imgdb.cn/item/6113e87c5132923bf85d0705.jpg)
+
