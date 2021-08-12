@@ -7368,3 +7368,801 @@ ConsistentHashSelector(List<Invoker<T>> invokers, String methodName, int identit
 
 ![](https://pic.imgdb.cn/item/6113e87c5132923bf85d0705.jpg)
 
+# Dubbo线程模型与线程池策略
+
+​	Dubbo默认的底层网络通信使用的是Netty，服务提供方NettyServer使用两级线程池，其中EventLoopGroup（boss）主要用来接收客户端的链接请求，并把完成TCP三次握手的连接分发给EventLoopGroup（worker）来处理，我们把boss和worker线程组称为I/O线程。
+
+​	如果服务提供方的逻辑处理能迅速完成，并且不会发起新的I/O请求，那么直接在I/O线程上处理会更快，因为这样减少了线程池调度与上下文切换的开销。
+
+​	但如果处理逻辑较慢，或者需要发起新的I/O请求，比如需要查询数据库，则I/O线程必须派发请求到新的线程池进行处理，否则I/O线程会被阻塞，导致不能接收其他请求。
+
+​	根据请求的消息类是被I/O线程处理还是被业务线程池处理，Dubbo提供了下面几种线程模型。
+
+* all（AllDispatcher类）：所有消息都派发到业务线程池，这些消息包括请求、响应、连接事件、断开事件、心跳事件等，如图7.1所示。
+
+![](https://pic.imgdb.cn/item/61150b015132923bf80ffbc4.jpg)
+
+
+
+* direct（DirectDispatcher类）：所有消息都不派发到业务线程池，全部在IO线程上直接执行，如图7.2所示。
+
+![](https://pic.imgdb.cn/item/61150b1c5132923bf810304e.jpg)
+
+* message（MessageOnlyDispatcher类）：只有请求响应消息派发到业务线程池，其他消息如连接事件、断开事件、心跳事件等，直接在I/O线程上执行，如图7.3所示。
+
+![](https://pic.imgdb.cn/item/61150b345132923bf8105ee3.jpg)
+
+* execution（ExecutionDispatcher类）：只把请求类消息派发到业务线程池处理，但是响应、连接事件、断开事件、心跳事件等消息直接在I/O线程上执行，如图7.4所示。
+
+![](https://pic.imgdb.cn/item/61150b455132923bf810806e.jpg)
+
+* connection（ConnectionOrderedDispatcher类）：在I/O线程上将连接事件、断开事件放入队列，有序地逐个执行，其他消息派发到业务线程池处理，如图7.5所示。
+
+![](https://pic.imgdb.cn/item/61150c425132923bf8127303.jpg)
+
+​	在Dubbo中，线程模型的扩展接口为Dispatcher，其提供的上述扩展实现都实现了该接口，其中all模型是默认的线程模型。
+
+## AllDispatcher源码剖析
+
+```java
+public class AllDispatcher implements Dispatcher {
+	// 线程模型名称
+    public static final String NAME = "all";
+
+    // 扩展接口具体实现
+    @Override
+    public ChannelHandler dispatch(ChannelHandler handler, URL url) {
+        return new AllChannelHandler(handler, url);
+    }
+
+}
+```
+
+```java
+public class AllChannelHandler extends WrappedChannelHandler {
+
+    public AllChannelHandler(ChannelHandler handler, URL url) {
+        super(handler, url);
+    }
+
+    // 连接完成事件，交给业务线程池处理
+    @Override
+    public void connected(Channel channel) throws RemotingException {
+        ExecutorService executor = getExecutorService();
+        try {
+            executor.execute(new ChannelEventRunnable(channel, handler, ChannelState.CONNECTED));
+        } catch (Throwable t) {
+            throw new ExecutionException("connect event", channel, getClass() + " error when process connected event .", t);
+        }
+    }
+	
+    // 断开事件，交给业务线程池处理
+    @Override
+    public void disconnected(Channel channel) throws RemotingException {
+        ExecutorService executor = getExecutorService();
+        try {
+            executor.execute(new ChannelEventRunnable(channel, handler, ChannelState.DISCONNECTED));
+        } catch (Throwable t) {
+            throw new ExecutionException("disconnect event", channel, getClass() + " error when process disconnected event .", t);
+        }
+    }
+
+    // 请求响应事件，业务线程池处理
+    @Override
+    public void received(Channel channel, Object message) throws RemotingException {
+        ExecutorService executor = getPreferredExecutorService(message);
+        try {
+            executor.execute(new ChannelEventRunnable(channel, handler, ChannelState.RECEIVED, message));
+        } catch (Throwable t) {
+            if(message instanceof Request && t instanceof RejectedExecutionException){
+                sendFeedback(channel, (Request) message, t);
+                return;
+            }
+            throw new ExecutionException(message, channel, getClass() + " error when process received event .", t);
+        }
+    }
+	
+    // 异常处理事件
+    @Override
+    public void caught(Channel channel, Throwable exception) throws RemotingException {
+        ExecutorService executor = getExecutorService();
+        try {
+            executor.execute(new ChannelEventRunnable(channel, handler, ChannelState.CAUGHT, exception));
+        } catch (Throwable t) {
+            throw new ExecutionException("caught event", channel, getClass() + " error when process caught event .", t);
+        }
+    }
+}
+```
+
+## DirectDispatcher源码剖析
+
+​	DirectDispatcher对应的是direct线程模型的实现，其代码如下：
+
+```java
+public class DirectDispatcher implements Dispatcher {
+
+    public static final String NAME = "direct";
+
+    @Override
+    public ChannelHandler dispatch(ChannelHandler handler, URL url) {
+        return new DirectChannelHandler(handler, url);
+    }
+
+}
+```
+
+​	
+
+```java
+public class DirectChannelHandler extends WrappedChannelHandler {
+
+    public DirectChannelHandler(ChannelHandler handler, URL url) {
+        super(handler, url);
+    }
+
+    @Override
+    public void received(Channel channel, Object message) throws RemotingException {
+        ExecutorService executor = getPreferredExecutorService(message);
+        if (executor instanceof ThreadlessExecutor) {
+            try {
+                executor.execute(new ChannelEventRunnable(channel, handler, ChannelState.RECEIVED, message));
+            } catch (Throwable t) {
+                throw new ExecutionException(message, channel, getClass() + " error when process received event .", t);
+            }
+        } else {
+            handler.received(channel, message);
+        }
+    }
+
+}
+```
+
+## MessageOnlyDispatcher源码剖析
+
+​	MessageOnlyDispatcher对应是message线程模型的实现，其代码如下：
+
+```java
+public class MessageOnlyDispatcher implements Dispatcher {
+
+    public static final String NAME = "message";
+
+    @Override
+    public ChannelHandler dispatch(ChannelHandler handler, URL url) {
+        return new MessageOnlyChannelHandler(handler, url);
+    }
+
+}
+```
+
+```java
+public class MessageOnlyChannelHandler extends WrappedChannelHandler {
+
+    public MessageOnlyChannelHandler(ChannelHandler handler, URL url) {
+        super(handler, url);
+    }
+
+    @Override
+    public void received(Channel channel, Object message) throws RemotingException {
+        ExecutorService executor = getPreferredExecutorService(message);
+        try {
+            executor.execute(new ChannelEventRunnable(channel, handler, ChannelState.RECEIVED, message));
+        } catch (Throwable t) {
+            if(message instanceof Request && t instanceof RejectedExecutionException){
+                sendFeedback(channel, (Request) message, t);
+                return;
+            }
+            throw new ExecutionException(message, channel, getClass() + " error when process received event .", t);
+        }
+    }
+
+}
+```
+
+## ExecutionDispatcher源码剖析
+
+```java
+public class ExecutionDispatcher implements Dispatcher {
+
+    public static final String NAME = "execution";
+
+    @Override
+    public ChannelHandler dispatch(ChannelHandler handler, URL url) {
+        return new ExecutionChannelHandler(handler, url);
+    }
+
+}
+```
+
+```java
+	public class ExecutionChannelHandler extends WrappedChannelHandler {
+
+    public ExecutionChannelHandler(ChannelHandler handler, URL url) {
+        super(handler, url);
+    }
+
+    @Override
+    public void received(Channel channel, Object message) throws RemotingException {
+        ExecutorService executor = getPreferredExecutorService(message);
+
+        if (message instanceof Request) {
+            try {
+                executor.execute(new ChannelEventRunnable(channel, handler, ChannelState.RECEIVED, message));
+            } catch (Throwable t) {
+                // FIXME: when the thread pool is full, SERVER_THREADPOOL_EXHAUSTED_ERROR cannot return properly,
+                // therefore the consumer side has to wait until gets timeout. This is a temporary solution to prevent
+                // this scenario from happening, but a better solution should be considered later.
+                if (t instanceof RejectedExecutionException) {
+                    sendFeedback(channel, (Request) message, t);
+                }
+                throw new ExecutionException(message, channel, getClass() + " error when process received event.", t);
+            }
+        } else if (executor instanceof ThreadlessExecutor) {
+            executor.execute(new ChannelEventRunnable(channel, handler, ChannelState.RECEIVED, message));
+        } else {
+            handler.received(channel, message);
+        }
+    }
+}
+```
+
+​	通过上面的代码可知，只把请求类消息派发到业务线程池处理，但是响应、连接事件、断开事件、心跳事件等消息则直接在I/O线程上执行。这里与message模型不同之处在于，响应类型的事件也是在I/O线程上执行的。
+
+## ConnectionOrderedDispatcher源码剖析
+
+```java
+public class ConnectionOrderedDispatcher implements Dispatcher {
+
+    public static final String NAME = "connection";
+
+    @Override
+    public ChannelHandler dispatch(ChannelHandler handler, URL url) {
+        return new ConnectionOrderedChannelHandler(handler, url);
+    }
+
+}
+```
+
+```java
+public class ConnectionOrderedChannelHandler extends WrappedChannelHandler {
+
+    protected final ThreadPoolExecutor connectionExecutor;
+    private final int queuewarninglimit;
+
+    public ConnectionOrderedChannelHandler(ChannelHandler handler, URL url) {
+        super(handler, url);
+        // 创建线程池
+        String threadName = url.getParameter(THREAD_NAME_KEY, DEFAULT_THREAD_NAME);
+        connectionExecutor = new ThreadPoolExecutor(1, 1,
+                0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<Runnable>(url.getPositiveParameter(CONNECT_QUEUE_CAPACITY, Integer.MAX_VALUE)),
+                new NamedThreadFactory(threadName, true),
+                new AbortPolicyWithReport(threadName, url)
+        );  // FIXME There's no place to release connectionExecutor!
+        queuewarninglimit = url.getParameter(CONNECT_QUEUE_WARNING_SIZE, DEFAULT_CONNECT_QUEUE_WARNING_SIZE);
+    }
+	
+    // 链接建立事件
+    @Override
+    public void connected(Channel channel) throws RemotingException {
+        try {
+            checkQueueLength();
+            connectionExecutor.execute(new ChannelEventRunnable(channel, handler, ChannelState.CONNECTED));
+        } catch (Throwable t) {
+            throw new ExecutionException("connect event", channel, getClass() + " error when process connected event .", t);
+        }
+    }
+
+    @Override
+    public void disconnected(Channel channel) throws RemotingException {
+        try {
+            checkQueueLength();
+            connectionExecutor.execute(new ChannelEventRunnable(channel, handler, ChannelState.DISCONNECTED));
+        } catch (Throwable t) {
+            throw new ExecutionException("disconnected event", channel, getClass() + " error when process disconnected event .", t);
+        }
+    }
+	
+    @Override
+    public void received(Channel channel, Object message) throws RemotingException {
+        ExecutorService executor = getPreferredExecutorService(message);
+        try {
+            executor.execute(new ChannelEventRunnable(channel, handler, ChannelState.RECEIVED, message));
+        } catch (Throwable t) {
+            if (message instanceof Request && t instanceof RejectedExecutionException) {
+                sendFeedback(channel, (Request) message, t);
+                return;
+            }
+            throw new ExecutionException(message, channel, getClass() + " error when process received event .", t);
+        }
+    }
+
+    @Override
+    public void caught(Channel channel, Throwable exception) throws RemotingException {
+        ExecutorService executor = getExecutorService();
+        try {
+            executor.execute(new ChannelEventRunnable(channel, handler, ChannelState.CAUGHT, exception));
+        } catch (Throwable t) {
+            throw new ExecutionException("caught event", channel, getClass() + " error when process caught event .", t);
+        }
+    }
+
+    private void checkQueueLength() {
+        if (connectionExecutor.getQueue().size() > queuewarninglimit) {
+            logger.warn(new IllegalThreadStateException("connectionordered channel handler `queue size: " + connectionExecutor.getQueue().size() + " exceed the warning limit number :" + queuewarninglimit));
+        }
+    }
+}
+```
+
+​	在代码1中，在构造函数内创建一个只含有一个线程的线程池和一个有限元素的队列，如果设置的参数connect.queue.capacity大于0，则设置为线程池队列容量，否则线程池队列容量为整数最大值，这个线程池用来实现把链接建立和链接断开事件进行顺序化处理。
+
+​	代码2、代码3分别处理链接建立、链接断开事件，可以先使用代码9检查线程池队列的元素个数，个数超过阈值则打印日志，然后把事件放入线程池队列，并使用单线程进行处理。由于是单线程处理，所以其实是“多生产-单消费”模型，实现了把链接建立、链接断开事件的处理变为顺序化处理。
+
+​	代码4、代码5则处理请求事件和异常事件，这里是直接交给了线程池（这个线程池不是connectionExecutor）进行异步处理。
+
+## 线程模型的确定时机
+
+​	前面介绍了Dubbo提供的线程模型，下面我们介绍的是何时确定使用哪种线程模型。在前面的3.1节提到，服务提供方会启动NettyServer来监听消费方的链接，其构造函数如下：
+
+```java
+public NettyServer(URL url, ChannelHandler handler) throws RemotingException {
+    super(ExecutorUtil.setThreadName(url, SERVER_THREAD_POOL_NAME), ChannelHandlers.wrap(handler, url));
+}
+```
+
+​	这里我们主要看看ChannelHandlers.wrap（handler，ExecutorUtil.setThreadName（url，SERVER_THREAD_POOL_NAME））这个代码，该代码加载了具体的线程模型，这是通过ChannelHandlers的wrapInternal方法完成的：
+
+```java
+protected ChannelHandler wrapInternal(ChannelHandler handler, URL url) {
+    return new MultiMessageHandler(new HeartbeatHandler(ExtensionLoader.getExtensionLoader(Dispatcher.class)
+            .getAdaptiveExtension().dispatch(handler, url)));
+}
+```
+
+​	这里根据URL里的线程模型来选择具体的Dispatcher实现类。在此，我们再提一下Dubbo提供的Dispatcher实现类，其默认的实现类是all：
+
+![](https://pic.imgdb.cn/item/6115103f5132923bf81a6ad8.jpg)
+
+##  如何基于扩展接口自定义线程模型
+
+​	首先，我们需要实现扩展接口Dispatcher，其代码如下：
+
+![](https://pic.imgdb.cn/item/611510585132923bf81a9b7b.jpg)
+
+​	然后，我们需要实现自己的Handler，这里的实例为MyChannelHandler，我们需要在项目的src/main/resources目录下创建目录/META-INF/dubbo，并在该目录下创建文件org.apache.dubbo.remoting.Dispatcher，文件内容为mydispatcher=com.books.dubbo.demo.provider.mydispatcher.MyDispatcher。
+
+​	最后，在服务提供者启动时将线程模型设置为mydispatcher即可：
+
+![](https://pic.imgdb.cn/item/611510745132923bf81ad756.jpg)
+
+## Dubbo的线程池策略
+
+​	我们在上面讲解Dubbo线程模型时提到，为了尽量早地释放Netty的I/O线程，某些线程模型会把请求投递到线程池进行异步处理，那么这里所谓的线程池是什么样的线程池呢？其实这里的线程池ThreadPool也是一个扩展接口SPI，Dubbo提供了该扩展接口的一些实现，具体如下。
+
+* FixedThreadPool：创建一个具有固定个数线程的线程池。
+* LimitedThreadPool：创建一个线程池，这个线程池中的线程个数随着需要量动态增加，但是数量不超过配置的阈值。另外，空闲线程不会被回收，会一直存在。
+* EagerThreadPool：创建一个线程池，在这个线程池中，当所有核心线程都处于忙碌状态时，将创建新的线程来执行新任务，而不是把任务放入线程池阻塞队列。
+* CachedThreadPool：创建一个自适应线程池，当线程空闲1分钟时，线程会被回收；当有新请求到来时，会创建新线程。
+
+## FixedThreadPool源码剖析
+
+​	FixedThreadPool的代码如下：
+
+```java
+public class FixedThreadPool implements ThreadPool {
+
+    @Override
+    public Executor getExecutor(URL url) {
+        String name = url.getParameter(THREAD_NAME_KEY, DEFAULT_THREAD_NAME);
+        int threads = url.getParameter(THREADS_KEY, DEFAULT_THREADS);
+        int queues = url.getParameter(QUEUES_KEY, DEFAULT_QUEUES);
+        return new ThreadPoolExecutor(threads, threads, 0, TimeUnit.MILLISECONDS,
+                queues == 0 ? new SynchronousQueue<Runnable>() :
+                        (queues < 0 ? new LinkedBlockingQueue<Runnable>()
+                                : new LinkedBlockingQueue<Runnable>(queues)),
+                new NamedInternalThreadFactory(name, true), new AbortPolicyWithReport(name, url));
+    }
+
+}
+```
+
+​	代码1获取用户设置的线程池中线程的名称前缀，如果没有设置，则使用默认名称Dubbo。
+
+​	代码2获取用户设置的线程池中线程的个数，如果没有设置，则使用默认的数值200。
+
+​	代码3获取用户设置的线程池的阻塞队列大小，如果没有设置，则使用默认的数值0。
+
+​	代码4使用JUC包里的ThreadPoolExecutor创建线程池。关于ThreadPoolExecutor，读者可以参考笔者所著的《Java并发编程之美》一书。
+
+​	这里把ThreadPoolExecutor的核心线程个数和最大线程个数都设置为threads，所以创建的线程池是固定线程个数的线程池。另外，当队列元素为0时，阻塞队列使用的是SynchronousQueue；当队列元素小于0时，使用的是无界阻塞队列LinkedBlockingQueue；当队列元素大于0时，使用的是有界的LinkedBlockingQueue。
+
+​	并且，这里使用了自定义的线程工厂NamedInternalThreadFactory来为线程创建自定义名称，并将线程设置为deamon线程（关于用户线程与deamon线程的区别，可以参考笔者所著的《Java并发编程之美》一书）。
+
+​	最后，线程池拒绝策略选择了AbortPolicyWithReport，意味着当线程池队列已满并且线程池中线程都忙碌时，新来的任务会被丢弃，并抛出RejectedExecutionException异常。
+
+## LimitedThreadPool源码剖析
+
+```java
+public class LimitedThreadPool implements ThreadPool {
+
+    @Override
+    public Executor getExecutor(URL url) {
+        String name = url.getParameter(THREAD_NAME_KEY, DEFAULT_THREAD_NAME);
+        int cores = url.getParameter(CORE_THREADS_KEY, DEFAULT_CORE_THREADS);
+        int threads = url.getParameter(THREADS_KEY, DEFAULT_THREADS);
+        int queues = url.getParameter(QUEUES_KEY, DEFAULT_QUEUES);
+        return new ThreadPoolExecutor(cores, threads, Long.MAX_VALUE, TimeUnit.MILLISECONDS,
+                queues == 0 ? new SynchronousQueue<Runnable>() :
+                        (queues < 0 ? new LinkedBlockingQueue<Runnable>()
+                                : new LinkedBlockingQueue<Runnable>(queues)),
+                new NamedInternalThreadFactory(name, true), new AbortPolicyWithReport(name, url));
+    }
+
+}
+```
+
+## EagerThreadPool源码剖析
+
+```java
+public class EagerThreadPool implements ThreadPool {
+
+    @Override
+    public Executor getExecutor(URL url) {
+        String name = url.getParameter(THREAD_NAME_KEY, DEFAULT_THREAD_NAME);
+        int cores = url.getParameter(CORE_THREADS_KEY, DEFAULT_CORE_THREADS);
+        int threads = url.getParameter(THREADS_KEY, Integer.MAX_VALUE);
+        int queues = url.getParameter(QUEUES_KEY, DEFAULT_QUEUES);
+        int alive = url.getParameter(ALIVE_KEY, DEFAULT_ALIVE);
+
+        // init queue and executor
+        TaskQueue<Runnable> taskQueue = new TaskQueue<Runnable>(queues <= 0 ? 1 : queues);
+        EagerThreadPoolExecutor executor = new EagerThreadPoolExecutor(cores,
+                threads,
+                alive,
+                TimeUnit.MILLISECONDS,
+                taskQueue,
+                new NamedInternalThreadFactory(name, true),
+                new AbortPolicyWithReport(name, url));
+        taskQueue.setExecutor(executor);
+        return executor;
+    }
+}
+```
+
+​	代码6使用自定义线程池EagerThreadPoolExecutor和队列创建需要的线程池。
+
+​	EagerThreadPoolExecutor与JUC包中的ThreadPoolExecutor不同之处在于，对于后者来说，当线程池核心线程个数达到设置的阈值时，新来的任务会被放入线程池队列，等队列满了以后，才会开启新线程来处理任务（前提是当前线程个数没有超过线程池最大线程个数）；而对于前者来说，当线程池核心线程个数达到设置的阈值时，新来的任务不会被放入线程池队列，而是会开启新线程来处理任务（前提是当前线程个数没有超过线程池最大线程个数），当线程个数达到最大线程个数时，才会把任务放入线程池队列。
+
+​	由于EagerThreadPoolExecutor继承自ThreadPoolExecutor，所以在向EagerThreadPoolExecutor提交任务后，最终还是会调用ThreadPoolExecutor的execute（）方法，这里我们简单讲解一下EagerThreadPoolExecutor的功能是如何实现的：
+
+```java
+public void execute(Runnable command) {
+    if (command == null) {
+        throw new NullPointerException();
+    }
+    // do not increment in method beforeExecute!
+    submittedTaskCount.incrementAndGet();
+    try {
+        super.execute(command);
+    } catch (RejectedExecutionException rx) {
+        // retry to offer the task into queue.
+        final TaskQueue queue = (TaskQueue) super.getQueue();
+        try {
+            if (!queue.retryOffer(command, 0, TimeUnit.MILLISECONDS)) {
+                submittedTaskCount.decrementAndGet();
+                throw new RejectedExecutionException("Queue capacity is full.", rx);
+            }
+        } catch (InterruptedException x) {
+            submittedTaskCount.decrementAndGet();
+            throw new RejectedExecutionException(x);
+        }
+    } catch (Throwable t) {
+        // decrease any way
+        submittedTaskCount.decrementAndGet();
+        throw t;
+    }
+}
+```
+
+​	在代码3中，当目前线程池线程个数大于等于核心线程个数时会执行代码4。在正常情况下，代码4会把任务添加到队列而不是开启新线程，但是EagerThreadPoolExecutor使用了自己的队列TaskQueue，下面我们看看TaskQueue的offer（）方法：
+
+```java
+public boolean offer(Runnable runnable) {
+    if (executor == null) {
+        throw new RejectedExecutionException("The task queue does not have executor!");
+    }
+
+    int currentPoolThreadSize = executor.getPoolSize();
+    // have free worker. put task into queue to let the worker deal with task.
+    if (executor.getSubmittedTaskCount() < currentPoolThreadSize) {
+        return super.offer(runnable);
+    }
+
+    // return false to let executor create new worker.
+    if (currentPoolThreadSize < executor.getMaximumPoolSize()) {
+        return false;
+    }
+
+    // currentPoolThreadSize >= max
+    return super.offer(runnable);
+}
+```
+
+​	在代码7中，如果当前线程池线程个数小于线程池设置的最大个数，则返回false，然后执行代码5新开启线程来处理当前任务。
+
+## CachedThreadPool源码剖析
+
+```java
+@Override
+public Executor getExecutor(URL url) {
+    String name = url.getParameter(THREAD_NAME_KEY, DEFAULT_THREAD_NAME);
+    int cores = url.getParameter(CORE_THREADS_KEY, DEFAULT_CORE_THREADS);
+    int threads = url.getParameter(THREADS_KEY, Integer.MAX_VALUE);
+    int queues = url.getParameter(QUEUES_KEY, DEFAULT_QUEUES);
+    int alive = url.getParameter(ALIVE_KEY, DEFAULT_ALIVE);
+    return new ThreadPoolExecutor(cores, threads, alive, TimeUnit.MILLISECONDS,
+            queues == 0 ? new SynchronousQueue<Runnable>() :
+                    (queues < 0 ? new LinkedBlockingQueue<Runnable>()
+                            : new LinkedBlockingQueue<Runnable>(queues)),
+            new NamedInternalThreadFactory(name, true), new AbortPolicyWithReport(name, url));
+}
+```
+
+​	代码6使用JUC包的ThreadPoolExecutor创建线程池，需要注意的是，这里设置了线程池中线程空闲时间，当线程空闲时间达到后，线程会被回收。
+
+##  线程池的确定时机 todo
+
+​	到这里介绍完了线程模型的加载位置，但线程模型中的线程池SPI扩展什么时候加载呢？这里以线程模型AllDispatcher为例做介绍。线程模型AllDispatcher对应的处理器是AllChannelHandler，其构造函数如下：
+
+​	可能是
+
+```java
+public ExecutorService getSharedExecutorService() {
+    ExecutorRepository executorRepository =
+            ExtensionLoader.getExtensionLoader(ExecutorRepository.class).getDefaultExtension();
+    ExecutorService executor = executorRepository.getExecutor(url);
+    if (executor == null) {
+        executor = executorRepository.createExecutorIfAbsent(url);
+    }
+    return executor;
+}
+```
+
+## 如何基于扩展接口自定义线程池策略
+
+​	首先，需要实现扩展接口ThreadPool，其代码如下：
+
+![](https://pic.imgdb.cn/item/611510745132923bf81ad756.jpg)
+
+![](https://pic.imgdb.cn/item/611516165132923bf8261868.jpg)
+
+​	然后，需要在项目的src/main/resources目录下创建目录/META-INF/dubbo，并在该目录下创建文件org.apache.dubbo.common.threadpool.ThreadPool，文件内容为mythreadpool=com.books.dubbo.demo.provider.mydispatcher.MyThreadPool。
+
+​	最后，在服务提供者启动时把线程池策略设置为mythreadpool即可：
+
+![](https://pic.imgdb.cn/item/6115162c5132923bf82640fc.jpg)
+
+# Dubbo如何实现泛化引用 todo
+
+​	在基础篇中我们已经介绍了，基于Dubbo API搭建Dubbo服务时，服务消费端引入了一个SDK二方包，里面存放着服务提供端提供的所有接口类。
+
+​	泛化接口调用方式主要是在服务消费端没有API接口类及模型类元（比如入参和出参的POJO类）的情况下使用，其参数及返回值中没有对应的POJO类，所以全部POJO均转换为Map表示。使用泛化调用时服务消费模块不再需要引入SDK二方包。
+
+​	我们在本章中将探讨Dubbo如何实现泛化调用，主要内容包括：服务消费端如何使用GenericImplFilter拦截泛化调用，把泛化参数进行校验并发起远程调用；服务提供方如何使用GenericFilter拦截请求，并把泛化参数进行反序列化处理，然后把请求转发给具体的服务进行执行。调用流程图如图8.1所示。
+
+![](https://pic.imgdb.cn/item/611516805132923bf826e489.jpg)
+
+## 服务消费端GenericImplFilter源码分析 
+
+​	在基础篇中介绍的泛化调用有三个测试类，分别为APiGenericConsumerForTrue、APiGenericConsumerForNativeJava和APiGenericConsumerForBean，三者分别对应三种泛化引用。这里我们使用APiGenericConsumer来替代这三个类进行讲解，首先看看如图8.2所示的时序图。
+
+![](https://pic.imgdb.cn/item/6115170d5132923bf828080a.jpg)
+
+​	通过图8.2可知，在消费端使用泛化调用发起请求后，请求会经过包装类ProtocolFilterWrapper创建的责任链。这里只展示了责任链中的GenericImplFilter过滤器，GenericImplFilter处理完后会把请求传递给被包装的DubboInvoker，然后DubboInvoker会发起远程调用，这里我们主要看看GenericImplFilter是如何实现泛化引用的：
+
+```java
+@Override
+public Result invoke(Invoker<?> invoker, Invocation invocation) throws RpcException {
+    String generic = invoker.getUrl().getParameter(GENERIC_KEY);
+    // calling a generic impl service
+    // 是否返回引用
+    if (isCallingGenericImpl(generic, invocation)) {
+        RpcInvocation invocation2 = new RpcInvocation(invocation);
+
+        /**
+         * Mark this invocation as a generic impl call, this value will be removed automatically before passing on the wire.
+         * See {@link RpcUtils#sieveUnnecessaryAttachments(Invocation)}
+         */
+        invocation2.put(GENERIC_IMPL_MARKER, true);
+
+        String methodName = invocation2.getMethodName();
+        Class<?>[] parameterTypes = invocation2.getParameterTypes();
+        // 参数
+        Object[] arguments = invocation2.getArguments();
+
+        String[] types = new String[parameterTypes.length];
+        for (int i = 0; i < parameterTypes.length; i++) {
+            types[i] = ReflectUtils.getName(parameterTypes[i]);
+        }
+
+        Object[] args;
+        if (ProtocolUtils.isBeanGenericSerialization(generic)) {
+            args = new Object[arguments.length];
+            for (int i = 0; i < arguments.length; i++) {
+                args[i] = JavaBeanSerializeUtil.serialize(arguments[i], JavaBeanAccessor.METHOD);
+            }
+        } else {
+            args = PojoUtils.generalize(arguments);
+        }
+
+        if (RpcUtils.isReturnTypeFuture(invocation)) {
+            invocation2.setMethodName($INVOKE_ASYNC);
+        } else {
+            invocation2.setMethodName($INVOKE);
+        }
+        invocation2.setParameterTypes(GENERIC_PARAMETER_TYPES);
+        invocation2.setParameterTypesDesc(GENERIC_PARAMETER_DESC);
+        invocation2.setArguments(new Object[]{methodName, types, args});
+        return invoker.invoke(invocation2);
+    }
+    // making a generic call to a normal service
+    else if (isMakingGenericCall(generic, invocation)) {
+
+        Object[] args = (Object[]) invocation.getArguments()[2];
+        if (ProtocolUtils.isJavaGenericSerialization(generic)) {
+
+            for (Object arg : args) {
+                if (byte[].class != arg.getClass()) {
+                    error(generic, byte[].class.getName(), arg.getClass().getName());
+                }
+            }
+        } else if (ProtocolUtils.isBeanGenericSerialization(generic)) {
+            for (Object arg : args) {
+                if (!(arg instanceof JavaBeanDescriptor)) {
+                    error(generic, JavaBeanDescriptor.class.getName(), arg.getClass().getName());
+                }
+            }
+        }
+
+        invocation.setAttachment(
+                GENERIC_KEY, invoker.getUrl().getParameter(GENERIC_KEY));
+    }
+    return invoker.invoke(invocation);
+}
+```
+
+## 服务提供端GenericFilter源码分析
+
+​	在3.2节我们讲到，服务提供端默认会把接收到的请求封装为ChannelEventRunnable任务，并投递到业务线程池以便及时释放I/O线程，这里我们就从ChannelEventRunnable的执行开始，看看流程是如何走到GenericFilter的。服务提供端处理请求的时序图如图8.3所示。
+
+![](https://pic.imgdb.cn/item/611517b95132923bf8295fee.jpg)
+
+​	从图8.3可以看到，当异步任务被执行时，请求会经过包装类ProtocolFilterWrapper创建的责任链。这里只展示了责任链中的GenericFilter过滤器，GenericFilter处理完后会把请求传递给AbstractProxyInvoker，然后AbstractProxyInvoker会进行本地服务的执行。这里我们主要看看GenericFilter是如何实现泛化引用的：
+
+```java
+public Result invoke(Invoker<?> invoker, Invocation inv) throws RpcException {
+    // 首付繁华请求
+    if ((inv.getMethodName().equals($INVOKE) || inv.getMethodName().equals($INVOKE_ASYNC))
+            && inv.getArguments() != null
+            && inv.getArguments().length == 3
+            && !GenericService.class.isAssignableFrom(invoker.getInterface())) {
+        String name = ((String) inv.getArguments()[0]).trim();
+        String[] types = (String[]) inv.getArguments()[1];
+        Object[] args = (Object[]) inv.getArguments()[2];
+        try {
+            // 反射获取调用方法
+            Method method = ReflectUtils.findMethodByMethodSignature(invoker.getInterface(), name, types);
+            Class<?>[] params = method.getParameterTypes();
+            if (args == null) {
+                args = new Object[params.length];
+            }
+
+            if(types == null) {
+                types = new String[params.length];
+            }
+
+            if (args.length != types.length) {
+                throw new RpcException("GenericFilter#invoke args.length != types.length, please check your "
+                        + "params");
+            }
+            String generic = inv.getAttachment(GENERIC_KEY);
+
+            if (StringUtils.isBlank(generic)) {
+                // 获取泛化引用方使用的泛化类型
+                generic = RpcContext.getClientAttachment().getAttachment(GENERIC_KEY);
+            }
+			// 泛化类型为空，则使用generic=true的泛化方式
+            if (StringUtils.isEmpty(generic)
+                    || ProtocolUtils.isDefaultGenericSerialization(generic)
+                    || ProtocolUtils.isGenericReturnRawResult(generic)) {
+                try {
+                    args = PojoUtils.realize(args, params, method.getGenericParameterTypes());
+                } catch (IllegalArgumentException e) {
+                    throw new RpcException(e);
+                }
+            } else if (ProtocolUtils.isGsonGenericSerialization(generic)) {
+                args = getGsonGenericArgs(args, method.getGenericParameterTypes());
+             // nativejava的方式
+            } else if (ProtocolUtils.isJavaGenericSerialization(generic)) {
+                Configuration configuration = ApplicationModel.getEnvironment().getConfiguration();
+                if (!configuration.getBoolean(CommonConstants.ENABLE_NATIVE_JAVA_GENERIC_SERIALIZE, false)) {
+                    String notice = "Trigger the safety barrier! " +
+                            "Native Java Serializer is not allowed by default." +
+                            "This means currently maybe being attacking by others. " +
+                            "If you are sure this is a mistake, " +
+                            "please set `" + CommonConstants.ENABLE_NATIVE_JAVA_GENERIC_SERIALIZE + "` enable in configuration! " +
+                            "Before doing so, please make sure you have configure JEP290 to prevent serialization attack.";
+                    logger.error(notice);
+                    throw new RpcException(new IllegalStateException(notice));
+                }
+
+                for (int i = 0; i < args.length; i++) {
+                    if (byte[].class == args[i].getClass()) {
+                        try (UnsafeByteArrayInputStream is = new UnsafeByteArrayInputStream((byte[]) args[i])) {
+                            args[i] = ExtensionLoader.getExtensionLoader(Serialization.class)
+                                    .getExtension(GENERIC_SERIALIZATION_NATIVE_JAVA)
+                                    .deserialize(null, is).readObject();
+                        } catch (Exception e) {
+                            throw new RpcException("Deserialize argument [" + (i + 1) + "] failed.", e);
+                        }
+                    } else {
+                        throw new RpcException(
+                                "Generic serialization [" +
+                                        GENERIC_SERIALIZATION_NATIVE_JAVA +
+                                        "] only support message type " +
+                                        byte[].class +
+                                        " and your message type is " +
+                                        args[i].getClass());
+                    }
+                }
+            } else if (ProtocolUtils.isBeanGenericSerialization(generic)) {
+                for (int i = 0; i < args.length; i++) {
+                    if (args[i] instanceof JavaBeanDescriptor) {
+                        args[i] = JavaBeanSerializeUtil.deserialize((JavaBeanDescriptor) args[i]);
+                    } else {
+                        throw new RpcException(
+                                "Generic serialization [" +
+                                        GENERIC_SERIALIZATION_BEAN +
+                                        "] only support message type " +
+                                        JavaBeanDescriptor.class.getName() +
+                                        " and your message type is " +
+                                        args[i].getClass().getName());
+                    }
+                }
+            } else if (ProtocolUtils.isProtobufGenericSerialization(generic)) {
+                // as proto3 only accept one protobuf parameter
+                if (args.length == 1 && args[0] instanceof String) {
+                    try (UnsafeByteArrayInputStream is =
+                                 new UnsafeByteArrayInputStream(((String) args[0]).getBytes())) {
+                        args[0] = ExtensionLoader.getExtensionLoader(Serialization.class)
+                                .getExtension(GENERIC_SERIALIZATION_PROTOBUF)
+                                .deserialize(null, is).readObject(method.getParameterTypes()[0]);
+                    } catch (Exception e) {
+                        throw new RpcException("Deserialize argument failed.", e);
+                    }
+                } else {
+                    throw new RpcException(
+                            "Generic serialization [" +
+                                    GENERIC_SERIALIZATION_PROTOBUF +
+                                    "] only support one " + String.class.getName() +
+                                    " argument and your message size is " +
+                                    args.length + " and type is" +
+                                    args[0].getClass().getName());
+                }
+            }
+
+            RpcInvocation rpcInvocation =
+                    new RpcInvocation(method, invoker.getInterface().getName(), invoker.getUrl().getProtocolServiceKey(), args,
+                            inv.getObjectAttachments(), inv.getAttributes());
+            rpcInvocation.setInvoker(inv.getInvoker());
+            rpcInvocation.setTargetServiceUniqueName(inv.getTargetServiceUniqueName());
+
+            return invoker.invoke(rpcInvocation);
+        } catch (NoSuchMethodException | ClassNotFoundException e) {
+            throw new RpcException(e.getMessage(), e);
+        }
+    }
+    return invoker.invoke(inv);
+}
+```
