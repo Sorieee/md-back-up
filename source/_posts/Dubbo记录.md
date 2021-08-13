@@ -8166,3 +8166,518 @@ public Result invoke(Invoker<?> invoker, Invocation inv) throws RpcException {
     return invoker.invoke(inv);
 }
 ```
+
+# Dubbo并发控制
+
+​	由于资源的限制，一般会在服务提供方和消费方限制接口调用的并发数，本章将探讨相关的原理。图9.1是原理的模型图。
+
+![](https://pic.imgdb.cn/item/6115d6835132923bf84bf697.jpg)
+
+## 服务消费端并发控制
+
+​	在基础篇的Demo中，APiConsumerForActiveLimit类使用了消费端并发控制，其代码如下：
+
+![](https://pic.imgdb.cn/item/6115d72c5132923bf84d12ba.jpg)
+
+​	上面的代码对com.books.dubbo.demo.api.GreetingService接口中的所有方法进行了设置，每个方法最多同时并发请求10个。其实也可以只设置接口GreetingService中某一个方法的并发请求限制个数：
+
+![](https://pic.imgdb.cn/item/6115d73f5132923bf84d31d1.jpg)
+
+​	在服务消费端，具体进行并发控制的是ProtocolFilterWrapper类创建的Filter链中的ActiveLimitFilter（）方法，下面我们看看如图9.2所示的调用时序图。
+
+![](https://pic.imgdb.cn/item/6115d7785132923bf84d8ed5.jpg)
+
+​	在上面的代码中，在DubboInvoker的invoke（）方法真正向远端发起RPC请求前，请求会先经过ActiveLimitFilter的invoke（）方法，其代码如下：
+
+```java
+public Result invoke(Invoker<?> invoker, Invocation invocation) throws RpcException {
+    // 获取url
+    URL url = invoker.getUrl();
+    String methodName = invocation.getMethodName();
+    // 获取最大可用并发数
+    int max = invoker.getUrl().getMethodParameter(methodName, ACTIVES_KEY, 0);
+    final RpcStatus rpcStatus = RpcStatus.getStatus(invoker.getUrl(), invocation.getMethodName());
+    // 判断是不是超过并发了
+    if (!RpcStatus.beginCount(url, methodName, max)) {
+        long timeout = invoker.getUrl().getMethodParameter(invocation.getMethodName(), TIMEOUT_KEY, 0);
+        long start = System.currentTimeMillis();
+        long remain = timeout;
+        // 包裹并发阻塞当前线程timeout时间
+        synchronized (rpcStatus) {
+            while (!RpcStatus.beginCount(url, methodName, max)) {
+                try {
+                    rpcStatus.wait(remain);
+                } catch (InterruptedException e) {
+                    // ignore
+                }
+                long elapsed = System.currentTimeMillis() - start;
+                remain = timeout - elapsed;
+                // 超时了还没被唤醒则抛出异常
+                if (remain <= 0) {
+                    throw new RpcException(RpcException.LIMIT_EXCEEDED_EXCEPTION,
+                            "Waiting concurrent invoke timeout in client-side for service:  " +
+                                    invoker.getInterface().getName() + ", method: " + invocation.getMethodName() +
+                                    ", elapsed: " + elapsed + ", timeout: " + timeout + ". concurrent invokes: " +
+                                    rpcStatus.getActive() + ". max concurrent invoke limit: " + max);
+                }
+            }
+        }
+    }
+
+    invocation.put(ACTIVELIMIT_FILTER_START_TIME, System.currentTimeMillis());
+
+    return invoker.invoke(invocation);
+}
+public static boolean beginCount(URL url, String methodName, int max) {
+        max = (max <= 0) ? Integer.MAX_VALUE : max;
+        RpcStatus appStatus = getStatus(url);
+        RpcStatus methodStatus = getStatus(url, methodName);
+        if (methodStatus.active.get() == Integer.MAX_VALUE) {
+            return false;
+        }
+        for (int i; ; ) {
+            i = methodStatus.active.get();
+
+            if (i == Integer.MAX_VALUE || i + 1 > max) {
+                return false;
+            }
+
+            if (methodStatus.active.compareAndSet(i, i + 1)) {
+                break;
+            }
+        }
+
+        appStatus.active.incrementAndGet();
+
+        return true;
+    }
+/**
+     * @param url
+     * @param elapsed
+     * @param succeeded
+     */
+    public static void endCount(URL url, String methodName, long elapsed, boolean succeeded) {
+        endCount(getStatus(url), elapsed, succeeded);
+        endCount(getStatus(url, methodName), elapsed, succeeded);
+    }
+
+    private static void endCount(RpcStatus status, long elapsed, boolean succeeded) {
+        status.active.decrementAndGet();
+        status.total.incrementAndGet();
+        status.totalElapsed.addAndGet(elapsed);
+
+        if (status.maxElapsed.get() < elapsed) {
+            status.maxElapsed.set(elapsed);
+        }
+
+        if (succeeded) {
+            if (status.succeededMaxElapsed.get() < elapsed) {
+                status.succeededMaxElapsed.set(elapsed);
+            }
+
+        } else {
+            status.failed.incrementAndGet();
+            status.failedElapsed.addAndGet(elapsed);
+            if (status.failedMaxElapsed.get() < elapsed) {
+                status.failedMaxElapsed.set(elapsed);
+            }
+        }
+    }
+```
+
+​	通过上面的代码可知，在RpcStatus中维护了一个并发安全的METHOD_STATISTICS缓存，其中key为服务接口，value为该服务接口中所有方法的一个缓存，后者ConcurrentMap＜String，RpcStatus＞的key为具体的方法，value为RpcStatus对象。
+
+​	如果beginCount（）方法返回了false，则让当前线程挂起timeout时间，然后当前线程会在timeout时间后再被唤醒，或者当其他线程调用了count的notifyAll（）方法时被唤醒。如果超过timeout时间还没被唤醒，则当前线程会自动被唤醒，然后抛出RpcException异常，也就是说远程调用还没到达服务提供方，调用方就抛出异常结束了。
+
+​	综上所述，在客户端并发控制中，如果当激活并发量达到指定值后，当前客户端请求线程会被挂起。如果在等待超时期间激活并发请求量少了，那么阻塞的线程会被激活，然后发送请求到服务提供方；如果等待超时了，则直接抛出异常，这时服务根本就没有发送到服务提供方服务器。
+
+## 服务提供端并发控制
+
+​	在基础篇的Demo中，ApiProviderForExecuteLimit使用了服务提供端并发控制：
+
+![](https://pic.imgdb.cn/item/6115dca15132923bf8569c14.jpg)
+
+​	上面的代码对com.books.dubbo.demo.api.GreetingService接口中的所有方法进行了设置，每个方法最多同时处理10个请求。其实也可以只设置接口GreetingService中的某一个方法的并发处理限制个数：
+
+![](https://pic.imgdb.cn/item/6115dcc75132923bf856dde9.jpg)
+
+​	上面的代码只设置了sayHello（）方法的同时并发处理数目。
+
+​	在服务提供端，具体进行并发控制的是ProtocolFilterWrapper类创建的Filter链中的ExecuteLimitFilter（）方法，下面我们看看如图9.3所示的调用时序图。
+
+![](https://pic.imgdb.cn/item/6115dce55132923bf85713a6.jpg)
+
+​	在上面的代码中，服务提供方的AbstractProxyInvoker的invoke（）方法在真正执行服务处理的前，请求会先经过ExecuteLimitFilter的invoke（）方法，其代码如下：
+
+```java
+public Result invoke(Invoker<?> invoker, Invocation invocation) throws RpcException {
+    URL url = invoker.getUrl();
+    String methodName = invocation.getMethodName();
+    int max = url.getMethodParameter(methodName, EXECUTES_KEY, 0);
+    if (!RpcStatus.beginCount(url, methodName, max)) {
+        throw new RpcException(RpcException.LIMIT_EXCEEDED_EXCEPTION,
+                "Failed to invoke method " + invocation.getMethodName() + " in provider " +
+                        url + ", cause: The service using threads greater than <dubbo:service executes=\"" + max +
+                        "\" /> limited.");
+    }
+
+    invocation.put(EXECUTE_LIMIT_FILTER_START_TIME, System.currentTimeMillis());
+    try {
+        return invoker.invoke(invocation);
+    } catch (Throwable t) {
+        if (t instanceof RuntimeException) {
+            throw (RuntimeException) t;
+        } else {
+            throw new RpcException("unexpected exception when ExecuteLimitFilter", t);
+        }
+    }
+}
+```
+
+​	代码2获取设置的executes的值，代码3递增方法对应的激活并发数。如果并发数超过了设置最大值，则直接抛出异常，否则执行代码4继续Filter链的处理，正常执行服务处理，然后执行代码5将当前方法激活并发数减去1。
+
+​	需要注意的是，服务提供方设置并发数后，如果同时请求数超过了设置的executes的值，则会抛出异常，而不是像消费端设置actives时那样去等待。
+
+# Dubbo隐式参数传递
+
+​	在基础篇中我们讲到Dubbo提供了隐式参数传递的功能，即服务调用方可以通过RpcContext.getContext（）.setAttachment（）方法设置附加属性键值对，然后设置的键值对可以在服务提供方服务方法内获取。
+
+​	要实现隐式参数传递，首先需要在服务消费端的AbstractClusterInvoker类的invoke（）方法内，把附加属性键值对放入到RpcInvocation的attachments变量中，然后经过网络传递到服务提供端；服务提供端则使用ContextFilter对请求进行拦截，并从RpcInvocation中获取attachments中的键值对，然后使用RpcContext.getContext（）.setAttachment设置到上下文对象中，其模型图如图10.1所示。
+
+![](https://pic.imgdb.cn/item/6115dd915132923bf85840d6.jpg)
+
+## 服务消费端AbstractClusterInvoker原理剖析
+
+​	AbstractClusterInvoker是服务集群容错策略的抽象类，在默认情况下，集群容错策略为FailoverClusterInvoker，其继承了AbstractClusterInvoker，下面我们首先看看如图10.2所示的时序图。
+
+![](https://pic.imgdb.cn/item/6115de655132923bf859cb88.jpg)
+
+​	从图中可以看到，服务消费端启动后最终会到达默认的集群容错策略FailoverClusterInvoker的invoke（）方法，其代码如下：
+
+```java
+@Override
+    public Result invoke(final Invocation invocation) throws RpcException {
+        checkWhetherDestroyed();
+
+        // binding attachments into invocation.
+//        Map<String, Object> contextAttachments = RpcContext.getClientAttachment().getObjectAttachments();
+//        if (contextAttachments != null && contextAttachments.size() != 0) {
+//            ((RpcInvocation) invocation).addObjectAttachmentsIfAbsent(contextAttachments);
+//        }
+
+        List<Invoker<T>> invokers = list(invocation);
+        LoadBalance loadbalance = initLoadBalance(invokers, invocation);
+        RpcUtils.attachInvocationIdIfAsync(getUrl(), invocation);
+        return doInvoke(invocation, invokers, loadbalance);
+    }
+```
+
+​	服务消费端什么时候会把里面设置的值清除掉呢？其实清除操作是在时序图中ConsumerContextFilter的invoke（）方法内完成的：
+
+```java
+public Result invoke(Invoker<?> invoker, Invocation invocation) throws RpcException {
+    RpcContext.getServiceContext()
+            .setInvocation(invocation)
+            .setLocalAddress(NetUtils.getLocalHost(), 0);
+
+    RpcContext context = RpcContext.getClientAttachment();
+    context.setAttachment(REMOTE_APPLICATION_KEY, invoker.getUrl().getApplication());
+    if (invocation instanceof RpcInvocation) {
+        ((RpcInvocation) invocation).setInvoker(invoker);
+    }
+
+    ExtensionLoader<PenetrateAttachmentSelector> selectorExtensionLoader = ExtensionLoader.getExtensionLoader(PenetrateAttachmentSelector.class);
+    Set<String> supportedSelectors = selectorExtensionLoader.getSupportedExtensions();
+    if (CollectionUtils.isNotEmpty(supportedSelectors)) {
+        for (String supportedSelector : supportedSelectors) {
+            Map<String, Object> selected = selectorExtensionLoader.getExtension(supportedSelector).select();
+            if (CollectionUtils.isNotEmptyMap(selected)) {
+                ((RpcInvocation) invocation).addObjectAttachmentsIfAbsent(selected);
+            }
+        }
+    } else {
+        ((RpcInvocation) invocation).addObjectAttachmentsIfAbsent(RpcContext.getServerAttachment().getObjectAttachments());
+    }
+
+    Map<String, Object> contextAttachments = RpcContext.getClientAttachment().getObjectAttachments();
+    if (CollectionUtils.isNotEmptyMap(contextAttachments)) {
+        /**
+         * invocation.addAttachmentsIfAbsent(context){@link RpcInvocation#addAttachmentsIfAbsent(Map)}should not be used here,
+         * because the {@link RpcContext#setAttachment(String, String)} is passed in the Filter when the call is triggered
+         * by the built-in retry mechanism of the Dubbo. The attachment to update RpcContext will no longer work, which is
+         * a mistake in most cases (for example, through Filter to RpcContext output traceId and spanId and other information).
+         */
+        ((RpcInvocation) invocation).addObjectAttachments(contextAttachments);
+    }
+
+    try {
+        // pass default timeout set by end user (ReferenceConfig)
+        Object countDown = context.getObjectAttachment(TIME_COUNTDOWN_KEY);
+        if (countDown != null) {
+            TimeoutCountDown timeoutCountDown = (TimeoutCountDown) countDown;
+            if (timeoutCountDown.isExpired()) {
+                return AsyncRpcResult.newDefaultAsyncResult(new RpcException(RpcException.TIMEOUT_TERMINATE,
+                        "No time left for making the following call: " + invocation.getServiceName() + "."
+                                + invocation.getMethodName() + ", terminate directly."), invocation);
+            }
+        }
+
+        RpcContext.removeServerContext();
+        return invoker.invoke(invocation);
+    } finally {
+        // 清除附加属性
+        RpcContext.removeServiceContext();
+        RpcContext.removeClientAttachment();
+    }
+}
+```
+
+​	当请求发出去后，会清除当前与调用线程关联的线程变量里面的附加属性。
+
+## 服务提供方ContextFilter原理剖析
+
+​	上一节讲解了服务消费端如何把隐式参数设置到Invocation参数中，本节我们看看服务提供端接收请求后如何把隐式参数设置到上下文对象中，以便让服务提供方在服务方法内获取，服务提供端ContextFilter过滤器的激活时序与8.1节所讲的GenericFilter的激活时序一致，这里不再列出时序图，我们直接看ContextFilter的代码：
+
+```java
+public Result invoke(Invoker<?> invoker, Invocation invocation) throws RpcException {
+    // 获取附加属性map
+        Map<String, Object> attachments = invocation.getObjectAttachments();
+    //不为null就设置到上下文中    
+    if (attachments != null) {
+            Map<String, Object> newAttach = new HashMap<>(attachments.size());
+            for (Map.Entry<String, Object> entry : attachments.entrySet()) {
+                String key = entry.getKey();
+                if (!UNLOADING_KEYS.contains(key)) {
+                    newAttach.put(key, entry.getValue());
+                }
+            }
+            attachments = newAttach;
+        }
+
+        RpcContext.getServiceContext().setInvoker(invoker)
+                .setInvocation(invocation);
+
+        RpcContext context = RpcContext.getServerAttachment();
+//                .setAttachments(attachments)  // merged from dubbox
+        context.setLocalAddress(invoker.getUrl().getHost(), invoker.getUrl().getPort());
+
+        String remoteApplication = (String) invocation.getAttachment(REMOTE_APPLICATION_KEY);
+        if (StringUtils.isNotEmpty(remoteApplication)) {
+            RpcContext.getServiceContext().setRemoteApplicationName(remoteApplication);
+        } else {
+            RpcContext.getServiceContext().setRemoteApplicationName((String) context.getAttachment(REMOTE_APPLICATION_KEY));
+        }
+
+        long timeout = RpcUtils.getTimeout(invocation, -1);
+        if (timeout != -1) {
+            // pass to next hop
+            RpcContext.getClientAttachment().setObjectAttachment(TIME_COUNTDOWN_KEY, TimeoutCountDown.newCountDown(timeout, TimeUnit.MILLISECONDS));
+        }
+
+        // merged from dubbox
+        // we may already added some attachments into RpcContext before this filter (e.g. in rest protocol)
+        if (attachments != null) {
+            if (context.getObjectAttachments() != null) {
+                context.getObjectAttachments().putAll(attachments);
+            } else {
+                context.setObjectAttachments(attachments);
+            }
+        }
+
+        if (invocation instanceof RpcInvocation) {
+            ((RpcInvocation) invocation).setInvoker(invoker);
+        }
+
+        try {
+            context.clearAfterEachInvoke(false);
+            return invoker.invoke(invocation);
+        } finally {
+            // 清除上下文对象，则附加属性也被回收
+            context.clearAfterEachInvoke(true);
+            RpcContext.removeServerAttachment();
+            RpcContext.removeServiceContext();
+            // IMPORTANT! For async scenario, we must remove context from current thread, so we always create a new RpcContext for the next invoke for the same thread.
+            RpcContext.getClientAttachment().removeAttachment(TIME_COUNTDOWN_KEY);
+            RpcContext.removeServerContext();
+        }
+    }
+```
+
+​	代码1首先从从invocation对象获取附加属性Map，代码2发现附加属性Map不为null，则添加附加属性到上下文对象的attachments对象里，这样在服务实现方法里就可以通过RpcContext.getContext（）.getAttachment来获取附加属性了。代码3等服务逻辑执行完毕后清除当前线程所关联的上下文对象，由于附加属性属于上下文对象，所以附加属性也会被回收。
+
+# Dubbo全链路异步
+
+## 服务消费端异步调用
+
+​	正如Dubbo官网所介绍的，从2.7.0版本开始，Dubbo以CompletableFuture为基础支持所有异步编程接口，解决了2.7.0之前的版本异步调用的不便与功能缺失。
+
+​	异步调用是基于NIO的非阻塞能力实现并行调用，服务消费端不需要启动多线程即可完成并行调用多个远程服务，相对多线程开销较小。图11.1显示的是Dubbo异步调用链路的流程图。
+
+![](https://pic.imgdb.cn/item/6115e1385132923bf85ec270.jpg)
+
+​	图11.1中的步骤1是当服务消费端发起RPC调用时使用的用户线程，用户线程首先使用步骤2创建一个Future对象，接着步骤3会把请求转换为I/O线程来执行，步骤3为异步过程，所以会马上返回，然后用户线程使用步骤4把其创建的Future对象设置到RpcContext中，其后用户线程就返回了。
+
+​	在步骤5中，用户线程可以在某个时间点从RpcContext中获取设置的Future对象，并且使用步骤6来等待调用结果。
+
+​	在步骤7中，当服务提供方返回结果后，调用方线程模型中的线程池中的线程则会把结果使用步骤8写入Future，这时用户线程就可以得到远程调用结果了。
+
+​	图11.1中的实线箭头代表同步调用，虚线箭头表示异步调用。
+
+### 2.7.0版本前的异步调用实现  (3.0todo)
+
+​	2.7.0版本之前的异步调用能力比较弱，比如在基础篇介绍的APiAsyncConsumer类里使用下面的方式进行异步调用：
+
+![](https://pic.imgdb.cn/item/6115e1d25132923bf85fcada.jpg)
+
+​	代码2设置调用为异步方式，代码3直接调用sayHello（）方法会马上返回null。如果要想获取远程调用的真正结果，需要使用代码4获取future对象，并且调用future的get（）系列方法来获取真正的结果，下面我们看看这种方式是如何实现的。
+
+​	在3.4节我们讲到，具体发起远程调用是在DubboInvoker的doInvoke（）方法内，其中会区分是否为异步调用：
+
+
+
+
+
+​	如果发现是异步调用，代码1.6会调用currentClient.request（inv，timeout）执行远程调用，该调用不会阻塞，而是马上返回一个future对象，返回的future对象会被适配器类FutureAdapter做包装，接着把包装结果设置到RpcContext里，然后返回SimpleAsyncRpcResult，SimpleAsyncRpcResult的构造函数保存了上下文对象（这在后面会具体用到）：
+
+![](https://pic.imgdb.cn/item/6115e3df5132923bf86355d1.jpg)
+
+![](https://pic.imgdb.cn/item/6115e3ec5132923bf8636bcd.jpg)
+
+​	如果发现是异步调用，代码1.6会调用currentClient.request（inv，timeout）执行远程调用，该调用不会阻塞，而是马上返回一个future对象，返回的future对象会被适配器类FutureAdapter做包装，接着把包装结果设置到RpcContext里，然后返回SimpleAsyncRpcResult，SimpleAsyncRpcResult的构造函数保存了上下文对象（这在后面会具体用到）：
+
+![](https://pic.imgdb.cn/item/6115e4085132923bf8639abe.jpg)
+
+另外，由于SimpleAsyncRpcResult的recreate（）方法的代码如下：
+
+![](https://pic.imgdb.cn/item/6115e41e5132923bf863c083.jpg)
+
+​	其内部会返回null。
+
+​	为了探究2.7.0版本之前的异步调用的实现原理，我们需要看看代码1.6.1内到底做了什么。其中，currentClient是ReferenceCountExchangeClient的实例，我们首先看看如图11.2所示的时序图。
+
+![](https://pic.imgdb.cn/item/6115e4b95132923bf864ca11.jpg)
+
+​	通过图11.2可知，代码1.6.1最终调用了HeaderExchangeChannel的request（）方法，其代码如下：
+
+![](https://pic.imgdb.cn/item/6115e4e15132923bf8650d95.jpg)
+
+​	代码2创建了请求对象，然后代码3创建了一个future对象，代码4使用底层通信异步发送请求（使用Netty的I/O线程把请求写入远端）。因代码4是非阻塞的，所以会马上返回。
+
+​	这里简单提一下，从用户线程发起远程调用到返回request，使用的都是用户线程。由于代码4channel.send（req）会马上返回，所以不会阻塞用户线程。
+
+​	为了探究异步实现，我们需要看看代码3中的DefaultFuture，其类图如图11.3所示。
+
+![](https://pic.imgdb.cn/item/6115e5015132923bf86541f1.jpg)
+
+​	从图11.3可以看到，DefaultFuture中有3个静态变量：
+
+![](https://pic.imgdb.cn/item/6115e5405132923bf865ade8.jpg)
+
+​	由于是static变量，所以全部DefaultFuture实例共享这3个变量。
+
+​	图11.3中的lock是一个独占锁，done是该锁的一个条件变量：
+
+![](https://pic.imgdb.cn/item/6115e5585132923bf865da09.jpg)
+
+​	lock和done是为了实现线程之间的通知等待模型，比如调用DefaultFuture的get（）方法的线程为了获取响应结果，内部会调用done.await（）方法挂起调用线程。当接收到响应结果后，调用方线程模型中线程池里的线程会调用received（）方法，其内部会把响应结果设置到DefaultFuture内，然后调用done的signal（）方法激活一个因调用done的await（）系列方法而挂起的线程（比如调用get（）方法被阻塞的线程）。
+
+​	首先我们看看代码3是如何使用newFuture创建DefaultFuture对象的：
+
+![](https://pic.imgdb.cn/item/6115e5735132923bf8660578.jpg)
+
+​	其中，DefaultFuture构造函数如下：
+
+![](https://pic.imgdb.cn/item/6115e5825132923bf8661e66.jpg)
+
+![](https://pic.imgdb.cn/item/6115e58c5132923bf8663159.jpg)
+
+​	DefaultFuture内部保存了请求的信息，包含请求ID、请求通道、请求内容、超时时间，并且把当前DefaultFuture对象保存到缓存中，通道也保存到缓存中，缓存的key为请求ID。
+
+​	代码5创建完DefaultFuture后，代码6检查超时情况，其代码如下：
+
+![](https://pic.imgdb.cn/item/6115e6745132923bf867c675.jpg)
+
+​	代码6.1创建了一个可执行任务，代码6.2则当设置的超时时间到了之后执行创建的任务，在任务内会检查调用是否已经完成，具体代码如下：
+
+![](https://pic.imgdb.cn/item/6115e68e5132923bf867f1aa.jpg)
+
+​	当超时时间到了之后，上面的代码会检查任务是否已经完成，如果已经完成则直接返回，否则创建超时事件，并调用DefaultFuture.received把结果设置到future内。
+
+​	到这里我们就讲完了newFuture（）方法的作用，具体来说就是创建一个DefaultFuture对象，并启动一个定时器，然后在超时时间后检查是否已经有响应结果，如果有则直接返回，否则返回超时信息。
+
+​	下面我们看看received（Channel channel，Response response）方法：
+
+![](https://pic.imgdb.cn/item/6115e6a75132923bf8681f45.jpg)
+
+​	从上面的代码可知，当发起的请求的结果返回时或者超时时间到了之后，会调用received（）方法，其中代码7把请求ID对应的future从缓存中移除，然后调用doReceived（）方法把响应结果设置到DefaultFuture的结果变量response中：
+
+![](https://pic.imgdb.cn/item/6115e6c05132923bf8684af6.jpg)
+
+​	在上面的代码中，doReceived（）方法会把响应结果设置到response变量里，然后激活一个由于调用done的wait（）方法被阻塞的线程（比如由于调用了get（）系列方法导致线程阻塞的线程）。另外，如果在future上设置了回调，则会调用回调函数。
+
+​	获取执行结果的get（）方法如下：
+
+![](https://pic.imgdb.cn/item/6115e6d55132923bf8686e02.jpg)
+
+​	在上面的代码中，如果超时时间＜=0，则使用默认值1000；如果任务还没完成（响应结果还是为null），则调用条件变量done的await（）方法，让当前线程挂起timeout时间——若在timeout时间内得到了响应结果（也就是说received（）方法被调用了），则当前线程会被激活；如果已经得到响应结果，则直接执行代码14返回结果。
+
+​	简单总结一下：本节一开始讲解了Dubbo异步调用链路流程图，当服务消费端业务线程发起请求后，会创建一个DefaultFuture对象并设置到RpcContext中，然后在启动I/O线程发起请求后调用线程就返回了null的结果；当业务线程从RpcContext获取future对象并调用其get（）方法获取真实的响应结果后，当前线程会调用条件变量done的await（）方法而挂起；当服务提供端把结果写回调用方之后，调用方线程模型中线程池里的线程会把结果写入DefaultFuture对象内的结果变量中，接着调用条件变量的signal（）方法来激活业务线程，然后业务线程就会从get（）方法返回响应结果。
+
+​	这里所讲的这种实现异步调用的方式基于从返回的future调用get（）方法，其缺点是，当业务线程调用get（）方法后业务线程会被阻塞，这不是我们想要的，所以Dubbo提供了在future对象上设置回调函数的方式，让我们实现真正的异步调用。先看看在基础篇中介绍的APiAsyncConsumerForCallBack类：
+
+![](https://pic.imgdb.cn/item/6115e7055132923bf868bff0.jpg)
+
+​	通过上面的代码可知，这种方式在业务线程获取了future对象后，在其上设置回调函数后马上就会返回，接着等服务提供端把响应结果写回调用方，然后调用方线程模型中线程池里的线程会把结果写入future对象，其后对回调函数进行回调。由此可知，这个过程中是不需要业务线程干预的，实现了真正的异步调用。
+
+​	下面我们看看回调函数的异步方式具体是如何实现的。在代码1.6.1中，在发起远程调用后，把返回的future对象使用FutureAdapter进行了包装，通过RpcContext.getContext（）.getFuture（）获取的其实就是FutureAdapter对象，调用FutureAdapter的getFuture（）方法获取的其实就是DefaultFuture对象，所以代码17是把回调函数设置到了DefaultFuture内，下面我们看看setCallback（）方法：
+
+![](https://pic.imgdb.cn/item/6115e7335132923bf8690c66.jpg)
+
+​	在上面的代码中，如果当前任务已经完成则直接执行回调，否则设置回调并等有响应结果时再执行回调。
+
+​	其中，invokeCallback（）方法的代码为：
+
+![](https://pic.imgdb.cn/item/6115e74f5132923bf8693e92.jpg)
+
+​	另外，回顾一下前面所讲的doReceived（）方法内的代码10，可知当接收到响应结果后，如果发现回调函数不为null，则也会调用invokeCallback（）方法。
+
+​	上面我们介绍了2.7.0版本之前提供的异步调用方式，Future方式只支持阻塞式的get（）接口获取结果。虽然通过获取内置的ResponseFuture接口，可以设置回调，但获取ResponseFuture的API使用起来很不便，并且无法满足让多个Future协同工作的场景，功能比较单一。
+
+### 2.7.0版本提供的异步调用实现
+
+​	在基础篇中介绍的APiAsyncConsumerForCompletableFuture2类使用了Dubbo 2.7.0版本提供的基于CompletableFuture的异步调用：
+
+![](https://pic.imgdb.cn/item/6115e7735132923bf8697d12.jpg)
+
+​	代码4可以直接获取到CompletableFuture，然后设置回调，基于CompletableFuture已有的能力，我们可以对CompletableFuture对象进行一系列的操作，以及可以让多个请求的CompletableFuture对象之间进行运算（比如合并两个CompletableFuture对象的结果为一个CompletableFuture对象等）。
+
+​	下面我们看看这是如何实现的，首先看看RpcContext.getContext（）.getCompletableFuture（）到底返回的是什么：
+
+![](https://pic.imgdb.cn/item/6115e7b25132923bf869e7e8.jpg)
+
+​	从上面的代码可知，返回的还是FutureAdapter对象，所以我们还要回到FutureAdapter类，该类继承了CompletableFuture类。我们需要看看FutureAdapter类是如何将DefaultFuture转换到CompletableFuture的，为此先看看FutureAdapter的构造函数：
+
+![](https://pic.imgdb.cn/item/6115e7c55132923bf86a074c.jpg)
+
+![](https://pic.imgdb.cn/item/6115e7d05132923bf86a1974.jpg)
+
+​	从上面的代码可知，FutureAdapter继承自CompletableFuture，代码6对传递的DefaultFuture设置回调（在2.7.0版本前，基于回调的异步调用需要我们自己设置回调，为了让CompletableFuture适配上DefaultFuture，专门内建一个回调）。然后，在回调方法的done（）内，把结果写入FutureAdapter继承的CompletableFuture内。
+
+​	简单总结一下：当业务线程发起远程调用时，会创建一个DefaultFuture实例，接着经过FutureAdapter把DefaultFuture转换为CompletableFuture实例，然后把CompletableFuture实例设置到RpcContext内。业务线程从RpcContext获取该CompletableFuture后，设置业务回调函数。
+
+​	当服务提供方把结果写回调用方之后，调用方的线程模型中线程池里的线程会调用DefaultFuture的received（）方法，并把响应结果写入DefaultFuture，接着调用这里的代码6所设置的回调，回调内部的done（）方法再把结果写入CompletableFuture，然后CompletableFuture会调用业务设置的业务回调函数。
+
+## 服务提供端异步执行
+
+​	在Provider端非异步执行时，对调用方发来的请求的处理是在Dubbo内部线程模型的线程池里的线程中执行的（参见第7章和3.2节）。在Dubbo中，服务提供方提供的所有服务接口都是使用这一个线程池来执行的，所以当一个服务执行比较耗时时，可能会占用线程池中很多线程，从而导致其他服务的处理收到影响。
+
+​	Provider端异步执行则将服务的处理逻辑从Dubbo内部线程池切换到业务自定义线程，避免Dubbo线程池中的线程被过度占用，有助于避免不同服务间的互相影响。
+
+​	但需要注意的是，Provider端异步执行对节省资源和提升RPC响应性能是没有效果的，这是因为如果服务处理比较耗时，虽然不是使用Dubbo框架内部线程处理，但还是需要业务自己的线程来处理，另外还有副作用，即会新增一次线程上下文切换（从Dubbo内部线程池线程切换到业务线程），模型如图11.4所示。
+
+![](https://pic.imgdb.cn/item/6115e8bc5132923bf86bbeb8.jpg)
+
+​	从图11.4可知，Provider端在同步提供服务时是使用Dubbo内部线程池中的线程来进行处理的，在异步执行时则是使用业务自己设置的线程从Dubbo内部线程池中的线程接收请求进行处理的。
+
+### 基于定义CompletableFuture签名的接口实现异步执行
+
