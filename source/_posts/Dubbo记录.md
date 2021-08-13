@@ -8681,3 +8681,81 @@ public Result invoke(Invoker<?> invoker, Invocation invocation) throws RpcExcept
 
 ### 基于定义CompletableFuture签名的接口实现异步执行
 
+​	在基础篇的Demo中，GrettingServiceAsyncImpl中的服务提供端实现了基于定义CompletableFuture签名的接口实现异步执行：
+
+![](https://pic.imgdb.cn/item/6115e9b45132923bf86d67b8.jpg)
+
+​	通过上面的代码可知，基于定义CompletableFuture签名的接口实现异步执行需要接口方法的返回值为CompletableFuture，并且方法内部使用CompletableFuture.supplyAsync让本来该由Dubbo内部线程池中的线程处理的服务，转换为由业务自定义线程池中的线程来处理，CompletableFuture.supplyAsync（）方法会马上返回一个CompletableFuture对象（所以Dubbo内部线程池中的线程会得到及时释放），传递的业务函数则由业务线程池bizThreadpool执行。
+
+​	需要注意的是，调用sayHello（）方法的线程是Dubbo线程模型线程池中的线程，而业务处理是由bizThreadpool中的线程来处理的，所以代码2.1保存了RPC上下文对象，以便在业务处理线程中使用。
+
+​	在3.4节我们提到，当消费端发起远程调用时，请求会被InvokerInvocationHandler拦截，并在其中创建RpcInvocation，并且如果调用方法的返回值为CompletableFuture或者其子类，则会把future_returntype为true和async=true的属性添加到RpcInvocation的附加属性Map中。
+
+​	在3.1节讲到，在Dubbo内部线程池中的线程接收received请求后，当请求被处理时，如果发现请求是需要返回值的，则会调用HeaderExchangeHandler的handleRequest（）方法，其代码如下：
+
+![](https://pic.imgdb.cn/item/6115e9ea5132923bf86dc170.jpg)
+
+![](https://pic.imgdb.cn/item/6115e9f65132923bf86dd4bb.jpg)
+
+​	在上面的代码中，代码3执行的handler.reply的代码为：
+
+![](https://pic.imgdb.cn/item/6115ea165132923bf86e06db.jpg)
+
+​	其中，代码3.1最终会调用AbstractProxyInvoker的invoke（）方法：
+
+![](https://pic.imgdb.cn/item/6115ea265132923bf86e22d3.jpg)
+
+![](https://pic.imgdb.cn/item/6115ea355132923bf86e3dbf.jpg)
+
+​	从上面的代码可知，返回结果是CompletableFuture类型，或者使用RpcContext.startAsync（）方法开启异步执行，返回AsyncRpcResult。
+
+​	在代码3.2中，如果发现结果为AsyncRpcResult，则说明是服务提供方的异步执行，此时返回CompletableFuture对象，否则为同步执行，并把结果转换为CompletableFuture对象（同步转异步）。所以，代码3返回的肯定是CompletableFuture对象，无论是同步执行还是异步执行。
+
+​	在接收到CompletableFuture对象后，代码3判断请求处理是否完成。如果请求已经完成，则执行代码4来设置结果并写回到调用方，否则执行代码5，即调用CompletableFuture来设置一个回调，等请求处理完毕后使用业务自己设置的线程池来执行回调，在回调函数内把结果或者错误信息写回调用方。
+
+### 使用AsyncContext实现异步执行
+
+​	在基础篇的Demo中，GrettingServiceAsyncContextImpl使用了AsyncContext实现异步执行，代码如下：
+
+![](https://pic.imgdb.cn/item/6115ea6e5132923bf86e9abb.jpg)
+
+![](https://pic.imgdb.cn/item/6115ea795132923bf86eabaf.jpg)
+
+​	代码2.1调用RpcContext.startAsync（）方法开启服务异步执行，然后返回一个asyncContext，然后把服务处理任务提交到业务线程池后该方法就直接返回了null。在异步任务内，首先执行代码2.2切换任务的上下文，然后休眠500ms充当任务执行，最后代码2.3把任务执行结果写入异步上下文，其实现是参考了Servlet 3.0的异步执行。
+
+​	在这里，由于具体执行业务处理的逻辑不在sayHello（）方法所在的Dubbo内部线程池的线程中，所以不会被阻塞。
+
+​	为了探究其原理，我们先看看RpcContext.startAsync（）方法：
+
+![](https://pic.imgdb.cn/item/6115ea975132923bf86ee033.jpg)
+
+​	上面这些代码的主要作用是为当前调用线程关联的RPC上下文对象关联AsyncContextImpl。AsyncContextImpl构造函数如下：
+
+
+
+![](https://pic.imgdb.cn/item/6115eaac5132923bf86f0478.jpg)
+
+​	这里把当前线程上下文对象保存到了AsyncContextImpl内部（这是因为ThreadLocal变量不能跨线程访问，可以参考《Java并发编程之美》一书）。
+
+​	AsyncContextImpl创建完毕后会被启动，其中AsyncContextImpl的start（）方法为：
+
+![](https://pic.imgdb.cn/item/6115eabf5132923bf86f2342.jpg)
+
+​	通过上面的代码可知，这里是为AsyncContextImpl内的future对象创建一个CompletableFuture对象，其中started是原子性boolean变量，为的是避免重复创建CompletableFuture。
+
+​	下面我们看看AsyncContextImpl的signalContextSwitch（）方法，该方法用来将保存在AsyncContextImpl内的上下文信息传递到业务线程池的线程中（也就是说业务线程池中的线程可以通过RpcContext来访问）：
+
+![](https://pic.imgdb.cn/item/6115eae35132923bf86f625c.jpg)
+
+​	需要注意的是，signalContextSwitch（）方法需要放在业务线程中的第一句来执行，以避免后面的业务处理使用RpcContext获取上下文信息时出错。
+
+​	下面我们再看看AsyncContextImpl的write（）方法：
+
+![](https://pic.imgdb.cn/item/6115eafc5132923bf86f8d93.jpg)
+
+![](https://pic.imgdb.cn/item/6115eb065132923bf86f9e5b.jpg)
+
+​	在上面的代码中，当业务线程中的服务处理完毕，会把执行结果写入start（）方法创建的CompletableFuture对象内。
+
+​	简单总结一下：当Dubbo线程模型线程池中的线程执行sayHello（）方法时，在方法内通过RpcContext.startAsync（）创建一个AsyncContextImpl实例，接着调用其start（）方法创建一个CompletableFuture对象。然后，在sayHello（）方法把业务处理任务添加到线程池之后，直接返回null。接着，在返回null后，结合上一节在AbstractProxyInvoker的invoke（）方法内代码6.1也返回了null，然后代码6.2通过判断返回结果用RpcContext.startAsync（）开启异步执行，所以使用（（AsyncContextImpl）（rpcContext.getAsyncContext（）））.getInternalFuture（）获取AsyncContextImpl内的future对象，该future对象会被返回给上一节的代码3.1，然后代码3.2把future返回给上一节的代码3，后面的逻辑就与上一节一样了。
+
