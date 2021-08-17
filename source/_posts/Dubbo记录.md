@@ -10518,6 +10518,8 @@ private String generateExtensionAssignment() {
 
 # 服务路由
 
+https://dubbo.apache.org/zh/docs/v2.7/dev/source/router/
+
 ​	服务目录在刷新 Invoker 列表的过程中，会通过 Router 进行服务路由，筛选出符合路由规则的服务提供者。在详细分析服务路由的源码之前，先来介绍一下服务路由是什么。服务路由包含一条路由规则，路由规则决定了服务消费者的调用目标，即规定了服务消费者可调用哪些服务提供者。Dubbo 目前提供了三种服务路由实现，分别为条件路由 ConditionRouter、脚本路由 ScriptRouter 和标签路由 TagRouter。其中条件路由是我们最常使用的，标签路由是一个新的实现，暂时还未发布，该实现预计会在 2.7.x 版本中发布。本篇文章将分析条件路由相关源码，脚本路由和标签路由这里就不分析了。
 
 ## 源码分析
@@ -10983,3 +10985,247 @@ public static boolean isMatchGlobPattern(String pattern, String value) {
 ## 总结
 
 ​	本篇文章对条件路由的表达式解析和服务路由过程进行了较为细致的分析。总的来说，条件路由的代码还是有一些复杂的，需要静下心来看。在阅读条件路由代码的过程中，要多调试。一般的框架都会有单元测试，Dubbo 也不例外，因此大家可以直接通过 ConditionRouterTest 对条件路由进行调试，无需重头构建测试用例。
+
+# 服务导出
+
+## 简介
+
+​	本篇文章，我们来研究一下 Dubbo 导出服务的过程。Dubbo 服务导出过程始于 Spring 容器发布刷新事件，Dubbo 在接收到事件后，会立即执行服务导出逻辑。整个逻辑大致可分为三个部分，第一部分是前置工作，主要用于检查参数，组装 URL。第二部分是导出服务，包含导出服务到本地 (JVM)，和导出服务到远程两个过程。第三部分是向注册中心注册服务，用于服务发现。本篇文章将会对这三个部分代码进行详细的分析。
+
+## 2.7源码分析
+
+​	服务导出的入口方法是 ServiceBean 的 onApplicationEvent。onApplicationEvent 是一个事件响应方法，该方法会在收到 Spring 上下文刷新事件后执行服务导出操作。方法代码如下：
+
+```java
+public void onApplicationEvent(ContextRefreshedEvent event) {
+    // 是否有延迟导出 && 是否已导出 && 是不是已被取消导出
+    if (isDelay() && !isExported() && !isUnexported()) {
+        // 导出服务
+        export();
+    }
+}
+```
+
+​	这个方法首先会根据条件决定是否导出服务，比如有些服务设置了延时导出，那么此时就不应该在此处导出。还有一些服务已经被导出了，或者当前服务被取消导出了，此时也不能再次导出相关服务。注意这里的 isDelay 方法，这个方法字面意思是“是否延迟导出服务”，返回 true 表示延迟导出，false 表示不延迟导出。但是该方法真实意思却并非如此，当方法返回 true 时，表示无需延迟导出。返回 false 时，表示需要延迟导出。与字面意思恰恰相反，这个需要大家注意一下。下面我们来看一下这个方法的逻辑。
+
+```java
+// -☆- ServiceBean
+private boolean isDelay() {
+    // 获取 delay
+    Integer delay = getDelay();
+    ProviderConfig provider = getProvider();
+    if (delay == null && provider != null) {
+        // 如果前面获取的 delay 为空，这里继续获取
+        delay = provider.getDelay();
+    }
+    // 判断 delay 是否为空，或者等于 -1
+    return supportedApplicationListener && (delay == null || delay == -1);
+}
+```
+
+​	暂时忽略 supportedApplicationListener 这个条件，当 delay 为空，或者等于-1时，该方法返回 true，而不是 false。这个方法的返回值让人有点困惑。该方法目前已被重构，详细请参考 [dubbo #2686](https://github.com/apache/dubbo/pull/2686)。
+
+​	3.0找不到该方法。
+
+​	现在解释一下 supportedApplicationListener 变量含义，该变量用于表示当前的 Spring 容器是否支持 ApplicationListener，这个值初始为 false。在 Spring 容器将自己设置到 ServiceBean 中时，ServiceBean 的 setApplicationContext 方法会检测 Spring 容器是否支持 ApplicationListener。若支持，则将 supportedApplicationListener 置为 true。ServiceBean 是 Dubbo 与 Spring 框架进行整合的关键，可以看做是两个框架之间的桥梁。具有同样作用的类还有 ReferenceBean。
+
+​	现在我们知道了 Dubbo 服务导出过程的起点，接下来对服务导出的前置逻辑进行分析。
+
+### 前置工作
+
+​	前置工作主要包含两个部分，分别是配置检查，以及 URL 装配。在导出服务之前，Dubbo 需要检查用户的配置是否合理，或者为用户补充缺省配置。配置检查完成后，接下来需要根据这些配置组装 URL。在 Dubbo 中，URL 的作用十分重要。Dubbo 使用 URL 作为配置载体，所有的拓展点都是通过 URL 获取配置。这一点，官方文档中有所说明。
+
+> 采用 URL 作为配置信息的统一格式，所有扩展点都通过传递 URL 携带配置信息
+
+​	接下来，我们先来分析配置检查部分的源码，随后再来分析 URL 组装部分的源码。
+
+```java
+public synchronized void export() {
+    if (provider != null) {
+        // 获取 export 和 delay 配置
+        if (export == null) {
+            export = provider.getExport();
+        }
+        if (delay == null) {
+            delay = provider.getDelay();
+        }
+    }
+    // 如果 export 为 false，则不导出服务
+    if (export != null && !export) {
+        return;
+    }
+
+    // delay > 0，延时导出服务
+    if (delay != null && delay > 0) {
+        delayExportExecutor.schedule(new Runnable() {
+            @Override
+            public void run() {
+                doExport();
+            }
+        }, delay, TimeUnit.MILLISECONDS);
+        
+    // 立即导出服务
+    } else {
+        doExport();
+    }
+}
+```
+
+​	export 方法对两项配置进行了检查，并根据配置执行相应的动作。首先是 export 配置，这个配置决定了是否导出服务。有时候我们只是想本地启动服务进行一些调试工作，我们并不希望把本地启动的服务暴露出去给别人调用。此时，我们可通过配置 export 禁止服务导出，比如：
+
+```xml
+<dubbo:provider export="false" />
+```
+
+​	delay 配置顾名思义，用于延迟导出服务，这个就不分析了。下面，我们继续分析源码，这次要分析的是 doExport 方法。
+
+```java
+protected synchronized void doExport() {
+    if (unexported) {
+        throw new IllegalStateException("Already unexported!");
+    }
+    if (exported) {
+        return;
+    }
+    exported = true;
+    // 检测 interfaceName 是否合法
+    if (interfaceName == null || interfaceName.length() == 0) {
+        throw new IllegalStateException("interface not allow null!");
+    }
+    // 检测 provider 是否为空，为空则新建一个，并通过系统变量为其初始化
+    checkDefault();
+
+    // 下面几个 if 语句用于检测 provider、application 等核心配置类对象是否为空，
+    // 若为空，则尝试从其他配置类对象中获取相应的实例。
+    if (provider != null) {
+        if (application == null) {
+            application = provider.getApplication();
+        }
+        if (module == null) {
+            module = provider.getModule();
+        }
+        if (registries == null) {...}
+        if (monitor == null) {...}
+        if (protocols == null) {...}
+    }
+    if (module != null) {
+        if (registries == null) {
+            registries = module.getRegistries();
+        }
+        if (monitor == null) {...}
+    }
+    if (application != null) {
+        if (registries == null) {
+            registries = application.getRegistries();
+        }
+        if (monitor == null) {...}
+    }
+
+    // 检测 ref 是否为泛化服务类型
+    if (ref instanceof GenericService) {
+        // 设置 interfaceClass 为 GenericService.class
+        interfaceClass = GenericService.class;
+        if (StringUtils.isEmpty(generic)) {
+            // 设置 generic = "true"
+            generic = Boolean.TRUE.toString();
+        }
+        
+    // ref 非 GenericService 类型
+    } else {
+        try {
+            interfaceClass = Class.forName(interfaceName, true, Thread.currentThread()
+                    .getContextClassLoader());
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException(e.getMessage(), e);
+        }
+        // 对 interfaceClass，以及 <dubbo:method> 标签中的必要字段进行检查
+        checkInterfaceAndMethods(interfaceClass, methods);
+        // 对 ref 合法性进行检测
+        z();
+        // 设置 generic = "false"
+        generic = Boolean.FALSE.toString();
+    }
+
+    // local 和 stub 在功能应该是一致的，用于配置本地存根
+    if (local != null) {
+        if ("true".equals(local)) {
+            local = interfaceName + "Local";
+        }
+        Class<?> localClass;
+        try {
+            // 获取本地存根类
+            localClass = ClassHelper.forNameWithThreadContextClassLoader(local);
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException(e.getMessage(), e);
+        }
+        // 检测本地存根类是否可赋值给接口类，若不可赋值则会抛出异常，提醒使用者本地存根类类型不合法
+        if (!interfaceClass.isAssignableFrom(localClass)) {
+            throw new IllegalStateException("The local implementation class " + localClass.getName() + " not implement interface " + interfaceName);
+        }
+    }
+
+    if (stub != null) {
+        // 此处的代码和上一个 if 分支的代码基本一致，这里省略
+    }
+
+    // 检测各种对象是否为空，为空则新建，或者抛出异常
+    checkApplication();
+    checkRegistry();
+    checkProtocol();
+    appendProperties(this);
+    checkStubAndMock(interfaceClass);
+    if (path == null || path.length() == 0) {
+        path = interfaceName;
+    }
+
+    // 导出服务
+    doExportUrls();
+
+    // ProviderModel 表示服务提供者模型，此对象中存储了与服务提供者相关的信息。
+    // 比如服务的配置信息，服务实例等。每个被导出的服务对应一个 ProviderModel。
+    // ApplicationModel 持有所有的 ProviderModel。
+    ProviderModel providerModel = new ProviderModel(getUniqueServiceName(), this, ref);
+    ApplicationModel.initProviderModel(getUniqueServiceName(), providerModel);
+}
+```
+
+
+
+## 3.0源码分析
+
+```java
+private void exportServices() {
+    for (ServiceConfigBase sc : configManager.getServices()) {
+        // TODO, compatible with ServiceConfig.export()
+        ServiceConfig<?> serviceConfig = (ServiceConfig<?>) sc;
+        serviceConfig.setBootstrap(this);
+        if (!serviceConfig.isRefreshed()) {
+            serviceConfig.refresh();
+        }
+
+        if (sc.shouldExportAsync()) {
+            ExecutorService executor = executorRepository.getExportReferExecutor();
+            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                try {
+                    if (!sc.isExported()) {
+                        // 异步导出
+                        sc.export();
+                        exportedServices.add(sc);
+                    }
+                } catch (Throwable t) {
+                    logger.error("export async catch error : " + t.getMessage(), t);
+                }
+            }, executor);
+
+            asyncExportingFutures.add(future);
+        } else {
+            if (!sc.isExported()) {
+                // 同步导出
+                sc.export();
+                exportedServices.add(sc);
+            }
+        }
+    }
+}
+```
+
