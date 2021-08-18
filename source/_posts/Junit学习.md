@@ -1059,5 +1059,705 @@ public class CustomRuleTester2 {
 
 # Migrating from JUnit 4 to JUnit 5
 
-略
+* Implementing the migration from JUnit 4 to JUnit 5
+* Working with a hybrid approach for mature projects
+* Comparing the needed JUnit 4 and JUnit 5 dependencies
+* Comparing the equivalent JUnit 4 and JUnit 5 annotations
+* Comparing the JUnit 4 rules and JUnit 5 extensions
+
+## The steps between JUnit 4 and JUnit 5
+
+​	All classes and annotations specific to JUnit Jupiter are located in the new `org.junit.jupiter` base package. All classes and annotations specific to JUnit 4 are located in the old`org.junit` base package.
+
+​	So, if both JUnit 4 and JUnit 5 Jupiter are in the classpath does not result in any conflict. 
+
+​	Before developing and running the JUnit tests, programmers must have the following programs:
+
+* JUnit 4 requires Java 5 or later.
+* JUnit 5 requires Java 8 or later.
+
+
+
+​	Consequently, migrating from JUnit 4 to JUnit 5 may require an update of the Java version in use inside the project.
+
+​	Table 4.1 summarizes the most important steps in migrating from JUnit 4 to JUnit 5.
+
+**Table 4.1 Migrating from JUnit 4 and JUnit 5**
+
+| Main step                                                    | Comments                                                     |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+| Replace the needed dependencies                              | JUnit 4 needs a single dependency. JUnit 5 requires more dependencies, related to the features that are used. JUnit 5 uses JUnit Vintage to work with old JUnit 4 tests. |
+| Replace the annotations and introduce the new ones           | Some JUnit 5 annotations mirror the old JUnit 4 ones. Some new ones introduce new facilities and help developers write better tests. |
+| Replace the testing classes and methods                      | JUnit 5 assertions and assumptions have been moved to different classes from different packages. |
+| Replace the JUnit 4 rules and the runners with the JUnit 5 extension model | This step generally requires more effort than the other steps in this table. Because JUnit 4 and JUnit 5 may coexist for a long period, however, the rules and runners may remain in the code or be replaced much later. |
+
+## Needed dependencies
+
+**The JUnit 4 Maven dependency**
+
+```xml
+<dependencies> 
+    <dependency>
+        <groupId>junit</groupId>
+        <artifactId>junit</artifactId>
+        <version>4.12</version>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
+```
+
+​	The first dependency is `junit-vintage-engine` (listing 4.2). It belongs to JUnit 5 but ensures backward compatibility with previous versions of JUnit. 
+
+```xml
+<dependencies>
+    <dependency>
+        <groupId>org.junit.vintage</groupId>
+        <artifactId>junit-vintage-engine</artifactId>
+        <version>5.6.0</version>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
+```
+
+​	Running the JUnit 4 tests right now, we may notice that they are successfully executed (figure 4.1). Working with the JUnit 5 Vintage dependency instead of the old JUnit 4 one will not make any difference.
+
+![](https://pic.imgdb.cn/item/611c9ed24907e2d39c6eab6c.jpg)
+
+​	After the company’s programmers introduce the JUnit Vintage dependency, the migration path of Tested Data Systems’s projects may continue with the introduction of JUnit 5 Jupiter annotations and features. The required dependencies are shown in listing 4.3.
+
+**The most useful JUnit Jupiter Maven dependencies**
+
+```xml
+<dependencies>
+    <dependency>
+       <groupId>org.junit.jupiter</groupId>
+       <artifactId>junit-jupiter-api</artifactId>
+       <version>5.6.0</version>
+       <scope>test</scope>
+    </dependency>
+    <dependency>
+       <groupId>org.junit.jupiter</groupId>
+       <artifactId>junit-jupiter-engine</artifactId>
+       <version>5.6.0</version>
+       <scope>test</scope>
+    </dependency>
+</dependencies>
+```
+
+​	To write tests using JUnit 5, you will always need the `junit-jupiter-api` and the `junit-jupiter-engine` dependencies. The first one represents the API for writing tests with JUnit Jupiter (including the annotations, classes, and methods to be migrated to). The second one represents the core JUnit Jupiter package for the execution test engine.
+
+## Annotations, classes, and methods
+
+**Table 4.2 Annotations**
+
+| JUnit 4                   | JUnit 5                 |
+| ------------------------- | ----------------------- |
+| @BeforeClass, @AfterClass | @BeforeAll, @AfterAll   |
+| @Before, @After           | @BeforeEach, @AfterEach |
+| @Ignore                   | @Disable                |
+| @Category                 | @Tag                    |
+
+**Table 4.3 Assertions**
+
+| JUnit 4                                           | JUnit 5                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------ |
+| Assert class                                      | Assertions class                                             |
+| Optional assertion message is the first parameter | Optional assertion message is the last parameter             |
+| assertThat method                                 | assertThat method removed. New methods: assertAll and assertThrows |
+
+**Table 4.4 Assumptions**
+
+| JUnit 4                             | JUnit 5                                     |
+| ----------------------------------- | ------------------------------------------- |
+| Assume class                        | Assumptions class                           |
+| assumeNotNull and assumeNoException | assumeNotNull and assumeNoException removed |
+
+​	We start with a class that simulates a system under test (SUT). This one can be initialized, can receive usual but cannot receive additional work to execute, and may close itself. Listing 4.4 presents the SUT class.
+
+```java
+public class SUT {
+    private String systemName;
+
+    public SUT(String systemName) {
+        this.systemName = systemName;
+        System.out.println(systemName + " from class " + getClass().getSimpleName() + " is initializing.");
+    }
+
+    public boolean canReceiveRegularWork() {
+        System.out.println(systemName + " from class " + getClass().getSimpleName() + " can receive regular work.");
+        return true;
+    }
+
+    public boolean canReceiveAdditionalWork() {
+        System.out.println(systemName + " from class " + getClass().getSimpleName() + " cannot receive additional work.");
+        return false;
+    }
+
+    public void close() {
+        System.out.println(systemName + " from class " + getClass().getSimpleName() + " is closing.");
+    }
+}
+```
+
+
+
+```java
+public class JUnit4SUTTest {
+
+    private static ResourceForAllTests resourceForAllTests;
+    private SUT systemUnderTest;
+
+    @BeforeClass
+    public static void setUpClass() {
+        resourceForAllTests = new ResourceForAllTests("Our resource for all tests");
+    }
+
+    @AfterClass
+    public static void tearDownClass() {
+        resourceForAllTests.close();
+    }
+
+    @Before
+    public void setUp() {
+        systemUnderTest = new SUT("Our system under test");
+    }
+
+    @After
+    public void tearDown() {
+        systemUnderTest.close();
+    }
+
+    @Test
+    public void testRegularWork() {
+        boolean canReceiveRegularWork = systemUnderTest.canReceiveRegularWork();
+
+        assertTrue(canReceiveRegularWork);
+    }
+
+    @Test
+    public void testAdditionalWork() {
+        boolean canReceiveAdditionalWork = systemUnderTest.canReceiveAdditionalWork();
+
+        assertFalse(canReceiveAdditionalWork);
+    }
+
+    @Test
+    @Ignore
+    public void myThirdTest() {
+        assertEquals("2 is not equal to 1", 2, 1);
+    }
+}
+```
+
+​	We previously replaced the JUnit 4 dependency with the JUnit Vintage one. The result of running the JUnit4SUTTest class is the same in both cases (figure 4.2), `mySecondTest` being marked with the `@Ignore` annotation. Now we can proceed to the effective migration of annotations, classes, and methods.
+
+![](https://pic.imgdb.cn/item/611ca4244907e2d39c99bb5a.jpg)
+
+**JUnit5SUTTest class**
+
+```java
+class JUnit5SUTTest {
+    private static ResourceForAllTests resourceForAllTests;
+    private SUT systemUnderTest;
+
+    @BeforeAll
+    static void setUpClass() {
+        resourceForAllTests = new ResourceForAllTests("Our resource for all tests");
+    }
+
+    @AfterAll
+    static void tearDownClass() {
+        resourceForAllTests.close();
+    }
+
+    @BeforeEach
+    void setUp() {
+        systemUnderTest = new SUT("Our system under test");
+    }
+
+    @AfterEach
+    void tearDown() {
+        systemUnderTest.close();
+    }
+
+    @Test
+    void testRegularWork() {
+        boolean canReceiveRegularWork = systemUnderTest.canReceiveRegularWork();
+
+        assertTrue(canReceiveRegularWork);
+    }
+
+    @Test
+    void testAdditionalWork() {
+        boolean canReceiveAdditionalWork = systemUnderTest.canReceiveAdditionalWork();
+
+        assertFalse(canReceiveAdditionalWork);
+    }
+
+    @Test
+    @Disabled
+    void myThirdTest() {
+        assertEquals(2, 1, "2 is not equal to 1");
+    }
+}
+```
+
+Comparing the JUnit 4 and JUnit 5 methods, we see that
+
+* The methods annotated with `@BeforeClass` (#A in listing 4.5) and `@BeforeAll` (#A' in listing 4.6), respectively, are executed once, before all tests. These methods need to be static. In the JUnit 4 version, the method also needs to be public. In the JUnit 5 version, we can make the method nonstatic and annotate the whole test class with`@TestInstance(Life cycle.PER_CLASS)`.
+* The methods annotated with `@AfterClass` (#B in listing 4.5) and `@AfterAll` (#B' in listing 4.6), respectively, are executed once, after all tests. These methods need to be static. In the JUnit 4 version, the method also needs to be public. In the JUnit 5 version, we can make the method nonstatic and annotate the whole test class with `@TestInstance(Life cycle.PER_CLASS)`.
+* The methods annotated with `@Before` (#C in listing 4.5) and `@BeforeEach` (#C' in listing 4.6), respectively, are executed before each test. In the JUnit 4 version, the methods need to be public.
+* The methods annotated with `@`After (#D in listing 4.5) and `@AfterEach` (#D' in listing 4.6), respectively, are executed after each test. In the JUnit 4 version, the methods need to be public.
+* The methods annotated with `@Test` (#E in listing 4.5) and `@Test` (#E' in listing 4.6) are executed independently. In the JUnit 4 version, the methods need to be public. The two annotations belong to different packages: `org.junit.Test` and`org.junit.jupiter.api.Test`, respectively.
+* To skip the execution of a test method, JUnit 4 uses the annotation `@Ignore (#F` in listing 4.5)`,` whereas JUnit 5 uses the annotation `@Disabled (`#F' in listing 4.6).
+
+
+
+​	The access level has been relaxed for the test methods, from public to package-private. These methods are accessed only from within the package to which the test class belongs to, so they didn’t need to be made public.
+
+​	Tested Data Systems needs to verify its customers’ information, as well as their existence or nonexistence. It wants to classify the verification tests in two groups: the ones that work with individual customers and the ones that check inside a repository. The company has used categories (in JUnit 4) and needs to switch to tags (in JUnit 5).
+
+**The interfaces created to define categories with JUnit 4**
+
+```java
+public interface IndividualTests {
+}
+public interface RepositoryTests {
+}
+```
+
+​	Listing 4.8 defines a JUnit 4 test that contains a method annotated as `@Category(IndividualTests.`class`).` This annotation assigns that test method as belonging to this category.
+
+```java
+public class JUnit4CustomerTest {
+    private String CUSTOMER_NAME = "John Smith";
+
+    @Category(IndividualTests.class)
+    @Test
+    public void testCustomer() {
+        Customer customer = new Customer(CUSTOMER_NAME);
+
+        assertEquals("John Smith", customer.getName());
+    }
+}
+```
+
+​	Listing 4.9 defines a JUnit 4 test class annotated as `@Category(IndividualTests.`class`, RepositoryTests.`class`).` This annotation assigns the two containing test methods as belonging to these two categories.
+
+```java
+@Category({IndividualTests.class, RepositoryTests.class})
+public class JUnit4CustomersRepositoryTest {
+    private String CUSTOMER_NAME = "John Smith";
+    private CustomersRepository repository = new CustomersRepository();
+
+    @Test
+    public void testNonExistence() {
+        boolean exists = repository.contains(CUSTOMER_NAME);
+
+        assertFalse(exists);
+    }
+
+    @Test
+    public void testCustomerPersistence() {
+        repository.persist(new Customer(CUSTOMER_NAME));
+
+        assertTrue(repository.contains("John Smith"));
+    }
+}
+```
+
+**The JUnit4IndividualTestsSuite class**
+
+```java
+@RunWith(Categories.class)
+@Categories.IncludeCategory(IndividualTests.class)
+@Suite.SuiteClasses({JUnit4CustomerTest.class, JUnit4CustomersRepositoryTest.class})
+public class JUnit4IndividualTestsSuite {
+}
+```
+
+​	In this example, the `JUnit4IndividualTestsSuite:`
+
+* Is annotated with `@RunWith(Categories.`class`)` (#A), informing JUnit that it has to execute the tests with this particular runner.
+* Includes the category of tests annotated with `IndividualTests` (#B).
+* Looks for these annotated tests in the `JUnit4CustomerTest` and `JUnit4CustomersRepositoryTest` classes (#C).
+
+
+
+​	The result of running this suite is shown in figure 4.3. All tests from the `JUnit4CustomerTest` and`JUnit4CustomersRepositoryTest` classes will be executed, as all of them are annotated with `IndividualTests`.
+
+![](https://pic.imgdb.cn/item/611ca8c14907e2d39cbde971.jpg)
+
+**The JUnit4RepositoryTestsSuite class**
+
+```java
+@RunWith(Categories.class)
+@Categories.IncludeCategory(RepositoryTests.class)
+@Suite.SuiteClasses({JUnit4CustomerTest.class, JUnit4CustomersRepositoryTest.class})
+public class JUnit4RepositoryTestsSuite {
+}
+```
+
+![](https://pic.imgdb.cn/item/611ca9fa4907e2d39cc6d78e.jpg)
+
+**The JUnit4ExcludeRepositoryTestsSuite class**
+
+```java
+@RunWith(Categories.class)
+@Categories.ExcludeCategory(RepositoryTests.class)
+@Suite.SuiteClasses({JUnit4CustomerTest.class, JUnit4CustomersRepositoryTest.class})
+public class JUnit4ExcludeRepositoryTestsSuite {
+}
+```
+
+![](https://pic.imgdb.cn/item/611caa494907e2d39cc91536.jpg)
+
+**The JUnit5CustomerTest tagged class**
+
+```java
+@Tag("individual")
+public class JUnit5CustomerTest {
+    private String CUSTOMER_NAME = "John Smith";
+
+    @Test
+    void testCustomer() {
+        Customer customer = new Customer(CUSTOMER_NAME);
+
+        assertEquals("John Smith", customer.getName());
+    }
+}
+```
+
+​	The `@Tag` annotation is added to the whole `JUnit5CustomerTest` class (#A).
+
+**The JUnit5CustomerRepositoryTest tagged class**
+
+```java
+@Tag("repository")
+public class JUnit5CustomersRepositoryTest {
+    private String CUSTOMER_NAME = "John Smith";
+    private CustomersRepository repository = new CustomersRepository();
+
+    @Test
+    void testNonExistence() {
+        boolean exists = repository.contains("John Smith");
+
+        assertFalse(exists);
+    }
+
+    @Test
+    void testCustomerPersistence() {
+        repository.persist(new Customer(CUSTOMER_NAME));
+
+        assertTrue(repository.contains("John Smith"));
+    }
+}
+```
+
+​	Similarly, the `@Tag` annotation is added to the whole `JUnit5CustomerRepositoryTest` class (#A).
+
+​	To active the JUnit 5 tags that replace the JUnit 4 categories, we have a few alternatives. For one, we can work at the level of the pom.xml configuration file. In listing 4.15, we can uncomment the configuration node of the Surefire plugin (#A) and run `mvn clean install`.
+
+```java
+<plugin>
+    <artifactId>maven-surefire-plugin</artifactId>
+    <version>2.22.2</version>
+
+    <configuration>
+        <groups>individual</groups>
+        <excludedGroups>repository</excludedGroups>
+    </configuration>
+
+</plugin>
+```
+
+​	In order to activate the usage of the JUnit 5 tags that replace the JUnit 4 categories, you have a few alternatives. You can work at the level of the pom.xml configuration file. In listing 4.15, it will be enough to uncomment the configuration node of the surefire plugin #A and run mvn clean install.
+
+​	Or, from the IntelliJ IDEA IDE, you can activate the usage of the tags by going to Run -> Edit Configurations and choose Tags (JUnit 5) as test kind (figure 4.6). However, the recommended way to go is to change the pom.xml, so that the tests can be correctly executed from the command line
+
+![](https://pic.imgdb.cn/item/611cacdd4907e2d39cdb4b1b.jpg)
+
+
+
+​	To continue the comparison of JUnit 4 and JUnit 5, we look at the Hamcrest matchers functionality, introduced in chapter 2. In this chapter, we use our collections example to put the two versions face to face. We ill populate a list with values from Tested Data Systems’s internal information and then investigate whether its elements match some patterns, using JUnit 4 (listing 4.16) and JUnit 5 (listing 4.17).
+
+**The JUnit4HamcrestListTest class**
+
+```java
+public class JUnit4HamcrestListTest {
+
+    private List<String> values;
+
+    @Before
+    public void setUp() {
+        values = new ArrayList<>();
+        values.add("Oliver");
+        values.add("Jack");
+        values.add("Harry");
+    }
+
+    @Test
+    public void testListWithHamcrest() {
+        assertThat(values, hasSize(3));
+        assertThat(values, hasItem(anyOf(equalTo("Oliver"), equalTo("Jack"),
+                equalTo("Harry"))));
+        assertThat("The list doesn't contain all the expected objects, in order", values, contains("Oliver", "Jack", "Harry"));
+        assertThat("The list doesn't contain all the expected objects", values, containsInAnyOrder("Jack", "Harry", "Oliver"));
+    }
+}
+```
+
+**The JUnit5HamcrestListTest class**
+
+```java
+public class JUnit5HamcrestListTest {
+
+    private List<String> values;
+
+    @BeforeEach
+    public void setUp() {
+        values = new ArrayList<>();
+        values.add("Oliver");
+        values.add("Jack");
+        values.add("Harry");
+    }
+
+    @Test
+    @DisplayName("List with Hamcrest")
+    public void testListWithHamcrest() {
+        assertThat(values, hasSize(3));
+        assertThat(values, hasItem(anyOf(equalTo("Oliver"), equalTo("Jack"),
+                equalTo("Harry"))));
+        assertThat("The list doesn't contain all the expected objects, in order", values, contains("Oliver", "Jack", "Harry"));
+        assertThat("The list doesn't contain all the expected objects", values, containsInAnyOrder("Jack", "Harry", "Oliver"));
+    }
+}
+```
+
+These examples are very similar (except for the `@Before`/`@BeforeEach` and `@DisplayName` annotations). The old imports are gradually replaced by the new ones, which is why the annotations `org.junit.Test` and `org.junit.jupiter.api.Test`belong to different packages.
+
+What do these programs do with the internal information managed at Tested Data Systems?
+
+* We initialize the list to work with. The code is the same, but the annotations are different: `@Before` (#A) and `@BeforeEach`(#A').
+* The test methods are annotated with `org.junit.Test` (#B) and `org.junit.jupiter.api.Test` (#B’), respectively.
+* Verification (#C) uses the `org.junit.Assert.assertThat` method. JUnit 5 removes this method, so we use`org.hamcrest.MatcherAssert.assertThat` (#C’).
+* We use the `anyOf` and `equalTo` methods from the `org.hamcrest.Matchers` class (D) and the `anyOf` and `equalTo`methods from the `org.hamcrest.CoreMatchers` class (#D’).
+* We use the same `org.hamcrest.Matchers.contains` method (#E and #E’).
+* We use the same `org.hamcrest.Matchers.containsInAnyOrder` method (#F and #F’).
+
+### Rules vs. the extension model
+
+​	A JUnit4 rule is a component that allows introducing additional actions when a method is executed, by intercepting its call and do something before and after the execution of the method.
+
+​	One rule that the Tested Data Systems test code uses extensively is`ExpectedException`, which can easily be replaced by the JUnit 5 `assertThrows` method.
+
+**The extended Calculator class**
+
+```java
+public class Calculator {
+    public double add(double number1, double number2) {
+        return number1 + number2;
+    }
+
+    public double sqrt(double x) {
+        if (x < 0) {
+            throw new IllegalArgumentException("Cannot extract the square root of a negative value");
+        }
+        return Math.sqrt(x);
+    }
+
+    public double divide(double x, double y) {
+        if (y == 0) {
+            throw new ArithmeticException("Cannot divide by zero");
+        }
+        return x / y;
+    }
+}
+```
+
+**The JUnit4RuleExceptionTester class**
+
+```java
+public class JUnit4RuleExceptionTester {
+    @Rule
+    public ExpectedException expectedException = ExpectedException.none();
+
+    private Calculator calculator = new Calculator();
+
+    @Test
+    public void expectIllegalArgumentException() {
+        expectedException.expect(IllegalArgumentException.class);
+        expectedException.expectMessage("Cannot extract the square root of a negative value");
+        calculator.sqrt(-1);
+    }
+
+    @Test
+    public void expectArithmeticException() {
+        expectedException.expect(ArithmeticException.class);
+        expectedException.expectMessage("Cannot divide by zero");
+        calculator.divide(1, 0);
+    }
+}
+```
+
+**The JUnit5ExceptionTester class**
+
+```java
+public class JUnit5ExceptionTester {
+    private Calculator calculator = new Calculator();
+
+    @Test
+    public void expectIllegalArgumentException() {
+        Throwable throwable = assertThrows(IllegalArgumentException.class, () -> calculator.sqrt(-1));
+        assertEquals("Cannot extract the square root of a negative value", throwable.getMessage());
+    }
+
+    @Test
+    public void expectArithmeticException() {
+        Throwable throwable = assertThrows(ArithmeticException.class, () -> calculator.divide(1, 0));
+        assertEquals("Cannot divide by zero", throwable.getMessage());
+    }
+}
+```
+
+
+
+​	Another rule that Tested Data Systems would like to migrate is `TemporaryFolder`. The `TemporaryFolder` rule allows the creation of files and folders that should be deleted when the test method finishes (whether it passes or fails). As the tests of the Tested Data Systems projects work intensively with temporary resources, this step is also a must. The JUnit 4 rule has been replaced by the `@TempDi`r annotation in JUnit 5. Listing 4.21 presents the JUnit 4 approach.
+
+**The JUnit4RuleTester class**
+
+```java
+public class JUnit4RuleTester {
+    @Rule
+    public TemporaryFolder folder = new TemporaryFolder();
+
+    @Test
+    public void testTemporaryFolder() throws IOException {
+        File createdFolder = folder.newFolder("createdFolder");
+        File createdFile = folder.newFile("createdFile.txt");
+        assertTrue(createdFolder.exists());
+        assertTrue(createdFile.exists());
+    }
+}
+```
+
+**The JUnit5TempDirTester class**
+
+```java
+public class JUnit5TempDirTester {
+    @TempDir
+    Path tempDir;
+
+    private static Path createdFile;
+
+    @Test
+    public void testTemporaryFolder() throws IOException {
+        assertTrue(Files.isDirectory(tempDir));
+        createdFile = Files.createFile(tempDir.resolve("createdFile.txt"));
+        assertTrue(createdFile.toFile().exists());
+    }
+
+    @AfterAll
+    public static void afterAll() {
+        assertFalse(createdFile.toFile().exists());
+    }
+}
+```
+
+### Custom rules
+
+​	In JUnit 4, the Tested Data Systems engineers needed their additional actions to be executed before and after the execution of a test. Consequently, they created their own classes that implement the `TestRule` interface. To do this, they had to override the `apply(Statement, Description)` method, which returns an instance of `Statement`. Such an object represents the tests within the JUnit run time, and `Statement#evaluate()` will run them. The `Description` object describes the individual test. This object can be used to read information about the test through reflection.
+
+```java
+public class CustomRule implements TestRule {
+    private Statement base;
+    private Description description;
+
+    @Override
+    public Statement apply(Statement base, Description description) {
+        this.base = base;
+        this.description = description;
+        return new CustomStatement(base, description);
+    }
+}
+```
+
+```java
+public class CustomStatement extends Statement {
+    private Statement base;
+    private Description description;
+
+    public CustomStatement(Statement base, Description description) {
+        this.base = base;
+        this.description = description;
+    }
+
+    @Override
+    public void evaluate() throws Throwable {
+        System.out.println(this.getClass().getSimpleName() + " " + description.getMethodName() + " has started");
+        try {
+            base.evaluate();
+        } finally {
+            System.out.println(this.getClass().getSimpleName() + " " + description.getMethodName() + " has finished");
+        }
+    }
+}
+```
+
+**The JUnit4CustomRuleTester class**
+
+```java
+public class JUnit4CustomRuleTester {
+
+    @Rule
+    public CustomRule myRule = new CustomRule();
+
+    @Test
+    public void myCustomRuleTest() {
+        System.out.println("Call of a test method");
+    }
+}
+```
+
+​	The result of the execution of this test is shown in figure 4.7. As the engineers from Tested Data Systems required, the effective execution of the test is surrounded by the additional messages provided to the `evaluate` method of the `CustomStatement`class.
+
+![](https://pic.imgdb.cn/item/611cb4764907e2d39c06cb2c.jpg)
+
+
+
+​	The engineers from Tested Data Systems would like to migrate their own rules as well. JUnit 5 allows similar effects, as in the case of the JUnit 4 rules, by introducing custom extensions, that will extend the behavior of test classes and methods. The code will be shorter and will rely on the declarative annotations style. First, the engineers define the `CustomExtension` class, which will be used as an argument of the `@ExtendWith` annotation on the tested class.
+
+```java
+public class CustomExtension implements AfterEachCallback, BeforeEachCallback {
+    @Override
+    public void beforeEach(ExtensionContext extensionContext) throws Exception {
+        System.out.println(this.getClass().getSimpleName() + " " + extensionContext.getDisplayName() + " has started");
+    }
+
+    @Override
+    public void afterEach(ExtensionContext extensionContext) throws Exception {
+        System.out.println(this.getClass().getSimpleName() + " " + extensionContext.getDisplayName() + " has finished");
+    }
+}
+```
+
+```java
+@ExtendWith(CustomExtension.class)
+public class JUnit5CustomExtensionTester {
+
+    @Test
+    public void myCustomRuleTest() {
+        System.out.println("Call of a test method");
+    }
+}
+```
+
+![](https://pic.imgdb.cn/item/611cb51d4907e2d39c09cabf.jpg)
+
+The JUnit 5 extension model may also be used to replace the runners from JUnit 4 gradually. For the extensions that have already been created, the migration process is simple:
+
+* To migrate the Mockito tests, we need to replace in the tested class the annotation`@RunWith(MockitoJUnitRunner.class)` with the annotation `@ExtendWith(MockitoExtension.class)`.
+* To migrate the Spring tests, we need to replace in the tested class the annotation`@RunWith(SpringJUnit4ClassRunner.class)` with the annotation `@ExtendWith(SpringExtension.class)`.
+
+
 

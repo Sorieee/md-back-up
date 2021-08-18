@@ -12507,6 +12507,8 @@ public void createEphemeral(String path) {
 
 ## 3.0源码分析
 
+入口函数在DubboBootstrap的exportServices()中。
+
 ```java
 private void exportServices() {
     for (ServiceConfigBase sc : configManager.getServices()) {
