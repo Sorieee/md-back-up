@@ -1759,5 +1759,158 @@ The JUnit 5 extension model may also be used to replace the runners from JUnit 4
 * To migrate the Mockito tests, we need to replace in the tested class the annotation`@RunWith(MockitoJUnitRunner.class)` with the annotation `@ExtendWith(MockitoExtension.class)`.
 * To migrate the Spring tests, we need to replace in the tested class the annotation`@RunWith(SpringJUnit4ClassRunner.class)` with the annotation `@ExtendWith(SpringExtension.class)`.
 
+# Software Testing Principles
 
+* Examining the need for unit tests
+* Differentiating between types of software tests
+* Comparing black-box and white-box testing
+
+## The need for unit tests
+
+​	The main goal of unit testing is to verify that your application works as expected and to catch bugs early. Although functional testing helps you accomplish the same goal, unit tests are extremely powerful and versatile and offer much more than simply verifying that the application works. Unit tests
+
+* Allow greater test coverage than functional tests
+* Increase team productivity
+* Detect regressions and limit the need for debugging
+* Give us the confidence to refactor, and, in general, make changes
+* Improve implementation
+* Document expected behavior
+* Enable code coverage and other metrics
+
+### Allowing greater test-coverage
+
+​	Unit tests are the first type of tests any application should have. If you had to choose between writing unit tests and functional tests, you should choose to write the second kind. In my experience, functional tests cover about 70 percent of the application code. If you want to go further and provide more test coverage, you need to write unit tests.
+
+​	Unit tests can easily simulate error conditions, which is extremely difficult for functional tests to do (and impossible in some instances). Unit tests provide much more than just testing, as explained in the following sections.
+
+### Increasing team productivity
+
+​	Imagine that you are on a team working on a large application. Unit tests allow you to deliver quality code (tested code) without waiting for all the other components to be ready. On the other hand, functional tests are more coarse-grained and need the full application, or a good part of it, to be ready before you can test it.
+
+### Detecting regressions and limiting debugging
+
+​	A passing unit test suite confirms that your code works and gives you the confidence to modify your existing code, either for refactoring or for adding and modifying new features. As a developer, you can have = no better feeling than knowing someone is watching your back and will warn you if you break something.
+
+​	A suite of unit tests reduces the need to debug an application to find out why something is failing. Whereas a functional test tells you that a bug exists somewhere in the implementation of a use case, a unit test tells you that a specific method is failing for a specific reason. You no longer need to spend hours trying to find the problem.
+
+### Refactoring with confidence
+
+​	Without unit tests, it is difficult to justify refactoring, because there is always a relatively high chance that you will break something. Why would you risk spending hours of debugging time (and putting delivery at risk) only to improve the implementation or change a method name? As shown in figure 5.1, unit tests provide the safety net that gives you the confidence to refactor.
+
+![](https://pic.imgdb.cn/item/611f59e74907e2d39c501156.jpg)
+
+> **JUnit best practice: Refactor**
+>
+> ​	When you design and write code for a single use case or functional chain, your design may be adequate for this feature, but it may not be adequate for the next feature. To retain a design across features, agile methodologies encourage refactoring to adapt the code base as needed.
+>
+> ​	How do you ensure that *refactoring* (improving the design of existing code) does not break the existing code? The answer is that unit tests tell you when and where code breaks. In short, unit tests give you the confidence to refactor.
+
+### Improving implementation
+
+​	Unit tests are first-rate clients of the code they test. They force the API under test to be flexible and to be unit-testable in isolation. Sometimes, you have to refactor your code under test to make it unit-testable. You may eventually use the Test Driven Development (TDD) approach, which by its own conception generates code that can be unit-tested. We’ll experiment with TDD in detail later in the book (chapter 20).
+
+​	It is important to monitor your unit tests as you create and modify them. If a unit test is too long and unwieldy, the code under test usually has a design smell, and you should refactor it. You may also be testing too many features in one test method. If a test cannot verify a feature in isolation, the code probably is not flexible enough, and you should refactor it. Modifying code to test it is normal.
+
+### Documenting expected behavior
+
+​	Imagine that you need to learn a new API. On one hand, you have a 300-page document describing the API, and on the other hand, you have some examples of how to use the API. Which would you choose?
+
+​	The power of examples is well known. Unit tests are examples that show how to use the API. As such, they make excellent developer documentation. Because unit tests match the production code, they *must* be up to date, unlike other forms of documentation.
+
+### Enabling code coverage and other metrics
+
+​	Unit tests tell you, at the push of a button, whether everything still works. Furthermore, unit tests enable you to gather code coverage metrics (see chapter 6) that show, statement by statement, what code execution the tests triggered and what code the tests did not touch. You can also use tools to track the progress of passing versus failing tests from one build to the next. Further, you can monitor performance and cause a test to fail if its performance has degraded from a previous build.
+
+## Test types
+
+![](https://pic.imgdb.cn/item/611f60144907e2d39c5cc6ce.jpg)
+
+* Unit tests
+* Integration tests
+* System tests
+* Acceptance tests
+
+###  Unit testing
+
+​	Unit testing is a software testing method in which individual units of source code (methods or classes) are tested to determine whether they are fit for use. Unit testing increases developer confidence in changing the code because from the beginning, it serves as a safety net. If we have good unit tests and run them every time we change the code, we will be certain that our changes are not affecting the existing functionality.
+
+###  Integration software testing
+
+​	Individual unit tests are essential quality controls, but what happens when different units of work are combined into a workflow? When you have the tests for a class up and running, the next step is hooking up the class with other methods and services. Examining the interaction among components, possibly running in their target environment, is the job of integration testing. Table 5.1 differentiates the various cases under which components interact.
+
+| Interaction | Test Description                                             |
+| ----------- | ------------------------------------------------------------ |
+| Objects     | The test instantiates objects and calls methods on these objects. You may use this test type when you would like to see how objects belonging to different classes cooperate to solve the problem. |
+| Services    | The test runs while a container hosts the application, which may connect to a database or attach to any other external resource or device. You may use this test type when you are developing an application that is deployed into a software container. |
+| Subsystems  | A layered application may have a frontend to handle the presentation and a backend to execute the business logic. Tests can verify that a request passes through the frontend and returns an appropriate response from the backend. You may use this test type in the case of an application with an architecture made of a presentation layer (web interface, for example) and a business service layer executing the logic. |
+
+​	Just as more traffic collisions occur at intersections, the points where objects interact are major contributors to bugs. Ideally, you should define integration tests before you write the application code. Being able to code to the test strongly increases a programmer’s ability to write well-behaved objects. The engineers of Tested Data Systems will use integration testing to check whether the objects representing customers and offers cooperate well, such as when a customer is assigned only once to an offer. When the offer expires, the customer is automatically removed from the offer, if he hasn’t accepted it; if we have added an offer on the customer side, the customer is added on the offer side.
+
+### System software testing
+
+​	System testing of software is testing conducted on a complete, integrated system to evaluate the system’s compliance with its specified requirements. The objective is to detect inconsistencies among units that are already integrated.
+
+### Acceptance software testing
+
+​	It is important that an application performs well, but the application must also meet the customer's needs*.* Acceptance tests are our final level of testing. The customer or a proxy usually conduct acceptance tests to ensure that the application meets whatever goals the customer or stakeholder defined.
+
+​	Acceptance tests may be expressed by the *Given*, *When*, and *Then* keywords. When you use these keywords, you are practically following a scenario: the interaction of the user with the system. The verification in the Then step may look like a unit test, but it checks the end of the scenario and answers the question “Are we addressing the business goals?”
+
+​	The at from Tested Data Systems may implement some acceptance tests such as this:
+
+*  Given that there is an economy offer,
+* When we have a usual customer,
+* We can add him to and remove him from the offer.
+
+
+
+* Given that there is an economy offer,
+* When we have a VIP customer,
+* We can add him to the offer but cannot remove him from the offer.
+
+## Black-box vs. white-box testing
+
+### Black-box testing
+
+​	A *black-box test* has no knowledge of the internal state or behavior of the system. The test relies solely on the external system interface to verify its correctness.
+
+​	As the name of this methodology suggests, you treat the system as a black box. Imagine it with buttons and LEDs. You do not know what is inside or how the system operates; all you know is that when the correct input is provided, the system produces the desired output. All you need to know to test the system properly is the system's functional specification. The early stages of a project typically produce this kind of specification, which means that we can start testing early. Anyone can take part in testing the system, such as a QA engineer, a developer, or even a customer.
+
+​	The simplest form of black-box testing tries to mimic actions in the user interface manually. A more sophisticated approach is to use a tool for this task, such as HTTPUnit, HTMLUnit, or Selenium. We will apply some of these tools in another part of the book.
+
+​	At Tested Data Systems, black-box testing is used for applications that provide a web interface. The testing tool knows only that it has to interact with the frontend (selections, pushbuttons, and so on) and to verify the results (the result of the action, the content of the destination page, and so on).
+
+### White-box testing
+
+​	White-box testing can be implemented at an earlier stage. There is no need to wait for the GUI to be available. You may cover many execution paths.
+
+​	Which of the two approaches should you use? There is no absolute answer, so I suggest that you use both approaches. In some situations, you need user-centric tests (no need for details), and in others, you need to test the implementation details of the system. The next section presents the pros and cons of both approaches.
+
+***USERCENTRIC APPROACH***
+
+​	Black-box testing first addresses user needs. We know that there is tremendous value in customer feedback, and one of our goals in extreme programming is to release early and release often. We are unlikely to get useful feedback, however, if we just tell the customer “Here it is. Let me know what you think.” It is far better to get a customer involved by providing a manual test script to run through. By making the customer think about the application, he can also clarify what the system should do. Interacting with the constructed GUI and comparing the results that are obtained with the expected ones is an example of testing that customers may run by themselves.
+
+***TESTING DIFFICULTIES***
+
+​	Black-box tests are more difficult to write and run[***\*[1\]\****](#id_ftn1) because they usually deal with a graphical frontend, whether it’s a web browser or desktop application. Another issue is that a valid result on the screen does not always mean that the application is correct. White-box tests usually are usually easier to write and run than black-box tests, but the developers must implement them.
+
+**The pros of black-box and white-box tests**
+
+| Black box tests                                              | White box tests                                              |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+| Tests are usercentric and expose specifications to discrepancies. | Testing can be implemented from the early stages of the project. |
+| The tester may be a nontechnical person.                     | There is no need for an existing GUI.                        |
+| Tests can be conducted independently of the developers.      | Testing is controlled by the developer and can cover many execution paths. |
+
+**The cons of black-box and white-box tests**
+
+| Black box tests                                              | White box tests                                              |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+| A limited number of inputs may be tested.                    | Testing can be implemented only by skilled people with programming knowledge. |
+| Many program paths may be left uncovered.                    | Tests will need to be rewritten if the implementation changes. |
+| Tests may become redundant; the lack of details may mean covering the same execution paths. | Tests are tightly coupled to the implementation.             |
+
+***TEST COVERAGE***
+
+​	White-box testing provides better test coverage than black-box testing. On the other hand, black-box tests can bring more value than white-box tests. I focus on test coverage in chapter 6.
 
