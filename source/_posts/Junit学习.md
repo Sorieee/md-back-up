@@ -32,7 +32,7 @@ The team has defined three discrete goals for the framework:
 <build>
     <plugins>
          <plugin>
-             <artifac tId>maven-surefire-plugin</artifactId>
+             <artifactId>maven-surefire-plugin</artifactId>
              <version>2.22.2</version>
         </plugin>
     </plugins>

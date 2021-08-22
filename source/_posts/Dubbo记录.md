@@ -13444,3 +13444,601 @@ public <T> Exporter<T> export(final Invoker<T> originInvoker) throws RpcExceptio
 }
 ```
 
+上面代码看起来比较复杂，主要做如下一些操作：
+
+1. 调用 doLocalExport 导出服务
+2. 向注册中心注册服务
+3. 向注册中心进行订阅 override 数据
+4. 创建并返回 DestroyableExporter
+
+```java
+private <T> ExporterChangeableWrapper<T> doLocalExport(final Invoker<T> originInvoker, URL providerUrl) {
+    String key = getCacheKey(originInvoker);
+	// 访问缓存
+    return (ExporterChangeableWrapper<T>) bounds.computeIfAbsent(key, s -> {
+        Invoker<?> invokerDelegate = new InvokerDelegate<>(originInvoker, providerUrl);
+        // 调用 protocol 的 export 方法导出服务
+        return new ExporterChangeableWrapper<>((Exporter<T>) protocol.export(invokerDelegate), originInvoker);
+    });
+}
+```
+
+​	上面的代码是典型的双重检查锁，大家在阅读 Dubbo 的源码中，会多次见到。接下来，我们把重点放在 Protocol 的 export 方法上。假设运行时协议为 dubbo，此处的 protocol 变量会在运行时加载 DubboProtocol，并调用 DubboProtocol 的 export 方法。所以，接下来我们目光转移到 DubboProtocol 的 export 方法上，相关分析如下：
+
+```java
+@Override
+public <T> Exporter<T> export(Invoker<T> invoker) throws RpcException {
+    URL url = invoker.getUrl();
+
+    // export service.
+    // 获取服务标识，理解成服务坐标也行。由服务组名，服务名，服务版本号以及端口组成。比如：
+    // demoGroup/com.alibaba.dubbo.demo.DemoService:1.0.1:20880
+    String key = serviceKey(url);
+    // 创建 DubboExporter
+    DubboExporter<T> exporter = new DubboExporter<T>(invoker, key, exporterMap);
+    // 将 <key, exporter> 键值对放入缓存中
+    exporterMap.put(key, exporter);
+
+    
+    //export an stub service for dispatching event
+     // 本地存根相关代码
+    Boolean isStubSupportEvent = url.getParameter(STUB_EVENT_KEY, DEFAULT_STUB_EVENT);
+    Boolean isCallbackservice = url.getParameter(IS_CALLBACK_SERVICE, false);
+    if (isStubSupportEvent && !isCallbackservice) {
+        String stubServiceMethods = url.getParameter(STUB_EVENT_METHODS_KEY);
+        if (stubServiceMethods == null || stubServiceMethods.length() == 0) {
+            if (logger.isWarnEnabled()) {
+                logger.warn(new IllegalStateException("consumer [" + url.getParameter(INTERFACE_KEY) +
+                        "], has set stubproxy support event ,but no stub methods founded."));
+            }
+
+        }
+    }
+	// 启动服务器
+    openServer(url);
+    // 优化序列化
+    optimizeSerialization(url);
+
+    return exporter;
+}
+```
+
+​	如上，我们重点关注 DubboExporter 的创建以及 openServer 方法，其他逻辑看不懂也没关系，不影响理解服务导出过程。另外，DubboExporter 的代码比较简单，就不分析了。下面分析 openServer 方法。
+
+```java
+private void openServer(URL url) {
+    // find server.
+    // 获取 host:port，并将其作为服务器实例的 key，用于标识当前的服务器实例
+    String key = url.getAddress();
+    //client can export a service which's only for server to invoke
+    boolean isServer = url.getParameter(IS_SERVER_KEY, true);
+    if (isServer) {
+        // 访问缓存
+        ProtocolServer server = serverMap.get(key);
+        if (server == null) {
+            synchronized (this) {
+                server = serverMap.get(key);
+                if (server == null) {
+                    // 创建服务器实例
+                    serverMap.put(key, createServer(url));
+                }
+            }
+        } else {
+            // server supports reset, use together with override
+            // 服务器已创建，则根据 url 中的配置重置服务器
+            server.reset(url);
+        }
+    }
+}
+```
+
+​	如上，在同一台机器上（单网卡），同一个端口上仅允许启动一个服务器实例。若某个端口上已有服务器实例，此时则调用 reset 方法重置服务器的一些配置。考虑到篇幅问题，关于服务器实例重置的代码就不分析了。接下来分析服务器实例的创建过程。如下：
+
+```java
+private ProtocolServer createServer(URL url) {
+        url = URLBuilder.from(url)
+                // send readonly event when server closes, it's enabled by default
+                .addParameterIfAbsent(CHANNEL_READONLYEVENT_SENT_KEY, Boolean.TRUE.toString())
+                // enable heartbeat by default
+            	// 添加心跳检测配置到 url 中
+                .addParameterIfAbsent(HEARTBEAT_KEY, String.valueOf(DEFAULT_HEARTBEAT))
+            	// 添加编码解码器参数
+                .addParameter(CODEC_KEY, DubboCodec.NAME)
+                .build();
+    
+    	// 获取 server 参数，默认为 netty
+        String str = url.getParameter(SERVER_KEY, DEFAULT_REMOTING_SERVER);
+
+    	// 通过 SPI 检测是否存在 server 参数所代表的 Transporter 拓展，不存在则抛出异常
+        if (str != null && str.length() > 0 && !ExtensionLoader.getExtensionLoader(Transporter.class).hasExtension(str)) {
+            throw new RpcException("Unsupported server type: " + str + ", url: " + url);
+        }
+
+        ExchangeServer server;
+        try {
+            // 创建 ExchangeServer
+            server = Exchangers.bind(url, requestHandler);
+        } catch (RemotingException e) {
+            throw new RpcException("Fail to start server(url: " + url + ") " + e.getMessage(), e);
+        }
+
+    	// 获取 client 参数，可指定 netty，mina
+        str = url.getParameter(CLIENT_KEY);
+        if (str != null && str.length() > 0) {
+            // 获取所有的 Transporter 实现类名称集合，比如 supportedTypes = [netty, mina]
+            Set<String> supportedTypes = ExtensionLoader.getExtensionLoader(Transporter.class).getSupportedExtensions();
+            // 检测当前 Dubbo 所支持的 Transporter 实现类名称列表中，
+        	// 是否包含 client 所表示的 Transporter，若不包含，则抛出异常
+            if (!supportedTypes.contains(str)) {
+                throw new RpcException("Unsupported client type: " + str);
+            }
+        }
+
+        return new DubboProtocolServer(server);
+    }
+```
+
+​	如上，createServer 包含三个核心的逻辑。第一是检测是否存在 server 参数所代表的 Transporter 拓展，不存在则抛出异常。第二是创建服务器实例。第三是检测是否支持 client 参数所表示的 Transporter 拓展，不存在也是抛出异常。两次检测操作所对应的代码比较直白了，无需多说。但创建服务器的操作目前还不是很清晰，我们继续往下看。
+
+```java
+public static ExchangeServer bind(URL url, ExchangeHandler handler) throws RemotingException {
+    if (url == null) {
+        throw new IllegalArgumentException("url == null");
+    }
+    if (handler == null) {
+        throw new IllegalArgumentException("handler == null");
+    }
+    url = url.addParameterIfAbsent(Constants.CODEC_KEY, "exchange");
+    // 获取 Exchanger，默认为 HeaderExchanger。
+    // 紧接着调用 HeaderExchanger 的 bind 方法创建 ExchangeServer 实
+    return getExchanger(url).bind(url, handler);
+}
+```
+
+HeaderExchanger
+
+```java
+public ExchangeServer bind(URL url, ExchangeHandler handler) throws RemotingException {
+    return new HeaderExchangeServer(Transporters.bind(url, new DecodeHandler(new HeaderExchangeHandler(handler))));
+}
+```
+
+HeaderExchanger 的 bind 方法包含的逻辑比较多，但目前我们仅需关心 Transporters 的 bind 方法逻辑即可。该方法的代码如下：
+
+```java
+public static RemotingServer bind(URL url, ChannelHandler... handlers) throws RemotingException {
+    if (url == null) {
+        throw new IllegalArgumentException("url == null");
+    }
+    if (handlers == null || handlers.length == 0) {
+        throw new IllegalArgumentException("handlers == null");
+    }
+    ChannelHandler handler;
+    if (handlers.length == 1) {
+        handler = handlers[0];
+    } else {
+        // 如果 handlers 元素数量大于1，则创建 ChannelHandler 分发器
+        handler = new ChannelHandlerDispatcher(handlers);
+    }
+    return getTransporter().bind(url, handler);
+}
+```
+
+如上，getTransporter() 方法获取的 Transporter 是在运行时动态创建的，类名为 Transporter$Adaptive，也就是自适应拓展类。Transporter$Adaptive 会在运行时根据传入的 URL 参数决定加载什么类型的 Transporter，默认为 NettyTransporter。下面我们继续跟下去，这次分析的是 NettyTransporter 的 bind 方法。
+
+```java
+public RemotingServer bind(URL url, ChannelHandler handler) throws RemotingException {
+    return new NettyServer(url, handler);
+}
+```
+
+这里仅有一句创建 NettyServer 的代码，无需多说，我们继续向下看。
+
+```java
+public class NettyServer extends AbstractServer implements RemotingServer {
+
+    public NettyServer(URL url, ChannelHandler handler) throws RemotingException {
+        // 调用父类构造方法
+        super(ExecutorUtil.setThreadName(url, SERVER_THREAD_POOL_NAME), ChannelHandlers.wrap(handler, url));
+    }
+}
+
+public abstract class AbstractServer extends AbstractEndpoint implements RemotingServer {
+    public AbstractServer(URL url, ChannelHandler handler) throws RemotingException {
+        super(url, handler);
+        localAddress = getUrl().toInetSocketAddress();
+
+        // 获取 ip 和端口
+        String bindIp = getUrl().getParameter(Constants.BIND_IP_KEY, getUrl().getHost());
+        int bindPort = getUrl().getParameter(Constants.BIND_PORT_KEY, getUrl().getPort());
+        if (url.getParameter(ANYHOST_KEY, false) || NetUtils.isInvalidLocalHost(bindIp)) {
+            // 设置 ip 为 0.0.0.0
+            bindIp = ANYHOST_VALUE;
+        }
+        bindAddress = new InetSocketAddress(bindIp, bindPort);
+        // 获取最大可接受连接数
+        this.accepts = url.getParameter(ACCEPTS_KEY, DEFAULT_ACCEPTS);
+        try {
+            // 调用模板方法 doOpen 启动服务器
+            doOpen();
+            if (logger.isInfoEnabled()) {
+                logger.info("Start " + getClass().getSimpleName() + " bind " + getBindAddress() + ", export " + getLocalAddress());
+            }
+        } catch (Throwable t) {
+            throw new RemotingException(url.toInetSocketAddress(), null, "Failed to bind " + getClass().getSimpleName()
+                    + " on " + getLocalAddress() + ", cause: " + t.getMessage(), t);
+        }
+        executor = executorRepository.createExecutorIfAbsent(url);
+    }
+    protected abstract void doOpen() throws Throwable;
+
+    protected abstract void doClose() throws Throwable;
+}
+```
+
+上面代码多为赋值代码，不需要多讲。我们重点关注 doOpen 抽象方法，该方法需要子类实现。下面回到 NettyServer 中
+
+```java
+protected void doOpen() throws Throwable {
+    NettyHelper.setNettyLoggerFactory();
+    // 创建 boss 和 worker 线程池
+    ExecutorService boss = Executors.newCachedThreadPool(new NamedThreadFactory("NettyServerBoss", true));
+    ExecutorService worker = Executors.newCachedThreadPool(new NamedThreadFactory("NettyServerWorker", true));
+    ChannelFactory channelFactory = new NioServerSocketChannelFactory(boss, worker, getUrl().getPositiveParameter(IO_THREADS_KEY, Constants.DEFAULT_IO_THREADS));
+    
+    // 创建 ServerBootstrap
+    bootstrap = new ServerBootstrap(channelFactory);
+
+    final NettyHandler nettyHandler = new NettyHandler(getUrl(), this);
+    channels = nettyHandler.getChannels();
+    // https://issues.jboss.org/browse/NETTY-365
+    // https://issues.jboss.org/browse/NETTY-379
+    // final Timer timer = new HashedWheelTimer(new NamedThreadFactory("NettyIdleTimer", true));
+    bootstrap.setOption("child.tcpNoDelay", true);
+    bootstrap.setOption("backlog", getUrl().getPositiveParameter(BACKLOG_KEY, Constants.DEFAULT_BACKLOG));
+    
+    // 设置 PipelineFactory
+    bootstrap.setPipelineFactory(new ChannelPipelineFactory() {
+        @Override
+        public ChannelPipeline getPipeline() {
+            NettyCodecAdapter adapter = new NettyCodecAdapter(getCodec(), getUrl(), NettyServer.this);
+            ChannelPipeline pipeline = Channels.pipeline();
+            /*int idleTimeout = getIdleTimeout();
+            if (idleTimeout > 10000) {
+                pipeline.addLast("timer", new IdleStateHandler(timer, idleTimeout / 1000, 0, 0));
+            }*/
+            pipeline.addLast("decoder", adapter.getDecoder());
+            pipeline.addLast("encoder", adapter.getEncoder());
+            pipeline.addLast("handler", nettyHandler);
+            return pipeline;
+        }
+    });
+    // bind
+    // 绑定到指定的 ip 和端口上
+    channel = bootstrap.bind(getBindAddress());
+}
+```
+
+以上就是 NettyServer 创建的过程，dubbo 默认使用的 NettyServer 是基于 netty 3.x 版本实现的，比较老了。因此 Dubbo 另外提供了 netty 4.x 版本的 NettyServer，大家可在使用 Dubbo 的过程中按需进行配置。
+
+到此，关于服务导出的过程就分析完了。整个过程比较复杂，大家在分析的过程中耐心一些。并且多写 Demo 进行调试，以便能够更好的理解代码逻辑。
+
+本节内容先到这里，接下来分析服务导出的另一块逻辑 — 服务注册。
+
+### 服务注册
+
+```java
+public <T> Exporter<T> export(final Invoker<T> originInvoker) throws RpcException {
+[...]
+    // url to registry
+    // 根据 URL 加载 Registry 实现类，比如 ZookeeperRegistry
+    final Registry registry = getRegistry(registryUrl);
+    final URL registeredProviderUrl = getUrlToRegistry(providerUrl, registryUrl);
+
+    // decide if we need to delay publish
+     // 根据 register 的值决定是否注册服务
+    boolean register = providerUrl.getParameter(REGISTER_KEY, true);
+    if (register) {
+        register(registry, registeredProviderUrl);
+    }
+
+    // register stated url on provider model
+    registerStatedUrl(registryUrl, registeredProviderUrl, register);
+
+
+    exporter.setRegisterUrl(registeredProviderUrl);
+    exporter.setSubscribeUrl(overrideSubscribeUrl);
+
+    // Deprecated! Subscribe to override rules in 2.6.x or before.
+    // 向注册中心进行订阅 override 数据
+    registry.subscribe(overrideSubscribeUrl, overrideSubscribeListener);
+
+    notifyExport(exporter);
+    //Ensure that a new exporter instance is returned every time export
+    // 创建并返回 DestroyableExporter
+    return new DestroyableExporter<>(exporter);
+}
+```
+
+​	RegistryProtocol 的 export 方法包含了服务导出，注册，以及数据订阅等逻辑。其中服务导出逻辑上一节已经分析过了，本节将分析服务注册逻辑，相关代码如下：
+
+```java
+private void register(Registry registry, URL registeredProviderUrl) {
+    registry.register(registeredProviderUrl);
+}
+```
+
+#### 创建注册中心
+
+```java
+protected Registry getRegistry(final URL registryUrl) {
+    return registryFactory.getRegistry(registryUrl);
+}
+```
+
+本节内容以 Zookeeper 注册中心为例进行分析。下面先来看一下 getRegistry 方法的源码，这个方法由 AbstractRegistryFactory 实现。如下：
+
+// todo疑问 
+
+```java
+public Registry getRegistry(URL url) {
+
+    Registry defaultNopRegistry = getDefaultNopRegistryIfDestroyed();
+    if (null != defaultNopRegistry) {
+        return defaultNopRegistry;
+    }
+
+    url = URLBuilder.from(url)
+            .setPath(RegistryService.class.getName())
+            .addParameter(INTERFACE_KEY, RegistryService.class.getName())
+            .removeParameters(EXPORT_KEY, REFER_KEY, TIMESTAMP_KEY)
+            .build();
+    String key = createRegistryCacheKey(url);
+    // Lock the registry access process to ensure a single instance of the registry
+    LOCK.lock();
+    try {
+        // double check
+        // fix https://github.com/apache/dubbo/issues/7265.
+        defaultNopRegistry = getDefaultNopRegistryIfDestroyed();
+        if (null != defaultNopRegistry) {
+            return defaultNopRegistry;
+        }
+	   // 访问缓存
+        Registry registry = REGISTRIES.get(key);
+        if (registry != null) {
+            return registry;
+        }
+        // 缓存未命中，创建 Registry 实例
+        //create registry by spi/ioc
+        registry = createRegistry(url);
+        if (registry == null) {
+            throw new IllegalStateException("Can not create registry " + url);
+        }
+        REGISTRIES.put(key, registry);
+        return registry;
+    } finally {
+        // Release the lock
+        LOCK.unlock();
+    }
+}
+```
+
+​	如上，getRegistry 方法先访问缓存，缓存未命中则调用 createRegistry 创建 Registry，然后写入缓存。这里的 createRegistry 是一个模板方法，由具体的子类实现。因此，下面我们到 ZookeeperRegistryFactory 中探究一番。
+
+```java
+public class ZookeeperRegistryFactory extends AbstractRegistryFactory {
+
+    // zookeeperTransporter 由 SPI 在运行时注入，类型为 ZookeeperTransporter$Adaptive
+    private ZookeeperTransporter zookeeperTransporter;
+
+    /**
+     * Invisible injection of zookeeper client via IOC/SPI
+     * @param zookeeperTransporter
+     */
+    public void setZookeeperTransporter(ZookeeperTransporter zookeeperTransporter) {
+        this.zookeeperTransporter = zookeeperTransporter;
+    }
+
+    @Override
+    public Registry createRegistry(URL url) {
+        // 创建 ZookeeperRegistry
+        return new ZookeeperRegistry(url, zookeeperTransporter);
+    }
+
+}
+```
+
+```java
+public ZookeeperRegistry(URL url, ZookeeperTransporter zookeeperTransporter) {
+    super(url);
+    if (url.isAnyHost()) {
+        throw new IllegalStateException("registry address == null");
+    }
+    // 获取组名，默认为 dubbo
+    String group = url.getGroup(DEFAULT_ROOT);
+    if (!group.startsWith(PATH_SEPARATOR)) {
+        group = PATH_SEPARATOR + group;
+    }
+    this.root = group;
+    // 创建 Zookeeper 客户端，默认为 CuratorZookeeperTransporter
+    zkClient = zookeeperTransporter.connect(url);
+    
+    // 添加状态监听器
+    zkClient.addStateListener((state) -> {
+        if (state == StateListener.RECONNECTED) {
+            logger.warn("Trying to fetch the latest urls, in case there're provider changes during connection loss.\n" +
+                    " Since ephemeral ZNode will not get deleted for a connection lose, " +
+                    "there's no need to re-register url of this instance.");
+            ZookeeperRegistry.this.fetchLatestAddresses();
+        } else if (state == StateListener.NEW_SESSION_CREATED) {
+            logger.warn("Trying to re-register urls and re-subscribe listeners of this instance to registry...");
+            try {
+                ZookeeperRegistry.this.recover();
+            } catch (Exception e) {
+                logger.error(e.getMessage(), e);
+            }
+        } else if (state == StateListener.SESSION_LOST) {
+            logger.warn("Url of this instance will be deleted from registry soon. " +
+                    "Dubbo client will try to re-register once a new session is created.");
+        } else if (state == StateListener.SUSPENDED) {
+
+        } else if (state == StateListener.CONNECTED) {
+
+        }
+    });
+}
+```
+
+​	在上面的代码代码中，我们重点关注 ZookeeperTransporter 的 connect 方法调用，这个方法用于创建 Zookeeper 客户端。创建好 Zookeeper 客户端，意味着注册中心的创建过程就结束了。接下来，再来分析一下 Zookeeper 客户端的创建过程。
+
+​	前面说过，这里的 zookeeperTransporter 类型为自适应拓展类，因此 connect 方法会在被调用时决定加载什么类型的 ZookeeperTransporter 拓展，默认为 CuratorZookeeperTransporter。下面我们到 CuratorZookeeperTransporter 中看一看。
+
+```java
+public ZookeeperClient createZookeeperClient(URL url) {
+    return new CuratorZookeeperClient(url);
+}
+```
+
+```java
+public CuratorZookeeperClient(URL url) {
+    super(url);
+    try {
+        int timeout = url.getParameter(TIMEOUT_KEY, DEFAULT_CONNECTION_TIMEOUT_MS);
+        int sessionExpireMs = url.getParameter(ZK_SESSION_EXPIRE_KEY, DEFAULT_SESSION_TIMEOUT_MS);
+        // 创建 CuratorFramework 构造器
+        CuratorFrameworkFactory.Builder builder = CuratorFrameworkFactory.builder()
+                .connectString(url.getBackupAddress())
+                .retryPolicy(new RetryNTimes(1, 1000))
+                .connectionTimeoutMs(timeout)
+                .sessionTimeoutMs(sessionExpireMs);
+        String authority = url.getAuthority();
+        if (authority != null && authority.length() > 0) {
+            builder = builder.authorization("digest", authority.getBytes());
+        }
+        // 构建 CuratorFramework 实例
+        client = builder.build();
+        // 添加监听器
+        client.getConnectionStateListenable().addListener(new CuratorConnectionStateListener(url));
+        // 启动客户端
+        client.start();
+        boolean connected = client.blockUntilConnected(timeout, TimeUnit.MILLISECONDS);
+        if (!connected) {
+            throw new IllegalStateException("zookeeper not connected");
+        }
+    } catch (Exception e) {
+        throw new IllegalStateException(e.getMessage(), e);
+    }
+}
+```
+
+CuratorZookeeperClient 构造方法主要用于创建和启动 CuratorFramework 实例。以上基本上都是 Curator 框架的代码，大家如果对 Curator 框架不是很了解，可以参考 Curator 官方文档。
+
+本节分析了 ZookeeperRegistry 实例的创建过程，整个过程并不是很复杂。大家在看完分析后，可以自行调试，以加深理解。现在注册中心实例创建好了，接下来要做的事情是向注册中心注册服务，我们继续往下看。
+
+#### 节点创建
+
+​	以 Zookeeper 为例，所谓的服务注册，本质上是将服务配置数据写入到 Zookeeper 的某个路径的节点下。为了让大家有一个直观的了解，下面我们将 Dubbo 的 demo 跑起来，然后通过 Zookeeper 可视化客户端 [ZooInspector](https://github.com/apache/zookeeper/tree/b79af153d0f98a4f3f3516910ed47234d7b3d74e/src/contrib/zooinspector) 查看节点数据。如下：
+
+![](https://pic.imgdb.cn/item/612204134907e2d39ca1ee45.jpg)
+
+​	从上图中可以看到 com.alibaba.dubbo.demo.DemoService 这个服务对应的配置信息（存储在 URL 中）最终被注册到了 /dubbo/com.alibaba.dubbo.demo.DemoService/providers/ 节点下。搞懂了服务注册的本质，那么接下来我们就可以去阅读服务注册的代码了。服务注册的接口为 register(URL)，这个方法定义在 FailbackRegistry 抽象类中。代码如下：
+
+```java
+public void register(URL url) {
+    if (!acceptable(url)) {
+        logger.info("URL " + url + " will not be registered to Registry. Registry " + url + " does not accept service of this protocol type.");
+        return;
+    }
+    super.register(url);
+    removeFailedRegistered(url);
+    removeFailedUnregistered(url);
+    try {
+        // Sending a registration request to the server side
+        // 模板方法，子类实现
+        doRegister(url);
+    } catch (Exception e) {
+        Throwable t = e;
+		// 获取check参数， 如果check为true 直接抛出异常
+        // If the startup detection is opened, the Exception is thrown directly.
+        boolean check = getUrl().getParameter(Constants.CHECK_KEY, true)
+                && url.getParameter(Constants.CHECK_KEY, true)
+                && !(url.getPort() == 0);
+        boolean skipFailback = t instanceof SkipFailbackWrapperException;
+        if (check || skipFailback) {
+            if (skipFailback) {
+                t = t.getCause();
+            }
+            throw new IllegalStateException("Failed to register " + url + " to registry " + getUrl().getAddress() + ", cause: " + t.getMessage(), t);
+        } else {
+            logger.error("Failed to register " + url + ", waiting for retry, cause: " + t.getMessage(), t);
+        }
+
+        // Record a failed registration request to a failed list, retry regularly
+        // 记录注册失败的链接
+        addFailedRegistered(url);
+    }
+}
+```
+
+如上，我们重点关注 doRegister 方法调用即可，其他的代码先忽略。doRegister 方法是一个模板方法，因此我们到 FailbackRegistry 子类 ZookeeperRegistry 中进行分析。如下：
+
+```java
+public void doRegister(URL url) {
+    try {
+        zkClient.create(toUrlPath(url), url.getParameter(DYNAMIC_KEY, true));
+    } catch (Throwable e) {
+        throw new RpcException("Failed to register " + url + " to zookeeper " + getUrl() + ", cause: " + e.getMessage(), e);
+    }
+}
+```
+
+​	如上，ZookeeperRegistry 在 doRegister 中调用了 Zookeeper 客户端创建服务节点。节点路径由 toUrlPath 方法生成，该方法逻辑不难理解，就不分析了。接下来分析 create 方法，如下：
+
+```java
+public void create(String path, boolean ephemeral) {
+    if (!ephemeral) {
+        if (persistentExistNodePath.contains(path)) {
+            return;
+        }
+        // 如果要创建的节点类型非临时节点，那么这里要检测节点是否存在
+        if (checkExists(path)) {
+            persistentExistNodePath.add(path);
+            return;
+        }
+    }
+    int i = path.lastIndexOf('/');
+    if (i > 0) {
+        // 递归创建上一级路径
+        create(path.substring(0, i), false);
+    }
+    // 根据 ephemeral 的值创建临时或持久节点
+    if (ephemeral) {
+        createEphemeral(path);
+    } else {
+        createPersistent(path);
+        persistentExistNodePath.add(path);
+    }
+}
+```
+
+上面方法先是通过递归创建当前节点的上一级路径，然后再根据 ephemeral 的值决定创建临时还是持久节点。createEphemeral 和 createPersistent 这两个方法都比较简单，这里简单分析其中的一个。如下：
+
+```java
+public void createEphemeral(String path) {
+    try {
+        client.create().withMode(CreateMode.EPHEMERAL).forPath(path);
+    } catch (NodeExistsException e) {
+        logger.warn("ZNode " + path + " already exists, since we will only try to recreate a node on a session expiration" +
+                ", this duplication might be caused by a delete delay from the zk server, which means the old expired session" +
+                " may still holds this ZNode and the server just hasn't got time to do the deletion. In this case, " +
+                "we can just try to delete and create again.", e);
+        deletePath(path);
+        createEphemeral(path);
+    } catch (Exception e) {
+        throw new IllegalStateException(e.getMessage(), e);
+    }
+}
+```
+
+### 订阅 override 数据 todo
+
