@@ -1914,3 +1914,108 @@ The JUnit 5 extension model may also be used to replace the runners from JUnit 4
 
 ​	White-box testing provides better test coverage than black-box testing. On the other hand, black-box tests can bring more value than white-box tests. I focus on test coverage in chapter 6.
 
+# Tests quality
+
+* Measuring test coverage
+* Writing testable code
+* Investigating Test Driven Development
+* Investigating Behavior Driven Development
+* Introducing mutation testing
+* Testing in the development cycle
+
+## Measuring test coverage
+
+​	Writing unit tests gives you the confidence to change and refactor an application. As you make changes, you run tests, which give you immediate feedback on new features under test and whether changes break the existing tests. The issue is that these changes may still break untested functionality.
+
+​	To resolve this issue, you need to know precisely what code runs when you or the build invoke tests. Ideally, your tests should cover 100 percent of your application code. This section examines the test coverage in detail.
+
+###  Introduction to test coverage
+
+![](https://pic.imgdb.cn/item/612438f944eaada7394734e4.jpg)
+
+​	Many metrics can be used to calculate test coverage. Some of the most basic is the percentage of program methods and the percentage of program lines called during execution of the test suite.
+
+​	You *can* write a unit test with intimate knowledge of a method's implementation. If a method contains a conditional branch, you can write two unit tests. one for each branch. Because you need to see into the method to create such a test, this type of test falls in the category of white-box testing*.* Figure 6.2 shows 100 percent test coverage with white-box testing.
+
+![](https://pic.imgdb.cn/item/61243d8244eaada7394bd943.jpg)
+
+### Code coverage measuring tools
+
+![](https://pic.imgdb.cn/item/61243dab44eaada7394c0c0e.jpg)
+
+​	The HTML reports get at the level of the `com.manning.junitbook.ch06` package (figure 6.5), individual `Calculator` class (figure 6.6), or individual lines of code (figure 6.7).
+
+![](https://pic.imgdb.cn/item/61243dc744eaada7394c2c7f.jpg)
+
+​	The recommended way to work is to execute the tests from the command line with code coverage, it works fine in conjunction with the Continuous Integration/Continuous Development pipeline. You may use the JaCoCo (Java Code Coverage) tool. JaCoCo is an open-source toolkit that is updated frequently and has very good integration with Maven. To make Maven and JaCoCo work together, you need to insert the JaCoCo plugin information into the pom.xml file (figure 6.8).
+
+![](https://pic.imgdb.cn/item/61243de744eaada7394c5186.jpg)
+
+​	You need to go to the command prompt and run `mvn test` (figure 6.9). This command also generates—for the`com.manning.junitbook` package and for the `Calculator` class—the code coverage report, which you can access from the project folder, target\site\jacoco (figure 6.10). I’ve chosen to show an example that does not have 100 percent code coverage. You can also do this by removing some of the existing tests from the `CalculatorTest` class in the accompanying `ch06-quality` folder.
+
+![](https://pic.imgdb.cn/item/61243e0444eaada7394c7398.jpg)
+
+​	From here, you can access the reports at the level of the `com.manning.junitbook` package (figure 6.11), `Calculator` class (figure 6.12), methods (figure 6.13), and individual lines (figure 6.14).
+
+![](https://pic.imgdb.cn/item/61243e1d44eaada7394c8ff5.jpg)
+
+![](https://pic.imgdb.cn/item/61243e2c44eaada7394c9f2d.jpg)
+
+## Writing testable code
+
+​	This chapter is dedicated to best practices in software testing. Now you’re ready to get to the next level: writing code that is easy to test. Sometimes, writing a single test case is easy; sometimes, it is not. Everything depends on the complexity of the application. A best practice avoids complexity as much as possible; code should be readable and testable.
+
+###  Understand that public APIs are contracts
+
+​	One principle in providing backward-compatible software states “Never change the signature of a public method.” An application code review shows that most calls are made from external applications, which play the role of clients of your API. If you change the signature of a public method, you need to change every call site in the application and unit tests. Even with refactoring wizards in tools such as IntelliJ or Eclipse, you must always perform this task with care. During initial development, especially if working TDD (Test Driven Development), it is a great time to refactor the API as needed, because you do not yet have any public users. Things will change afterward!
+
+### Reduce dependencies
+
+​	Remember that unit tests verify your code in isolation. Your unit tests should instantiate the class you want to test, use it, and assert its correctness. Your test cases should be simple. What happens when your class instantiates a new set of objects, directly or indirectly? Now your class depends on these classes. To write testable code, you should reduce dependencies as much as possible. If your classes depend on many other classes that need to be instantiated and set up with some state, your tests will be very complicated; you may need to use a complicated mock-objects solution (see chapter 8).
+
+![](https://pic.imgdb.cn/item/61243fec44eaada7394e8175.jpg)
+
+​	This code allows you to produce a mock Driver object (see chapter 8) and pass it to the `Vehicle` class on instantiation. This process is *dependency injection*—a technique in which a dependency is supplied to another object. You can mock any other type of `Driver` implementation. The requirements for the engineers at Tested Data Systems *may introduce specific classes such as* `JuniorDriver` and `SeniorDriver`, and pass those classes to the `Vehicle` class. Through dependency injection, the code supplies the `Driver` object to the `Vehicle` object by invoking the `Vehicle(Driver d)` constructor.
+
+### Create simple constructors
+
+​	By striving for better test coverage, you add more test cases. In each of these test cases, you
+
+* Instantiate the class to test.
+* Set the class to a particular state.
+* Assert the final state of the class.
+
+### Follow the Law of Demeter (Principle of Least Knowledge)
+
+​	The Law of Demeter, or *Principle of Least Knowledge*, states that one class should know only as much as it needs to know.
+
+​	*Talk to your immediate friends.*
+
+or
+
+​	*Don't talk to strangers.*
+
+![](https://pic.imgdb.cn/item/612440fd44eaada7394fbb04.jpg)
+
+### Avoid hidden dependencies and global state
+
+​	Be very careful with the global state, because the global state makes it possible for many clients to share the global object. This sharing can have unintended consequences if the global object is not coded for shared access or if clients expect exclusive access to the global object.
+
+### Favor generic methods
+
+​	Static methods, like factory methods, are very useful, but large groups of utility static methods can introduce issues of their own. Recall that unit testing is testing in isolation. To achieve isolation, you need some articulation points in your code, where you can easily substitute your code for the test code. These points use polymorphism. With *polymorphism* (the ability of one object to pass more than one IS-A tests), the method you are calling is not determined at compile time. You can easily use polymorphism to substitute application code for the test code to force certain code patterns to be tested.
+
+### Favor composition over inheritance
+
+​	Many people choose inheritance as a code-reuse mechanism. I think that composition can be easier to test. At run time, code cannot change an inheritance hierarchy, but you can compose objects differently. What you strive for is to make your code as flexible as possible at run time. This way, you can be sure that it is easy to switch from one state of your objects to another, which makes the code easily testable.
+
+### Favor polymorphism over conditionals
+
+As I mentioned previously, all you do in your tests is
+
+* Instantiate the class to test.
+* Set the class to a particular state.
+*  Assert the final state of the class.
+
+
+
