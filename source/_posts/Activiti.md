@@ -2,6 +2,20 @@
 
 https://www.bilibili.com/video/BV1H54y167gf?p=4&spm_id_from=pageDriver
 
+设计器:https://camunda.com/download/modeler/
+
+camunda有个坑点
+
+xml需要对xmlns:camunda做如下替换
+
+```
+xmlns:camunda="http://activiti.org/bpmn"
+```
+
+网页版设计器:https://github.com/Yiuman/bpmn-vue-activiti
+
+
+
 ## BPM
 
 ​	BPM(Business Process Management), 即业务流程管理，是一种规范化的构造端到端的业务流程，以持续的提高组织业务效率。
@@ -61,7 +75,7 @@ https://www.bilibili.com/video/BV1H54y167gf?p=4&spm_id_from=pageDriver
 ## Activiti依赖
 
 ```xml
-<properties>
+比如:在出差申请流程流转时如果出差天数大于3天则由总经理审核，香则由人事直接审核，出差天<properties>
         <java.version>1.8</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -1510,3 +1524,910 @@ org.activiti.engine.ActivitiException: Cannot complete a suspended task
 ##### 编写代码配置负责人
 
 **1. 定义任务分配流程变量**
+
+设置流程负责人为变量
+
+![](https://pic.imgdb.cn/item/6126e0b044eaada739a98bc3.jpg)
+
+```java
+@Test
+public void testDeploy() {
+    ProcessEngine defaultProcessEngine = ProcessEngines.getDefaultProcessEngine();
+    RepositoryService repositoryService = defaultProcessEngine.getRepositoryService();
+    Deployment deployment = repositoryService.createDeployment()
+            .name("出差申请-uel")
+            .addClasspathResource("bpmn/test2.bpmn20.xml")
+            .addClasspathResource("bpmn/test2.png")
+            .deploy();
+    // 输出部署信息
+    System.out.println("deploymentId=" + deployment.getId());
+    System.out.println("deploymentName=" + deployment.getName());
+}
+
+@Test
+public void testAssigneeUel() {
+    ProcessEngine processEngine = ProcessEngines.getDefaultProcessEngine();
+    RuntimeService runtimeService = processEngine.getRuntimeService();
+    // 启动流程实例
+    Map<String, Object> uelParam = new HashMap<>();
+    uelParam.put("assignee0", "张三");
+    uelParam.put("assignee1", "李经理");
+    uelParam.put("assignee2", "王总经理");
+    uelParam.put("assignee3", "赵财务");
+    ProcessInstance instance = runtimeService.startProcessInstanceByKey("test2", uelParam);
+}
+```
+
+执行成功后，可以在act_ru_variable项表中看到刚才map中的数据:
+
+![](https://pic.imgdb.cn/item/6126e10044eaada739aa0900.jpg)
+
+### 使用监听器分配
+
+注意:
+
+https://blog.csdn.net/weixin_43844343/article/details/84777768
+
+之前的不支持, 切换编辑器comuda:
+
+https://blog.csdn.net/qq_25701293/article/details/98846694
+
+坑点xml需要对xmlns:camunda做如下替换
+
+```
+xmlns:camunda="http://activiti.org/bpmn"
+```
+
+​	
+
+可以使用监听器来完成很多Activit流程的业务。
+
+​	在本章我们使用监听器的方式来指定负责人。那么在流程设计时就不需要指定assignee。
+
+​	任务监听器是发生对应的任务相关事件时执行自定义java逻辑或表达式。
+
+​	任务相当事件包括:
+
+![](https://pic.imgdb.cn/item/6126e1c644eaada739aaf5e9.jpg)
+
+TaskEvent包含
+
+* Create: 任务创建后触发。
+* Assignment: 任务分配后触发。
+* Delete: 任务删除后触发。
+* All: 所有事件发生都触发(暂时没看到这个。
+* Complete: 完成后触发。
+* timeout: 超时触发
+
+![](https://pic.imgdb.cn/item/612709b844eaada739ed87dc.jpg)
+
+
+
+
+
+```java
+public class MyTaskListener implements TaskListener {
+    @Override
+    public void notify(DelegateTask delegateTask) {
+        if ("创建出差申请".equals(delegateTask.getName())) {
+            delegateTask.setAssignee("张三");
+        }
+    }
+}
+```
+
+```java
+public class ActivitiTestTaskListener {
+
+    @Test
+    public void testDeploy() {
+        ProcessEngine defaultProcessEngine = ProcessEngines.getDefaultProcessEngine();
+        RepositoryService repositoryService = defaultProcessEngine.getRepositoryService();
+        Deployment deployment = repositoryService.createDeployment()
+                .name("出差申请-task")
+                .addClasspathResource("bpmn/test3.bpmn20.xml")
+                .deploy();
+        // 输出部署信息
+        System.out.println("deploymentId=" + deployment.getId());
+        System.out.println("deploymentName=" + deployment.getName());
+    }
+
+
+    @Test
+    public void testAssigneeListener() {
+        ProcessEngine processEngine = ProcessEngines.getDefaultProcessEngine();
+        RuntimeService runtimeService = processEngine.getRuntimeService();
+        // 启动流程实例
+        ProcessInstance instance = runtimeService.startProcessInstanceByKey("test3");
+    }
+}
+```
+
+## 流程变量
+
+### 什么是流程变量
+
+​	流程变量在activiti 中是一个非常重 要的角色，流程运转有时需要靠流程变量,业务系统和activiti结合时少不了流程变量，流程变量就是activiti 在管理工作流时根据管理需要而设置的变量。
+
+​	比如:在出差申请流程流转时如果出差天数大于3天则由总经理审核，香则由人事直接审核，出差天数就可以设置为流程变量，在流程流转时使用。
+
+​	注意:虽然流程变量中可以存储业务数据可以通过activiti的api查询流程变量从而实现查询业务数据，但是不建议这样使用，因为业务数据查询由业务系统负责, activiti设置流程变显是为 了流程执行需要而创建。
+
+### 流程变量类型
+
+​	如果将polo存储到流程变量中，必须实现序列化接口serlalzable, 为了防止由于新增字段无去反序列化，需要生成serialVersionUID。
+
+![](https://pic.imgdb.cn/item/61270f2144eaada739f74a1b.jpg)
+
+### 流程变量作用域
+
+​	流程变量的作用域可以是一个流程实例(processInstance), 或一个任务(task)， 或-个执行实例(execution)
+
+#### global变量
+
+​	流程变量的默认作用域是流程实例。当-个流程变量的作用域为流程实例时，可以称为global变量
+
+​	注意:
+
+​	如: Global变量: userld (变量名)、zhangsan (变量值)
+
+​	global变量中变量名不允许重复,设置相同名称的变量，后设置的值会覆盖前设置的变量值。
+
+#### local变量
+
+​	任务和执行或例仅仅是针对一个任务和一 个执行实例范围，范围没有流程实例大，称为local变量。
+
+​	Local变量由于在不同的任务或不同的执行实例中，作用域互不影响，变量名可以相同没有影响。Local 变最名也可以和global变量名相同，没有影响。
+
+### 流程变量使用方法
+
+#### 在属性上使用UEL表达式
+
+​	可以在assignee处设置UEL表达式,表达式的值为任务的负责人，比如: ${assignee}， assignee 就是一-个流程变量名称。
+
+​	Activiti获取UEL表达式的值，即流程变显assignee的值，将assignee的值作为任务的负责人进行任务分配。
+
+#### 在连线上使用UEL表达式
+
+​	可以在连线上设置UEL表达式，决定流程走向。
+
+​	比如: ${price<10000} 。price就是一个流程变量名称，uel表达式结果类型为布尔类型。
+
+​	如果UEL表达式是true，要决定流程执行走向。
+
+### 使用Global变量控制流程
+
+#### 需求
+
+​	员工创建出差申请单，由部门经理审核，部门经理审核通过后出差3天及一下由财务直接审批，3天以上先由总经理审核，总经理审核通过再由财务审批。
+
+![](https://pic.imgdb.cn/item/6127118544eaada739fb77e2.jpg)
+
+#### 流程定义
+
+1. 出差天数大于等于3连线条件
+
+![](https://pic.imgdb.cn/item/6127278044eaada73929a622.jpg)
+
+#### 启动流程时设置变量
+
+```java
+public void testStartProcessSetVariables() {
+    ProcessEngine processEngine = ProcessEngines.getDefaultProcessEngine();
+    RuntimeService runtimeService = processEngine.getRuntimeService();
+    // 启动流程实例
+    Map<String, Object> uelParam = new HashMap<>();
+    uelParam.put("days", 3);
+    ProcessInstance instance = runtimeService.startProcessInstanceByKey("test4", uelParam);
+}
+```
+
+![](https://pic.imgdb.cn/item/612729b444eaada7392e598c.jpg)
+
+完成任务
+
+![](https://pic.imgdb.cn/item/612731e744eaada73941abc3.jpg)
+
+#### 任务办理时设置变量
+
+```java
+public void testCompleteTask() {
+        ProcessEngine processEngine = ProcessEngines.getDefaultProcessEngine();
+        // 创建engine
+        ProcessEngine defaultProcessEngine = ProcessEngines.getDefaultProcessEngine();
+        // 获取TaskService
+        TaskService taskService = defaultProcessEngine.getTaskService();
+        // 根据id完成任务
+//        taskService.complete("2505");
+        Task task = taskService.createTaskQuery()
+                .processDefinitionKey("test4")
+                .taskAssignee("王五")
+                .singleResult();
+        if (task != null) {
+            System.out.println("流程实例id" + task.getProcessInstanceId());
+            System.out.println("任务id" + task.getId());
+            System.out.println("任务负责人=" + task.getAssignee());
+            System.out.println("任务名称" + task.getName());
+            Map<String, Object> uelParam = new HashMap<>();
+            uelParam.put("days", 3);
+            taskService.complete(task.getId(), uelParam);
+        }
+    }
+```
+
+#### 通过当前流程实例设置
+
+通过流程实例id设置全局变量，该流程实例必须未执行完成。
+
+```java
+public void setGlobalVariableByExecutionId() {
+        String executionId = "40002";
+        ProcessEngine processEngine = ProcessEngines.getDefaultProcessEngine();
+        RuntimeService runtimeService = processEngine.getRuntimeService();
+        runtimeService.setVariable(executionId, "days", 3);
+        runtimeService.setVariables(executionId, new HashMap<>());
+}
+```
+
+​	executionld必须当前未结束流程实例的执行id,通常此id设置流程实例的id。也可以通runtimeService.getVariable()获取流程变量。
+
+#### 通过当前任务设置
+
+```java
+@Test
+public void setGlobalVariableByTaskId() {
+    String taskId = "40005";
+    ProcessEngine processEngine = ProcessEngines.getDefaultProcessEngine();
+    TaskService taskService = processEngine.getTaskService();
+    taskService.setVariable(taskId, "days", 3);
+    taskService.setVariables(taskId, new HashMap<>());
+}
+```
+
+​	任务id必须是当前待办任务id, act. ru. _task中存在。如果该任务已结束，会报错。
+
+​	也可以通过taskService.getVariable)获取流程变星。
+
+#### 注意事项
+
+* 如果UEL表达式中流程变量名不存在则报错。
+* 如果UEL表达式中流程变量值为空NULL，流程不按UEL表达式去执行，而流程结束。
+* 如果UEL表达式都不符合条件,流程结束。
+* 如果连线不设置条件，会走flow序号小的那条线。
+
+#### 操作数据库表
+
+​	设置流程变星会在当前执行流程变量表插入记录，同时也会在历史流程变量表也插入记录。
+
+```mysql
+# 当前流程变量表
+SELECT * FROM act.ru_variable
+```
+
+​	记录当前运行流程实例可使用的流程变量，包括global和local变量
+
+* ld_:主键
+* Type_:变量类型
+* Name_ :变量名称
+* Execution_id_:所属流程实例执行id, global和local变量都存储
+* Task_id_: 所属任务id, local变量存储
+* Bytearray_ : serializable类型变 量存储对应act_ge_bytearray表的id。
+
+### 设置local流程变量
+
+#### 任务办理时设置
+
+​	任务办理时设置local|流程变量，当前运行的流程实例只能在该任务结束前使用，任务结束该变量无法在当前流程实例使用，可以通过查询历史任务查询。
+
+```java
+@Test
+public void setLocalVariableByTaskId() {
+    String taskId = "40005";
+    ProcessEngine processEngine = ProcessEngines.getDefaultProcessEngine();
+    TaskService taskService = processEngine.getTaskService();
+    taskService.setVariableLocal(taskId, "days", 3);
+    taskService.setVariablesLocal(taskId, new HashMap<>());
+}
+```
+
+​	任务id必须是当前待办任务id, act_ru_task中存在。
+
+#### 通过实例执行
+
+​	对于runtimeService来说 setVariableLocal和没有setVariable没有区别。
+
+```
+runtimeService.setVariableLocal();
+runtimeService.setVariablesLocal();
+```
+
+#### 注意事项
+
+* Local变量在任务结束后无法在当前流程实例执行中使用，如果后续的流程执行需要用到此变星则会报错。
+
+* 在部门经理审核、总经理审核、财务审核时设置local变量，可通过historyService查询每 个历史任务时将流程变量的值也查询出来。
+
+![](https://pic.imgdb.cn/item/612739ad44eaada73955d706.jpg)
+
+## 组任务
+
+### 需求
+
+​	在流程定义中在任务结点的assignee固定设置任务负责人，在流程定义时将参与者固定设置在.bpmn文件中，如果临时任务负责人变更则需要修改流程定义，系统可扩展性差。
+
+​	针对这种情况可以给任务设置多个候选人，可以从候选人中选择参与者来完成任务。
+
+### 设置任务候选人
+
+​	在流程图中任务节点的配置中设置candidate-users(候选人),多个候选人之间用逗号分开。
+
+![](https://pic.imgdb.cn/item/61273ae044eaada739588560.jpg)
+
+### 组任务
+
+**查询组任务**
+
+​	指定候选人，查询该候选人当前的待办任务。
+
+​	候选人不能立即办理任务。
+
+**拾取(claim)任务**
+
+​	该组任务的所有候选人都能拾取。
+
+​	将候选人的组任务，变成个人任务。原来候选人就变成了该任务的负责人。
+
+​	如果拾取后不想办理该任务?
+
+​	需要将已经拾取的个人任务归还到组里边，将个人任务变成了组任务。
+
+**查询个人任务**
+
+​	查询方式同个人任务部分，根据assignee查询用户负责的个人任务。
+
+**办理个人任务**
+
+#### 查询组任务
+
+```java
+public void testFindGroupTaskList() {
+    ProcessEngine processEngine = ProcessEngines.getDefaultProcessEngine();
+    TaskService taskService = processEngine.getTaskService();
+    String candicateUser = "王五";
+    // 启动流程实例
+
+    List<Task> list = taskService.createTaskQuery()
+            .processDefinitionKey(testKey)
+            .taskCandidateUser(candicateUser)
+            .list();
+    for (Task task : list) {
+        System.out.println("id:" + task.getId());
+        System.out.println("负责人" + task.getAssignee());
+    }
+}
+```
+
+#### 拾取任务
+
+```java
+public void testClaimTask() {
+    ProcessEngine processEngine = ProcessEngines.getDefaultProcessEngine();
+    TaskService taskService = processEngine.getTaskService();
+    String candicateUser = "王五";
+    String taskId = "40005";
+    // 启动流程实例
+    Task task = taskService.createTaskQuery()
+            .taskId(taskId)
+            .taskCandidateUser(candicateUser)
+            .singleResult();
+    if (task != null) {
+        taskService.claim(taskId, candicateUser);
+        System.out.println("拾取");
+    }
+}
+```
+
+#### 归还任务
+
+```java
+@Test
+    public void tesReturnTask() {
+        ProcessEngine processEngine = ProcessEngines.getDefaultProcessEngine();
+        TaskService taskService = processEngine.getTaskService();
+        String assigne = "王五";
+        String taskId = "40005";
+        // 启动流程实例
+        Task task = taskService.createTaskQuery()
+                .taskId(taskId)
+                .taskAssignee(assigne)
+                .singleResult();
+        if (task != null) {
+//            taskService.setAssignee(taskId, null);
+            taskService.unclaim(taskId);
+            System.out.println("归还");
+        }
+    }
+```
+
+#### 交接任务
+
+修改负责人即可。
+
+## 网关
+
+​	网关用来控制流程的流向
+
+### 排他网关ExclusiveGateway
+
+#### 什么是排他网关:
+
+​	排他网关，用来在流程中实现决策。当流程执行到这个网关， 所有分支都会判断条件是否为true,如果为true则执行该分支。	
+
+​	注意:排他网关只会选择一个 为true的分支执行。如果有两个分支条件都为true,排他网关会选择ld值较小的一条分支去执行。
+
+​	为什么要用排他网关?
+
+​	不用排他网关也可以实现分支，如:在连线的condition条件上设置分支条件。	
+
+​	在连线设置condition条件的缺点:如果条件都不满足，流程就结束了(是异常结束)。
+
+​	如果使用排他网关决定分支的走向，如下:
+
+![](https://pic.imgdb.cn/item/612740aa44eaada73966d468.jpg)
+
+​	如果从网关出去的线所有条件都不满足则系统抛出异常。
+
+![](https://pic.imgdb.cn/item/6127412d44eaada739681f3f.jpg)
+
+#### 流程定义
+
+![](https://pic.imgdb.cn/item/6127414c44eaada73968712a.jpg)
+
+### 并行网关 Parallel Gateway
+
+​	并行网关允许将流程分成多条分支，也可以把多条分支汇聚到-起， 并行网关的功能是基于进入和外出顺序流的:
+
+fork分支:
+
+​	并行后的所有外出顺序流，为每个顺序流都创建一个并发分支。
+
+join汇聚:
+
+​	所有到达并行网关，在此等待的进入分支，直到所有进 入顺序流的分支都到达以后，流程就会通过汇聚网关。
+
+​	注意,如果同一个并行网关有多个进入和多个外出顺序流，它就同时具有分支和汇聚功能。 这时，网关会先汇聚所有进入的顺序流，然后再切分成多个并行分支。
+
+
+
+​	**与其他网关的主要区别是，并行网关不会解析条件。即使顺序流中定义了条件, 也会被忽略。**
+
+例子:
+
+![](https://pic.imgdb.cn/item/6127423244eaada7396abf84.jpg)
+
+#### 流程定义
+
+
+
+![](https://pic.imgdb.cn/item/6127427f44eaada7396b76da.jpg)
+
+### 包含网关 Inclusive Gateway
+
+​	包含网关可以看做是排他网关和并行网关的结合体。和排他网关一样, 你可以在外出顺序流上定义条件,包含网关会解析它们。但是主要的区别是包含网关可以选择多于一条顺序流，这和并行网关一样。
+
+​	包含网关的功能是基于进入和外出顺序流的:
+
+分支:
+
+​	所有外出顺序流的条件都会被解析，结果为true的顺序流会以并行方式继续执行，会为每个顺序流创建一个分支。
+
+汇聚:
+
+​	所有并行分支到达包含网关，会进入等待状态，直到每个包含流程token的进入顺序流的分支都到达。这是与并行网关的最大不同。换句话说，包含网关只会等待被选中执行了的进入顺序流。在汇 聚之后，流程会穿过包含网关继续执行。
+
+#### 流程定义
+
+​	出差申请大于等于3天需要由项目经理审批，小于3天由技术经理审批，其中任意-人审批完成后流程向下流转。
+
+​	包含网关图标，红框内:
+
+![](https://pic.imgdb.cn/item/6127435544eaada7396dceb0.jpg)
+
+![](https://pic.imgdb.cn/item/6127436844eaada7396e3423.jpg)
+
+### 事件网关 Event Based Gateway
+
+复制于: https://docs.awspaas.com/reference-guide/aws-paas-process-gateway-reference-guide/event-based_gateway/README.html
+
+可以参考: https://www.cnblogs.com/dengjiahai/p/9147404.html
+
+​	通常网关根据连线条件来决定后继路径，这就要求条件信息必须存在于流程自身之中。但是，当需要选择的后继路径的条件不能来自该流程时，就可以使用事件网关。事件网关只有分支行为，允许从多个候选分支中选择事件最先到达的分支（如时间事件、消息事件），并取消其他分支。
+
+​	当候选分支的某个事件到达时，若取消其他分支的事件任务（标记为Cancel）发生异常或事件自身的处理发生异常，该事件的任务实例将被处理成错误（标记为Error），路径将中断于此。可以在AWS控制台的“运行”模块检查和管理这些出错任务。
+
+![](https://pic.imgdb.cn/item/6127446744eaada73970cdeb.jpg)
+
+​	事件网关之后的连线（Sequence Flow）目标必须是一个“中间捕获事件”，事件网关支持以下类型的“中间捕获事件”，而关于如何使用这些捕获类事件请参见相关文档。
+
+![](https://pic.imgdb.cn/item/6127448d44eaada739712bfb.jpg)
+
+### 复杂网关 Complex Gateway
+
+https://docs.awspaas.com/reference-guide/aws-paas-process-gateway-reference-guide/complex_gateway/README.html
+
+## 子流程
+
+https://blog.csdn.net/zhuchunyan_aijia/article/details/101310253
+
+# Activiti整合Spring开发
+
+## 整合Spring
+
+略
+
+## 整合Spring boot
+
+```xml
+<properties>
+    <java.version>1.8</java.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <spring-boot.version>2.3.7.RELEASE</spring-boot.version>
+    <activiti.version>7.1.0.M6</activiti.version>
+    <mysql.connector.version>8.0.26</mysql.connector.version>
+    <mybatis.plus.version>3.4.3.1</mybatis.plus.version>
+    <druid.version>1.2.5</druid.version>
+    <lombok.version>1.18.20</lombok.version>
+    <knife4j.version>3.0.3</knife4j.version>
+    <gson.version>2.8.7</gson.version>
+</properties>
+
+<dependencies>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter</artifactId>
+    </dependency>
+    <!-- https://mvnrepository.com/artifact/org.activiti/activiti-spring-boot-starter -->
+    <dependency>
+        <groupId>org.activiti</groupId>
+        <artifactId>activiti-spring-boot-starter</artifactId>
+        <version>${activiti.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>mysql</groupId>
+        <artifactId>mysql-connector-java</artifactId>
+        <version>${mysql.connector.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>com.baomidou</groupId>
+        <artifactId>mybatis-plus-boot-starter</artifactId>
+        <version>${mybatis.plus.version}</version>
+    </dependency>
+    <!-- Druid数据库连接池 -->
+    <dependency>
+        <groupId>com.alibaba</groupId>
+        <artifactId>druid-spring-boot-starter</artifactId>
+        <version>${druid.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>com.google.code.gson</groupId>
+        <artifactId>gson</artifactId>
+        <version>${gson.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>com.github.xiaoymin</groupId>
+        <artifactId>knife4j-spring-boot-starter</artifactId>
+        <version>${knife4j.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <version>${lombok.version}</version>
+        <scope>provided</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-test</artifactId>
+        <scope>test</scope>
+        <exclusions>
+            <exclusion>
+                <groupId>org.junit.vintage</groupId>
+                <artifactId>junit-vintage-engine</artifactId>
+            </exclusion>
+        </exclusions>
+    </dependency>
+</dependencies>
+```
+
+application.yml
+
+```yml
+# 应用名称
+spring:
+  application:
+    name: activiti-boot-demo
+  datasource:
+    url: jdbc:mysql://192.168.170.19:3306/inteli-activiti?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=GMT%2B8
+    username: root
+    password: hzjy123
+    type: com.alibaba.druid.pool.DruidDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    # Druid StatViewServlet配置
+    druid:
+      stat-view-servlet:
+        # 默认true 内置监控页面首页/druid/index.html
+        enabled: true
+        url-pattern: /druid/*
+        # 允许清空统计数据
+        reset-enable: true
+        login-username: root
+        login-password: hzjy123
+        # IP白名单 多个逗号分隔
+        allow:
+        # IP黑名单
+        deny:
+      filter:
+        stat:
+          # 开启监控sql
+          enabled: true
+          # 显示并标注慢sql 默认当超过3秒显示
+          log-slow-sql: true
+          slow-sql-millis: 3000
+          merge-sql: true
+        # 防SQL注入过滤
+        wall:
+          config:
+            # 允许多条sql同时执行
+            multi-statement-allow: true
+    jackson:
+      time-zone: GMT+8
+      serialization:
+        fail-on-empty-beans: false
+  activiti:
+    #1. flase:默认值。activiti在启动时，对比数据库表中保存的版本，
+    #   如果没有表或者版本不匹配，将抛出异常
+    #2. true: agtiviti会对数据库中所有表进行更新操作。如果表不存在，则自动创建
+    #3. create_drop: #3.create_ _drop: 在activit1启动时创建表， 在关闭时删除表(必须手动关闭引擎，才能删除表)
+    #4. drop-create:在activit启动时删除原 来的旧表，然后在创建新表(不需要手动关闭引擎)
+    database-schema-update: true
+    # 生成历史表
+    db-history-used: true
+    # 历史记录存储登记
+    # 记录历史等级可配置的历史级别有none, activity, audit, fu1l
+    #none:不保存任何的历史数据，因此，在流程执行过程中，这是最高效的。
+    #activity: 级别高于none， 保存流程实例与流程行为，其他数据不保存。
+    #audit:除activity级 别会保存的数据外，还会你存全部的流程任务及其属性。audi t为history的默认值。
+    #fu1l:保存历史数据的最高级别，除了会保存audit级别的数据外，还会保存其他全部流程相关的细节数据，包括一些流程参 数等。
+    history-level: full
+    #校验流程文件，默认校验resources下的processes文件夹里的流程文件
+    check-process-definitions: false
+```
+
+config
+
+```java
+@Slf4j
+@Configuration
+public class DemoConfig {
+
+    @Bean
+    public UserDetailsService myUserDetailsService() {
+        InMemoryUserDetailsManager inMemoryUserDetailsManager = new InMemoryUserDetailsManager();
+        String[][] usersGroupAndRoles = {
+                { "jack", "password", "ROLE_ACTIVITI_USER", "GROUP_activitiTeam"},
+                { "rose", "password", "ROLE_ACTIVITI_USER", "GROUP_activitiTeam"},
+                { "tom", "password", "ROLE_ACTIVITI_USER", "GROUP_activitiTeam"},
+                { "jerry", "password", "ROLE_ACTIVITI_USER", "GROUP_activitiTeam"},
+                { "other", "password", "ROLE_ACTIVITI_USER", "GROUP_otherTeam"},
+                { "system", "password", "ROLE_ACTIVITI_USER"},
+                { "admin", "password", "ROLE_ACTIVITI_ADMIN"},
+                { "zhangsan", "password", "ROLE_ACTIVITI_ADMIN"},
+        };
+        Arrays.stream(usersGroupAndRoles).forEach(p -> {
+            List<String> authorites = Arrays.asList(Arrays.copyOfRange(p, 2, p.length));
+            inMemoryUserDetailsManager.createUser(new User(p[0], passwordEncoder().encode(p[1]),
+                    authorites.stream().map(str -> new SimpleGrantedAuthority(str)).collect(Collectors.toList())
+            ));
+        });
+
+        return inMemoryUserDetailsManager;
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+```
+
+#### 创建Bpmn文件
+
+​	在resources目录下，创建-个新的目录processes, 用来放置bpmn文件。
+
+​	创建一个简单的Bpmn流程文件，并设置任务的用户组Candidate Groups。
+
+​	Candidate Groups中的内容与上面DemoApplicationConfiguration类中出现的用户组名称要保持一致，可以填写: activitiTeam 或者otherTeam。
+
+​	这样填写的好处:当不确定到底由谁来负责当前任务的时候，只是Groups内的用户都可以拾取这个任务。
+
+不知道为啥 camunda画的图starter用不了
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:activiti="http://activiti.org/bpmn" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC" xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI" typeLanguage="http://www.w3.org/2001/XMLSchema" expressionLanguage="http://www.w3.org/1999/XPath" targetNamespace="http://www.activiti.org/processdef">
+  <process id="test1" name="test1" isExecutable="true">
+    <startEvent id="myEvection"/>
+    <userTask id="sid-7248fded-0e06-4920-9ffd-92c3d7351018" name="创建出差申请" activiti:assignee="zhangsan"/>
+    <userTask id="sid-06afb39c-50d1-4760-ba33-66103b859802" name="经理审批" activiti:assignee="jerry"/>
+    <userTask id="sid-f8b200e8-d9c8-4288-8f56-217aa37a5f4d" name="总经理审批" activiti:assignee="jack"/>
+    <userTask id="sid-d2650341-5692-41ba-b983-432d2bdac191" name="财务审批" activiti:assignee="rose"/>
+    <endEvent id="sid-14d50490-007f-4844-a75f-33428775d005"/>
+    <sequenceFlow id="sid-b8c6ddb6-12d1-452f-b0b6-3e8acc5dcc83" sourceRef="myEvection" targetRef="sid-7248fded-0e06-4920-9ffd-92c3d7351018"/>
+    <sequenceFlow id="sid-cd068a55-d624-42f2-a68a-6421993a83dc" sourceRef="sid-06afb39c-50d1-4760-ba33-66103b859802" targetRef="sid-f8b200e8-d9c8-4288-8f56-217aa37a5f4d"/>
+    <sequenceFlow id="sid-0c877962-5937-4eee-b2f5-e58272a16d87" sourceRef="sid-7248fded-0e06-4920-9ffd-92c3d7351018" targetRef="sid-06afb39c-50d1-4760-ba33-66103b859802"/>
+    <sequenceFlow id="sid-b987e773-be74-4cdd-83ce-8cf94bc500f6" sourceRef="sid-f8b200e8-d9c8-4288-8f56-217aa37a5f4d" targetRef="sid-d2650341-5692-41ba-b983-432d2bdac191"/>
+    <sequenceFlow id="sid-57a2ae14-0ef6-4f2b-8d38-fd4d44023228" sourceRef="sid-d2650341-5692-41ba-b983-432d2bdac191" targetRef="sid-14d50490-007f-4844-a75f-33428775d005"/>
+  </process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_test1">
+    <bpmndi:BPMNPlane bpmnElement="test1" id="BPMNPlane_test1">
+      <bpmdi:BPMNShape xmlns:bpmdi="http://www.omg.org/spec/BPMN/20100524/DI" id="shape-bcb7480e-bd23-4777-bd9c-5c8098a384c0" bpmnElement="myEvection">
+        <omgdc:Bounds x="-108.75" y="-130.908" width="30.0" height="30.0"/>
+      </bpmdi:BPMNShape>
+      <bpmdi:BPMNShape xmlns:bpmdi="http://www.omg.org/spec/BPMN/20100524/DI" id="shape-d2ced46a-514d-487b-a0ab-fb07164e0123" bpmnElement="sid-7248fded-0e06-4920-9ffd-92c3d7351018">
+        <omgdc:Bounds x="-143.75" y="-76.0" width="100.0" height="80.0"/>
+      </bpmdi:BPMNShape>
+      <bpmdi:BPMNShape xmlns:bpmdi="http://www.omg.org/spec/BPMN/20100524/DI" id="shape-61266b48-bf1c-48ca-aa1e-c887b97c9a89" bpmnElement="sid-06afb39c-50d1-4760-ba33-66103b859802">
+        <omgdc:Bounds x="-143.75" y="35.0" width="100.0" height="80.0"/>
+      </bpmdi:BPMNShape>
+      <bpmdi:BPMNShape xmlns:bpmdi="http://www.omg.org/spec/BPMN/20100524/DI" id="shape-d0f9a23a-3bb2-4d5d-8fa4-df8881dfced5" bpmnElement="sid-f8b200e8-d9c8-4288-8f56-217aa37a5f4d">
+        <omgdc:Bounds x="-143.75" y="148.99599" width="100.0" height="80.0"/>
+      </bpmdi:BPMNShape>
+      <bpmdi:BPMNShape xmlns:bpmdi="http://www.omg.org/spec/BPMN/20100524/DI" id="sid-f13f8827-ba71-41f3-95d4-c4bea29bf219" bpmnElement="sid-d2650341-5692-41ba-b983-432d2bdac191">
+        <omgdc:Bounds x="-143.75" y="264.10403" width="100.0" height="80.0"/>
+      </bpmdi:BPMNShape>
+      <bpmdi:BPMNShape xmlns:bpmdi="http://www.omg.org/spec/BPMN/20100524/DI" id="shape-0dd4a17f-2c20-401d-a233-75b5b2a630f1" bpmnElement="sid-14d50490-007f-4844-a75f-33428775d005">
+        <omgdc:Bounds x="-108.75" y="385.10007" width="30.0" height="30.0"/>
+      </bpmdi:BPMNShape>
+      <bpmdi:BPMNEdge xmlns:bpmdi="http://www.omg.org/spec/BPMN/20100524/DI" id="edge-aa74f563-d72b-4129-ad60-8c79ba29ea61" bpmnElement="sid-b8c6ddb6-12d1-452f-b0b6-3e8acc5dcc83">
+        <omgdi:waypoint x="-93.75" y="-100.908005"/>
+        <omgdi:waypoint x="-93.75" y="-76.0"/>
+      </bpmdi:BPMNEdge>
+      <bpmdi:BPMNEdge xmlns:bpmdi="http://www.omg.org/spec/BPMN/20100524/DI" id="edge-333a3d4e-8d02-4477-ada2-b20087dd354b" bpmnElement="sid-cd068a55-d624-42f2-a68a-6421993a83dc">
+        <omgdi:waypoint x="-93.75" y="115.0"/>
+        <omgdi:waypoint x="-93.75" y="148.99599"/>
+      </bpmdi:BPMNEdge>
+      <bpmdi:BPMNEdge xmlns:bpmdi="http://www.omg.org/spec/BPMN/20100524/DI" id="edge-22ee7e96-9b2d-4406-83d7-229074e85415" bpmnElement="sid-0c877962-5937-4eee-b2f5-e58272a16d87">
+        <omgdi:waypoint x="-93.75" y="4.0"/>
+        <omgdi:waypoint x="-93.75" y="35.0"/>
+      </bpmdi:BPMNEdge>
+      <bpmdi:BPMNEdge xmlns:bpmdi="http://www.omg.org/spec/BPMN/20100524/DI" id="edge-7d62aa23-8b2a-45d8-9df0-96f3bb883a79" bpmnElement="sid-b987e773-be74-4cdd-83ce-8cf94bc500f6">
+        <omgdi:waypoint x="-93.75" y="228.99599"/>
+        <omgdi:waypoint x="-93.75" y="264.10403"/>
+      </bpmdi:BPMNEdge>
+      <bpmdi:BPMNEdge xmlns:bpmdi="http://www.omg.org/spec/BPMN/20100524/DI" id="edge-76fbba53-8db0-4da6-97a8-5b156c3f3ef1" bpmnElement="sid-57a2ae14-0ef6-4f2b-8d38-fd4d44023228">
+        <omgdi:waypoint x="-93.75" y="344.10403"/>
+        <omgdi:waypoint x="-93.75" y="385.10007"/>
+      </bpmdi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>
+
+```
+
+```java
+@Component
+public class SecurityUtil {
+    private Logger logger = LoggerFactory.getLogger(SecurityUtil.class);
+
+     @Autowired
+     @Qualifier("myUserDetailsService")
+     private UserDetailsService userDetailsService;
+ 
+    public void logInAs(String username) {
+     UserDetails user = userDetailsService.loadUserByUsername(username);
+
+     if (user == null) {
+         throw new IllegalStateException("User " + username + " doesn't exist, please provide a valid user");
+     }
+     logger.info("> Logged in as: " + username);
+
+     SecurityContextHolder.setContext(
+             new SecurityContextImpl(
+                     new Authentication() {
+                         @Override
+                         public Collection<? extends GrantedAuthority> getAuthorities() {
+                             return user.getAuthorities();
+                         }
+                         @Override
+                         public Object getCredentials() {
+                             return user.getPassword();
+                         }
+                         @Override
+                         public Object getDetails() {
+                             return user;
+                         }
+                         @Override
+                         public Object getPrincipal() {
+                             return user;
+                         }
+                         @Override
+                         public boolean isAuthenticated() {
+                             return true;
+                         }
+                         @Override
+                         public void setAuthenticated(boolean isAuthenticated) throws IllegalArgumentException { }
+                         @Override
+                         public String getName() {
+                             return user.getUsername();
+                         }
+     }));
+     org.activiti.engine.impl.identity.Authentication.setAuthenticatedUserId(username);
+ }
+  }
+```
+
+#### 查询定义
+
+```java
+/**
+ * 前提activiti7可以自动部署流程
+ */
+@Test
+public void findProcess() {
+    securityUtil.logInAs("jack");
+    Page<ProcessDefinition> processDefinitions =
+            processRuntime.
+                    processDefinitions(Pageable.of(0, 100));
+    System.out.println(processDefinitions.getTotalItems());
+    System.out.println(processDefinitions.getContent());
+}
+```
+
+输出
+
+```
+1
+[ProcessDefinition{id='test1:1:691c90d2-0651-11ec-a922-70cf496007a2', name='test1', key='test1', description='null', formKey='null', version=1}]
+```
+
+
+
+#### 启动流程
+
+会报错，在数据库设置定义的appVersion就可以了
+
+```java
+public void startProcessRuntime() {
+    securityUtil.logInAs("system");
+    ProcessInstance test1 = processRuntime
+            .start(ProcessPayloadBuilder.start()
+                    .withProcessDefinitionKey("test1").build());
+}
+```
+
+#### 完成任务
+
+```java
+@Test 
+public void doTask() {
+    securityUtil.logInAs("system");
+    // 查询
+    Page<Task> taskPage = taskRuntime.tasks(Pageable.of(0, 10));
+    // 拾取
+    for (Task task : taskPage.getContent()) {
+        taskRuntime.claim(TaskPayloadBuilder
+            .claim()
+            .withTaskId(task.getId())
+            .build());
+        // 完成
+        taskRuntime.complete(TaskPayloadBuilder
+                .complete()
+                .withTaskId(task.getId())
+                .build());
+    }
+}
+```
