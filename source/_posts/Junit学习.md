@@ -2428,3 +2428,879 @@ public class StubHttpURLConnection extends HttpURLConnection {
 
 ![](https://pic.imgdb.cn/item/6124f9af44eaada739e71a9a.jpg)
 
+# Testing with mock objects
+
+## Introducing mock objects
+
+​	Testing in isolation offers strong benefits, such as the ability to test code that has not yet been written (as long as you at least have an interface to work with). In addition, testing in isolation helps teams unit-test one part of the code without waiting for all the other parts.
+
+## Unit testing with mock objects
+
+![](https://pic.imgdb.cn/item/612c7df044eaada739b27227.jpg)
+
+```java
+public class Account {
+    private String accountId;
+    private long balance;
+
+    public Account(String accountId, long initialBalance) {
+        this.accountId = accountId;
+        this.balance = initialBalance;
+    }
+
+    public void debit(long amount) {
+        this.balance -= amount;
+    }
+
+    public void credit(long amount) {
+        this.balance += amount;
+    }
+
+    public long getBalance() {
+        return this.balance;
+    }
+}
+```
+
+```java
+public interface AccountManager {
+    /**
+     * A method to find an account by the given userId.
+     *
+     * @param userId
+     * @return
+     */
+    Account findAccountForUser(String userId);
+
+    /**
+     * A method to update the given accout.
+     *
+     * @param account
+     */
+    void updateAccount(Account account);
+
+
+}
+```
+
+```java
+public class AccountService {
+    /**
+     * The account manager implementation to use.
+     */
+    private AccountManager accountManager;
+
+    /**
+     * A setter method to set the account manager implementation.
+     *
+     * @param manager
+     */
+    public void setAccountManager(AccountManager manager) {
+        this.accountManager = manager;
+    }
+
+    /**
+     * A transfer method which transfers the amount of money
+     * from the account with the senderId to the account of
+     * beneficiaryId.
+     *
+     * @param senderId
+     * @param beneficiaryId
+     * @param amount
+     */
+    public void transfer(String senderId, String beneficiaryId, long amount) {
+        Account sender = accountManager.findAccountForUser(senderId);
+        Account beneficiary = accountManager.findAccountForUser(beneficiaryId);
+
+        sender.debit(amount);
+        beneficiary.credit(amount);
+        this.accountManager.updateAccount(sender);
+        this.accountManager.updateAccount(beneficiary);
+    }
+}
+```
+
+```java
+public class MockAccountManager implements AccountManager {
+    /**
+     * A Map to hold all the <userId, account> values.
+     */
+    private Map<String, Account> accounts = new HashMap<String, Account>();
+
+    /**
+     * A method to add an account to the manager.
+     *
+     * @param userId
+     * @param account
+     */
+    public void addAccount(String userId, Account account) {
+        this.accounts.put(userId, account);
+    }
+
+    /**
+     * A method to find an account for the user with the given ID.
+     */
+    public Account findAccountForUser(String userId) {
+        return this.accounts.get(userId);
+    }
+
+    /**
+     * A method to update the given account. Notice that we don't need this method and that's why we leave it with a
+     * blank implementation.
+     */
+    public void updateAccount(Account account) {
+        // do nothing
+    }
+}
+```
+
+​	Now you are ready to write a unit test for `AccountService.transfer`. Listing 8.4 shows a typical test that uses a mock.
+
+```java
+public class TestAccountService {
+    @Test
+    public void testTransferOk() {
+        Account senderAccount = new Account("1", 200);
+        Account beneficiaryAccount = new Account("2", 100);
+
+        MockAccountManager mockAccountManager = new MockAccountManager();
+        mockAccountManager.addAccount("1", senderAccount);
+        mockAccountManager.addAccount("2", beneficiaryAccount);
+
+        AccountService accountService = new AccountService();
+        accountService.setAccountManager(mockAccountManager);
+
+        accountService.transfer("1", "2", 50);
+
+        assertEquals(150, senderAccount.getBalance());
+        assertEquals(150, beneficiaryAccount.getBalance());
+    }
+}
+```
+
+## Refactoring with mock objects
+
+​	Some people used to say that unit tests should be fully transparent to the code under test and that run-time code should not be changed to simplify testing. *This is wrong!* Unit tests are first-class users of the run-time code and deserve the same consideration as any other user. If the code is too inflexible for the tests to use, we should correct the code.
+
+```java
+public class DefaultAccountManager1
+        implements AccountManager {
+    /**
+     * Logger instance.
+     */
+    private static final Log logger = LogFactory.getLog(DefaultAccountManager1.class);
+
+    /**
+     * Finds an account for user with the given userID.
+     *
+     * @param
+     */
+    public Account findAccountForUser(String userId) {
+        logger.debug("Getting account for user [" + userId + "]");
+        ResourceBundle bundle = PropertyResourceBundle.getBundle("technical");
+        String sql = bundle.getString("FIND_ACCOUNT_FOR_USER");
+
+        // Some code logic to load a user account using JDBC
+        return null;
+    }
+
+    /**
+     * Updates the given account.
+     *
+     * @param
+     */
+    public void updateAccount(Account account) {
+        // Perform database access here
+    }
+}
+```
+
+### Refactoring example
+
+```java
+public class DefaultAccountManager2
+        implements AccountManager {
+    /**
+     * Logger instance.
+     */
+    private Log logger;
+
+    /**
+     * Configuration to use.
+     */
+    private Configuration configuration;
+
+    /**
+     * Constructor with no parameters.
+     */
+    public DefaultAccountManager2() {
+        this(LogFactory.getLog(DefaultAccountManager2.class),
+                new DefaultConfiguration("technical"));
+    }
+
+    /**
+     * Constructor with logger and configration parameters.
+     *
+     * @param logger
+     * @param configuration
+     */
+    public DefaultAccountManager2(Log logger,
+                                  Configuration configuration) {
+        this.logger = logger;
+        this.configuration = configuration;
+    }
+
+    /**
+     * Finds an account for user with the given userID.
+     *
+     * @param
+     */
+    public Account findAccountForUser(String userId) {
+        this.logger.debug("Getting account for user ["
+                + userId + "]");
+        this.configuration.getSQL("FIND_ACCOUNT_FOR_USER");
+
+        // Some code logic to load a user account using JDBC
+        return null;
+    }
+
+    /**
+     * Updates the given account.
+     */
+    public void updateAccount(Account account) {
+        // Perform database access here
+    }
+}
+```
+
+### Refactoring considerations
+
+​	With this refactoring, we have provided a trap door for controlling the domain objects from the tests. We retain backward compatibility and pave an easy refactoring path for the future. Calling classes can start using the new constructor at their own pace.
+
+```java
+public class TestDefaultAccountManager {
+
+    @Test
+    public void testFindAccountByUser() {
+        MockLog logger = new MockLog();
+        MockConfiguration configuration = new MockConfiguration();
+        configuration.setSQL("SELECT * [...]");
+        DefaultAccountManager2 am = new DefaultAccountManager2(logger, configuration);
+
+        @SuppressWarnings("unused")
+        Account account = am.findAccountForUser("1234");
+
+        // Perform asserts here
+    }
+}
+```
+
+## Mocking an HTTP connection
+
+![](https://pic.imgdb.cn/item/612c804044eaada739b7e23d.jpg)
+
+### Defining the mock objects
+
+![](https://pic.imgdb.cn/item/612c805844eaada739b8184a.jpg)
+
+### Testing a sample method
+
+```java
+[…]
+import java.net.URL;
+import java.net.HttpURLConnection;
+import java.io.InputStream;
+import java.io.IOException;
+ 
+public class WebClient {
+   public String getContent(URL url) {
+      StringBuffer content = new StringBuffer();
+             try {
+         HttpURLConnection connection =                                 #A
+            (HttpURLConnection) url.openConnection();                   #A
+         connection.setDoInput(true);
+         InputStream is = connection.getInputStream();                  #A
+         int count;                                                     #A
+         while (-1 != (count = is.read())) {                            #B
+            content.append( new String( Character.toChars( count ) ) ); #B
+         }                                                              #B
+      } catch (IOException e) {
+         return null;                                                   #C
+      }
+      return content.toString();
+   }
+}
+```
+
+### Try #1: easy method refactoring technique
+
+```java
+@Test
+public void testGetContentOk() throws Exception {
+   MockHttpURLConnection mockConnection = new MockHttpURLConnection();  
+   mockConnection.setupGetInputStream(                                  
+                     new ByteArrayInputStream("It works".getBytes()));  
+   MockURL mockURL = new MockURL();                                   
+   mockURL.setupOpenConnection(mockConnection);                        
+   WebClient client = new WebClient();
+   String workingContent = client.getContent(mockURL);                 
+   assertEquals("It works", workingContent);                           
+}
+```
+
+​	Unfortunately, this approach does not work! The JDK `URL` class is a final class, and no URL interface is available. So much for extensibility.
+
+**Extracting retrieval of the connection object from getContent**
+
+```java
+public class WebClient1 {
+    /**
+     * A method to retrieve the content from the given URL.
+     *
+     * @param url
+     * @return
+     */
+    public String getContent(URL url) {
+        StringBuffer content = new StringBuffer();
+
+        try {
+            HttpURLConnection connection = createHttpURLConnection(url);
+            InputStream is = connection.getInputStream();
+
+            int count;
+            while (-1 != (count = is.read())) {
+                content.append(new String(Character.toChars(count)));
+            }
+        } catch (IOException e) {
+            return null;
+        }
+
+        return content.toString();
+    }
+
+    /**
+     * Creates an HTTP connection.
+     *
+     * @param url
+     * @return
+     * @throws IOException
+     */
+    protected HttpURLConnection createHttpURLConnection(URL url) throws IOException {
+        return (HttpURLConnection) url.openConnection();
+    }
+}
+```
+
+​	How does this solution test `getContent` more effectively? It allows us to apply a useful trick, which writes a test helper class that extends the `WebClient` class and overrides its `createHttpURLConnection` method, as follows:
+
+```java
+private class TestableWebClient
+        extends WebClient1 {
+    /**
+     * The connection.
+     */
+    private HttpURLConnection connection;
+
+    /**
+     * Setter method for the HttpURLConnection.
+     *
+     * @param connection
+     */
+    public void setHttpURLConnection(HttpURLConnection connection) {
+        this.connection = connection;
+    }
+
+    /**
+     * A method that we overwrite to create the URL connection.
+     */
+    public HttpURLConnection createHttpURLConnection(URL url)
+            throws IOException {
+        return this.connection;
+    }
+}
+```
+
+​	In the test, we can call the `setHttpURLConnection` method, passing it the mock `HttpURLConnection` object. Now the test becomes the following. (Differences are shown in bold.)
+
+```java
+@Test
+public void testGetContentOk()
+        throws Exception {
+    MockHttpURLConnection mockConnection = new MockHttpURLConnection();
+    mockConnection.setExpectedInputStream(new ByteArrayInputStream("It works".getBytes()));
+
+    TestableWebClient client = new TestableWebClient();
+    client.setHttpURLConnection(mockConnection);
+
+    String result = client.getContent(new URL("http://localhost"));
+
+    assertEquals("It works", result);
+}
+```
+
+### Try #2: refactoring by using a class factory
+
+​	The developers at Tested Data Systems want to give another refactoring try by applying the IoC pattern, which says that any resource we use needs to be passed to the `getContent` method or `WebClient` class. The only resource we use is the`HttpURLConnection` object. We could change the `WebClient.getContent` signature to
+
+```java
+public String getContent(URL url, HttpURLConnection connection);
+```
+
+```java
+public interface ConnectionFactory {
+    /**
+     * Read the data from the connection.
+     *
+     * @return
+     * @throws Exception
+     */
+    InputStream getData() throws Exception;
+}
+```
+
+```java
+public class WebClient2 {
+    /**
+     * Open a connection to the given URL and read the content
+     * out of it. In case of an exception we return null.
+     *
+     * @param connectionFactory
+     * @return
+     */
+    public String getContent(ConnectionFactory connectionFactory) {
+        String workingContent;
+
+        StringBuffer content = new StringBuffer();
+        try (InputStream is = connectionFactory.getData()) {
+            int count;
+            while (-1 != (count = is.read())) {
+                content.append(new String(Character.toChars(count)));
+            }
+
+            workingContent = content.toString();
+        } catch (Exception e) {
+            workingContent = null;
+        }
+
+
+        return workingContent;
+    }
+}
+```
+
+```java
+public class HttpURLConnectionFactory
+        implements ConnectionFactory {
+    /**
+     * URL for the connection.
+     */
+    private URL url;
+
+    /**
+     * Constructor with the url as a parameter.
+     *
+     * @param url
+     */
+    public HttpURLConnectionFactory(URL url) {
+        this.url = url;
+    }
+
+    /**
+     * Read the data from the HTTP input stream.
+     *
+     * @return
+     */
+    public InputStream getData()
+            throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) this.url.openConnection();
+        return connection.getInputStream();
+    }
+}
+```
+
+**MockConnectionFactory**
+
+```java
+public class MockConnectionFactory implements ConnectionFactory {
+    /**
+     * The input stream for the connection.
+     */
+    private InputStream inputStream;
+
+    /**
+     * Set the input stream.
+     *
+     * @param stream
+     */
+    public void setData(InputStream stream) {
+        this.inputStream = stream;
+    }
+
+    /**
+     * Get the input stream.
+     *
+     * @throws Exception
+     */
+    public InputStream getData() //throws Exception
+    {
+        return inputStream;
+    }
+}
+```
+
+**Refactored WebClient test using MockConnectionFactory**
+
+```java
+public class TestWebClient {
+    @Test
+    public void testGetContentOk()
+            throws Exception {
+        MockConnectionFactory mockConnectionFactory = new MockConnectionFactory();
+        MockInputStream mockStream = new MockInputStream();
+        mockStream.setBuffer("It works");
+
+        mockConnectionFactory.setData(mockStream);
+
+        WebClient2 client = new WebClient2();
+
+        String workingContent = client.getContent(mockConnectionFactory);
+
+        assertEquals("It works", workingContent);
+        mockStream.verify();
+    }
+}
+```
+
+## Using mocks as Trojan horses
+
+**Mock InputStream with an expectation on close**
+
+```java
+public class MockInputStream
+        extends InputStream {
+    /**
+     * Buffer to read in.
+     */
+    private String buffer;
+
+    /**
+     * Current position in the stream.
+     */
+    private int position = 0;
+
+    /**
+     * How many times the close method was called.
+     */
+    private int closeCount = 0;
+
+    /**
+     * Sets the buffer.
+     *
+     * @param buffer
+     */
+    public void setBuffer(String buffer) {
+        this.buffer = buffer;
+    }
+
+    /**
+     * Reads from the stream.
+     *
+     * @return
+     */
+    public int read()
+            throws IOException {
+        if (position == this.buffer.length()) {
+            return -1;
+        }
+
+        return buffer.charAt(this.position++);
+    }
+
+    /**
+     * Close the stream.
+     */
+    public void close()
+            throws IOException {
+        closeCount++;
+        super.close();
+    }
+
+    /**
+     * Verify how many times the close method was called.
+     *
+     * @throws java.lang.AssertionError
+     */
+    public void verify()
+            throws java.lang.AssertionError {
+        if (closeCount != 1) {
+            throw new AssertionError("close() should " + "have been called once and once only");
+        }
+    }
+}
+```
+
+​	In the case of the `MockInputStream` class, the expectation for `close` is simple: we always want it to be called once. Most of the time, however, the expectation for `closeCount` depends on the code under test. A mock usually has a method such as`setExpectedCloseCalls` so that the test can tell the mock what to expect.
+
+```java
+public class TestWebClient {
+    @Test
+    public void testGetContentOk()
+            throws Exception {
+        MockConnectionFactory mockConnectionFactory = new MockConnectionFactory();
+        MockInputStream mockStream = new MockInputStream();
+        mockStream.setBuffer("It works");
+
+        mockConnectionFactory.setData(mockStream);
+
+        WebClient2 client = new WebClient2();
+
+        String workingContent = client.getContent(mockConnectionFactory);
+
+        assertEquals("It works", workingContent);
+        mockStream.verify();
+    }
+}
+```
+
+## Introducing Mock frameworks
+
+### Using EasyMock
+
+​	EasyMock ([http://easymock.org](http://easymock.org/)) is an open-source framework that provides useful classes for mocking objects. To work with it, we need to add to the pom.xml file the dependencies shown in listing 8.18.
+
+```xml
+<dependency>
+   <groupId>org.easymock</groupId>
+   <artifactId>easymock</artifactId>
+   <version>2.4</version>
+</dependency>
+<dependency>
+   <groupId>org.easymock</groupId>
+   <artifactId>easymockclassextension</artifactId>
+   <version>2.4</version>
+</dependency>
+```
+
+```java
+public class TestWebClientEasyMock {
+    private ConnectionFactory factory;
+
+    private InputStream stream;
+
+    @BeforeEach
+    public void setUp() {
+        factory = createMock("factory", ConnectionFactory.class);
+        stream = createMock("stream", InputStream.class);
+    }
+
+    @Test
+    public void testGetContentOk()
+            throws Exception {
+        expect(factory.getData()).andReturn(stream);
+        expect(stream.read()).andReturn(Integer.valueOf((byte) 'W'));
+        expect(stream.read()).andReturn(Integer.valueOf((byte) 'o'));
+        expect(stream.read()).andReturn(Integer.valueOf((byte) 'r'));
+        expect(stream.read()).andReturn(Integer.valueOf((byte) 'k'));
+        expect(stream.read()).andReturn(Integer.valueOf((byte) 's'));
+        expect(stream.read()).andReturn(Integer.valueOf((byte) '!'));
+
+        expect(stream.read()).andReturn(-1);
+        stream.close();
+
+        replay(factory);
+        replay(stream);
+
+        WebClient2 client = new WebClient2();
+
+        String workingContent = client.getContent(factory);
+
+        assertEquals("Works!", workingContent);
+    }
+
+    @Test
+    public void testGetContentInputStreamNull() throws Exception {
+        expect(factory.getData()).andReturn(null);
+
+        replay(factory);
+        replay(stream);
+
+        WebClient2 client = new WebClient2();
+
+        String workingContent = client.getContent(factory);
+
+        assertNull(workingContent);
+    }
+
+    @Test
+    public void testGetContentCannotCloseInputStream() throws Exception {
+        expect(factory.getData()).andReturn(stream);
+        expect(stream.read()).andReturn(-1);
+        stream.close();
+        expectLastCall().andThrow(new IOException("cannot close"));
+
+        replay(factory);
+        replay(stream);
+
+        WebClient2 client = new WebClient2();
+        String workingContent = client.getContent(factory);
+
+        assertNull(workingContent);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        verify(factory);
+        verify(stream);
+    }
+}
+```
+
+### Using JMock
+
+​	So far, you’ve seen how to implement your own mock-objects and use the EasyMock framework. In this section, we introduce the JMock framework ([http://jmock.org](http://jmock.org/)). We’ll follow the same scenario that the engineers from Tested Data Systems are following to evaluate the capabilities of a mock framework and compare them with those of other frameworks: testing money transfer with the help of a mock `AccountManager`, this time using JMock.
+
+```xml
+<dependency>
+   <groupId>org.jmock</groupId>
+   <artifactId>jmock-junit5</artifactId>
+   <version>2.12.0</version>
+</dependency>
+<dependency>
+   <groupId>org.jmock</groupId>
+   <artifactId>jmock-legacy</artifactId>
+   <version>2.5.1</version>
+</dependency>
+```
+
+**Reworking the TestAccountService test using JMock**
+
+```java
+public class TestWebClientJMock
+{
+    @RegisterExtension
+    Mockery context = new JUnit5Mockery()
+    {
+        {
+            setImposteriser( ClassImposteriser.INSTANCE );
+        }
+    };
+
+    @Test
+    public void testGetContentOk() throws Exception
+    {
+        ConnectionFactory factory = context.mock( ConnectionFactory.class );
+        InputStream mockStream = context.mock( InputStream.class );
+
+        context.checking( new Expectations()
+        {
+            {
+                oneOf( factory ).getData();
+                will( returnValue( mockStream ) );
+
+                atLeast(1).of(mockStream).read();
+                will( onConsecutiveCalls( returnValue( Integer.valueOf( (byte) 'W' ) ),
+                                          returnValue( Integer.valueOf( (byte) 'o' ) ),
+                                          returnValue( Integer.valueOf( (byte) 'r' ) ),
+                                          returnValue( Integer.valueOf( (byte) 'k' ) ),
+                                          returnValue( Integer.valueOf( (byte) 's' ) ),
+                                          returnValue( Integer.valueOf( (byte) '!' ) ),
+                                          returnValue( -1 ) ) );
+
+                oneOf( mockStream ).close();
+            }
+        } );
+
+        WebClient2 client = new WebClient2();
+
+        String workingContent = client.getContent( factory );
+
+        assertEquals( "Works!", workingContent );
+    }
+
+    @Test
+    public void testGetContentCannotCloseInputStream()
+        throws Exception
+    {
+
+        ConnectionFactory factory = context.mock( ConnectionFactory.class );
+        InputStream mockStream = context.mock( InputStream.class );
+
+        context.checking( new Expectations()
+        {
+            {
+                oneOf( factory ).getData();
+                will( returnValue( mockStream ) );
+                oneOf( mockStream ).read();
+                will( returnValue( -1 ) );
+                oneOf( mockStream ).close();
+                will( throwException( new IOException( "cannot close" ) ) );
+            }
+        } );
+
+        WebClient2 client = new WebClient2();
+
+        String workingContent = client.getContent( factory );
+
+        assertNull( workingContent );
+    }
+}
+```
+
+### Using Mockito
+
+This section introduces Mockito ([https://site.mockito.org](https://site.mockito.org/)), another popular mocking framework. The engineers at Tested Data Systems want to evaluate it and eventually introduce it into their projects.
+
+To work with Mockito, you need to add to the pom.xml file the dependency shown in listing 8.24.
+
+```xml
+<dependency>
+    <groupId>org.mockito</groupId>
+    <artifactId>mockito-junit-jupiter</artifactId>
+    <version>2.21.0</version>
+    <scope>test</scope>
+</dependency>
+```
+
+```java
+@ExtendWith(MockitoExtension.class)
+public class TestWebClientMockito {
+    @Mock
+    private ConnectionFactory factory;
+
+    @Mock
+    private InputStream mockStream;
+
+    @Test
+    public void testGetContentOk() throws Exception {
+        when(factory.getData()).thenReturn(mockStream);
+        when(mockStream.read()).thenReturn((int) 'W')
+                .thenReturn((int) 'o')
+                .thenReturn((int) 'r')
+                .thenReturn((int) 'k')
+                .thenReturn((int) 's')
+                .thenReturn((int) '!')
+                .thenReturn(-1);
+
+        WebClient2 client = new WebClient2();
+
+        String workingContent = client.getContent(factory);
+
+        assertEquals("Works!", workingContent);
+    }
+
+    @Test
+    public void testGetContentCannotCloseInputStream()
+            throws Exception {
+        when(factory.getData()).thenReturn(mockStream);
+        when(mockStream.read()).thenReturn(-1);
+        doThrow(new IOException("cannot close")).when(mockStream).close();
+
+        WebClient2 client = new WebClient2();
+
+        String workingContent = client.getContent(factory);
+
+        assertNull(workingContent);
+    }
+}
+```
+
