@@ -97,5 +97,37 @@ sudo systemctl status docker
 
 ​	为了避免每次使用Docker命令时都需要切换到特权身份，可以将当前用户加入安装中自动创建的docker用户组，代码如下：
 
+```
+sudo usermod -aG docker USER_NAME
+```
 
+​	用户更新组信息，退出并重新登录后即可生效。
+
+​	Docker服务启动时实际上是调用了dockerd命令，支持多种启动参数。因此，用户可以直接通过执行dockerd命令来启动Docker服务，如下面的命令启动Docker服务，开启Debug模式，并监听在本地的2376端口：
+
+```
+dockerd -D -H tcp://127.0.0.1:2376
+```
+
+​	这些选项可以写入/etc/docker/路径下的daemon.json文件中，由dockerd服务启动时读取：
+
+```json
+{
+	"debug" : true,
+	"hosts' : ["tcp://127.0.0.1:2376" ]
+}    
+```
+
+​	对于CentOS、RedHat等系统，服务通过systemd来管理，配置文件路径为/etc/systemd/system/docker.service.d/docker.conf。更新配置后需要通过systemctl命令来管理Docker服务：
+
+```
+sudo systemctl daemon-reload
+sudo systemctl start docker.service 
+```
+
+​	此外，如果服务工作不正常，可以通过查看Docker服务的日志信息来确定问题，例如在RedHat系统上日志文件可能为/var/log/messages，在Ubuntu或CentOS系统上可以执行命令journalctl -u docker.service。
+
+​	每次重启Docker服务后，可以通过查看Docker信息（docker info命令），确保服务已经正常运行。
+
+# 使用Docker镜像
 
