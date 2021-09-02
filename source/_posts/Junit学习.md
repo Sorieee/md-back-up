@@ -3304,3 +3304,445 @@ public class TestWebClientMockito {
 }
 ```
 
+# In-container testing
+
+* Analyzing the limitations of mock objects
+* Using in-container testing
+* Evaluating and comparing stubs, mock objects, and in-container testing
+* Working with Arquillian
+
+
+
+​	This chapter examines one approach to unit-testing components in an application container: in-container unit testing, or integration testing. 
+
+## Limitations of standard unit testing
+
+​	Start with the example servlet in listing 9.1, which implements the `HttpServlet` method `isAuthenticated,` the method we want to unit-test. A *servlet* is a Java software application that extends the capabilities of a server. The example company Tested Data Systems uses servlets to develop web applications, one of which is an online shop that serves new customers. To access the online shop, users need to connect to the frontend interface. The online shop needs authentication mechanisms so that the client knows who is making the operations, and the Tested Data Systems engineers would like to test a method that verifies whether a user is authenticated.
+
+```java
+[…]
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpSession;
+ 
+public class SampleServlet extends HttpServlet {
+   public boolean isAuthenticated(HttpServletRequest request) {
+      HttpSession session = request.getSession(false);
+      if (session == null) {
+         return false;
+      }
+      String authenticationAttribute =
+         (String) session.getAttribute("authenticated");
+      return Boolean.valueOf(authenticationAttribute).booleanValue();
+   }
+}
+```
+
+​	This servlet, although it is simple enough, allows us to show the limitation of standard unit testing. To test the method`isAuthenticated`, we need a valid `HttpServletRequest`. Because `HttpServletRequest` is an interface, we cannot just call`new HttpServletRequest`. The `HttpServletRequest` life cycle and implementation are provided by the container (in this case, a servlet container). The same is true of other server-side objects, such as `HttpSession.` JUnit alone is not enough to write a test for the i`sAuthenticated` method and for servlets in general.
+
+## The mock-objects solution
+
+​	The engineers at Tested Data Systems have to test the authentication mechanisms of the online shop. The first solution they consider for unit-testing the `isAuthenticated` method (listing 9.1) is to mock the `HttpServletRequest` class, using the approach described in chapter 8. Although mocking works, we need to write a lot of code to create a test. We can achieve the same result more easily by using the open-source EasyMock[***\*[1\]\****](#id_ftn1) framework (see chapter 8), as listing 9.2 demonstrates.
+
+```java
+[…]
+import javax.servlet.http.HttpServletRequest;                           #A
+import static org.easymock.EasyMock.createStrictMock;                   #A
+import static org.easymock.EasyMock.expect;                             #A
+import static org.easymock.EasyMock.replay;                             #A
+import static org.easymock.EasyMock.verify;                             #A
+import static org.easymock.EasyMock.eq;                                 #A
+import static org.junit.jupiter.api.Assertions.assertFalse;             #A
+import static org.junit.jupiter.api.Assertions.assertTrue;              #A
+[…]
+public class EasyMockSampleServletTest {
+    
+   private SampleServlet servlet;
+   private HttpServletRequest mockHttpServletRequest;                   #B
+   private HttpSession mockHttpSession;                                 #B
+      
+   @BeforeEach
+   public void setUp() {                                                #C
+      servlet = new SampleServlet();
+      mockHttpServletRequest = 
+         createStrictMock(HttpServletRequest.class);                    #C
+      mockHttpSession = createStrictMock(HttpSession.class);            #C
+   }
+ 
+   @Test
+   public void testIsAuthenticatedAuthenticated() { 
+      expect(mockHttpServletRequest.getSession(eq(false)))              #D
+         .andReturn(mockHttpSession);                                   #D
+      expect(mockHttpSession.getAttribute(eq("authenticated")))         #D
+         .andReturn("true");                                            #D
+      replay(mockHttpServletRequest);                                   #E
+      replay(mockHttpSession);                                          #E
+      assertTrue(servlet.isAuthenticated(mockHttpServletRequest));      #F
+   }
+ 
+   @Test
+   public void testIsAuthenticatedNotAuthenticated() {
+      expect(mockHttpSession.getAttribute(eq("authenticated")))
+         .andReturn("false");          
+      replay(mockHttpSession);
+      expect(mockHttpServletRequest.getSession(eq(false)))
+         .andReturn(mockHttpSession);
+      replay(mockHttpServletRequest);
+      assertFalse(servlet.isAuthenticated(mockHttpServletRequest));
+   }
+ 
+   @Test
+   public void testIsAuthenticatedNoSession() {
+      expect(mockHttpServletRequest.getSession(eq(false))).andReturn(null);
+      replay(mockHttpServletRequest);
+         replay(mockHttpSession);
+         assertFalse(servlet.isAuthenticated(mockHttpServletRequest));
+   }
+ 
+   @AfterEach
+   public void tearDown() {                                             #G
+      verify(mockHttpServletRequest);                                   #H
+      verify(mockHttpSession);                                          #H
+   }
+}
+```
+
+​	Mocking a minimal portion of a container is a valid approach for testing components. But mocking can be complicated and require a lot of code. The source code provided with this book also includes the servlet testing versions for the JMock and Mockito frameworks. As with other kinds of tests, when the servlet changes, the test expectations must change to match. In the next section, the engineers at Tested Data Systems attempt to ease the task of testing the online shop’s authentication mechanism.
+
+## The step to in-container testing
+
+​	The next approach in testing the `SampleServlet` is running the test cases where the `HttpServletRequest` and `HttpSession`objects live: in the container itself. This approach eliminates the need to mock any objects; we simply access the objects and methods we need in the real container.
+
+​	For our example of testing the online shop’s authentication mechanism, we need the web request and the session to be real`HttpServletRequest` and `HttpSession` objects managed by the container. Using a mechanism to deploy and execute our tests in a container, we have in-container testing. The next section covers options for in-container tests.
+
+### Implementation strategies
+
+​	Two architectural choices drive in-container tests: server-side and client-side. As stated in section 9.3, we can drive the tests directly by controlling the server-side container and the unit tests. Alternatively, we can drive the tests from the client-side, as shown in figure 9.1.
+
+![](https://pic.imgdb.cn/item/613090b344eaada739d1af8b.jpg)
+
+### In-container testing frameworks
+
+​	As we have just seen, in-container testing is applicable when code interacts with a container, and tests cannot create valid container objects (`HttpServletRequest` in the preceding section).
+
+​	Our example uses a servlet container, but many other types of containers are available, including Java EE, web server, applets, and EJB. In all these cases, the in-container testing strategy can be applied.
+
+## Comparing stubs, mock objects, and in-container testing
+
+### Stubs evaluation
+
+***Pros:***
+
+·  Fast and lightweight
+
+·  Easy to write and understand
+
+·  Powerful
+
+·  More coarse-grained tests
+
+***Cons:***
+
+·  Specialized methods required to verify the state
+
+·  Do not test the behavior of faked objects
+
+·  Time-consuming for complicated interactions
+
+·  Require more maintenance when the code changes
+
+### Mock-objects evaluation
+
+***Advantages:***
+
+·  Do not require a running container to execute tests
+
+·  Are quick to set up and run
+
+·  Allow fine-grained unit testing
+
+***Drawbacks:***
+
+·  Do not test interactions with the container or between the components
+
+·  Do not test the deployment of components
+
+·  Require good knowledge of the API to mock, which can be difficult (especially for external libraries)
+
+·  Do not provide confidence that the code will run in the target container
+
+·  Offer more fine-grained testing, which may lead to testing code being swamped with interfaces
+
+·  Like stubs, require maintenance when the code changes
+
+###  In-container testing evaluation
+
+* *SPECIFIC TOOLS REQUIRED*
+* *NO GOOD IDE SUPPORT*
+* *LONGER EXECUTION TIME*
+* *COMPLEX CONFIGURATION*
+
+## Testing with Arquillian
+
+​	Arquillian is a testing framework for Java that leverages JUnit to execute test cases against a Java container. The Arquillian framework is broken \into three major sections:
+
+```java
+public class Passenger {
+
+    private String identifier;
+    private String name;
+
+    public Passenger(String identifier, String name) {
+        this.identifier = identifier;
+        this.name = name;
+    }
+
+    public String getIdentifier() {
+        return identifier;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    @Override
+    public String toString() {
+        return "Passenger " + getName() + " with identifier: " + getIdentifier();
+    }
+}
+```
+
+```java
+public class Flight {
+
+    private String flightNumber;
+    private int seats;
+    Set<Passenger> passengers = new HashSet<>();
+
+    public Flight(String flightNumber, int seats) {
+        this.flightNumber = flightNumber;
+        this.seats = seats;
+    }
+
+    public String getFlightNumber() {
+        return flightNumber;
+    }
+
+    public int getSeats() {
+        return seats;
+    }
+
+    public void setSeats(int seats) {
+        if (passengers.size() > seats) {
+            throw new RuntimeException("Cannot reduce seats under the number of existing passengers!");
+        }
+        this.seats = seats;
+    }
+
+    public int getNumberOfPassengers() {
+        return passengers.size();
+    }
+
+    public boolean addPassenger(Passenger passenger) {
+        if (passengers.size() >= seats) {
+            throw new RuntimeException("Cannot add more passengers than the capacity of the flight!");
+        }
+        return passengers.add(passenger);
+    }
+
+    public boolean removePassenger(Passenger passenger) {
+        return passengers.remove(passenger);
+    }
+
+    @Override
+    public String toString() {
+        return "Flight " + getFlightNumber();
+    }
+
+}
+```
+
+The flights_information.csv file
+
+```
+1236789; John Smith
+9006789; Jane Underwood
+1236790; James Perkins
+9006790; Mary Calderon
+1236791; Noah Graves
+9006791; Jake Chavez
+1236792; Oliver Aguilar
+9006792; Emma McCann
+1236793; Margaret Knight
+9006793; Amelia Curry
+1236794; Jack Vaughn
+9006794; Liam Lewis
+1236795; Olivia Reyes
+9006795; Samantha Poole
+1236796; Patricia Jordan
+9006796; Robert Sherman
+1236797; Mason Burton
+9006797; Harry Christensen
+1236798; Jennifer Mills
+9006798; Sophia Graham
+```
+
+```java
+public class FlightBuilderUtil {
+
+    public static Flight buildFlightFromCsv() throws IOException {
+        Flight flight = new Flight("AA1234", 20);
+        try (BufferedReader reader = new BufferedReader(new FileReader("src/test/resources/flights_information.csv"))) {
+            String line = null;
+            do {
+                line = reader.readLine();
+                if (line != null) {
+                    String[] passengerString = line.toString().split(";");
+                    Passenger passenger = new Passenger(passengerString[0].trim(), passengerString[1].trim());
+                    flight.addPassenger(passenger);
+                }
+            } while (line != null);
+
+        }
+
+        return flight;
+    }
+}
+```
+
+```java
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>org.jboss.arquillian</groupId>
+            <artifactId>arquillian-bom</artifactId>
+            <version>1.4.0.Final</version>
+            <scope>import</scope>
+            <type>pom</type>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+<dependencies>
+    <dependency>
+        <groupId>org.jboss.spec</groupId>
+        <artifactId>jboss-javaee-7.0</artifactId>
+        <version>1.0.3.Final</version>
+        <type>pom</type>
+        <scope>provided</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.junit.jupiter</groupId>
+        <artifactId>junit-jupiter-api</artifactId>
+        <version>5.6.0</version>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.junit.jupiter</groupId>
+        <artifactId>junit-jupiter-engine</artifactId>
+        <version>5.6.0</version>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.junit.vintage</groupId>
+        <artifactId>junit-vintage-engine</artifactId>
+        <version>5.6.0</version>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>javax.servlet</groupId>
+        <artifactId>servlet-api</artifactId>
+        <version>2.5</version>
+    </dependency>
+    <dependency>
+        <groupId>org.easymock</groupId>
+        <artifactId>easymock</artifactId>
+        <version>2.4</version>
+    </dependency>
+    <dependency>
+        <groupId>org.jmock</groupId>
+        <artifactId>jmock-junit5</artifactId>
+        <version>2.12.0</version>
+    </dependency>
+    <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-junit-jupiter</artifactId>
+        <version>2.21.0</version>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.jboss.arquillian.junit</groupId>
+        <artifactId>arquillian-junit-container</artifactId>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.jboss.arquillian.container</groupId>
+        <artifactId>arquillian-weld-ee-embedded-1.1</artifactId>
+        <version>1.0.0.CR9</version>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.jboss.weld</groupId>
+        <artifactId>weld-core</artifactId>
+        <version>2.3.5.Final</version>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
+```
+
+```java
+@RunWith(Arquillian.class)
+public class FlightWithPassengersTest {
+
+    @Deployment
+    public static JavaArchive createDeployment() {
+        return ShrinkWrap.create(JavaArchive.class)
+                .addClasses(Passenger.class, Flight.class, FlightProducer.class)
+                .addAsManifestResource(EmptyAsset.INSTANCE, "beans.xml");
+    }
+
+    @Inject
+    Flight flight;
+
+    @Test(expected = RuntimeException.class)
+    public void testNumberOfSeatsCannotBeExceeded() throws IOException {
+        assertEquals(20, flight.getNumberOfPassengers());
+        flight.addPassenger(new Passenger("1247890", "Michael Johnson"));
+    }
+
+    @Test
+    public void testAddRemovePassengers() throws IOException {
+        flight.setSeats(21);
+        Passenger additionalPassenger = new Passenger("1247890", "Michael Johnson");
+        flight.addPassenger(additionalPassenger);
+        assertEquals(21, flight.getNumberOfPassengers());
+        flight.removePassenger(additionalPassenger);
+        assertEquals(20, flight.getNumberOfPassengers());
+        assertEquals(21, flight.getSeats());
+    }
+}
+```
+
+·  A @RunWith(Arquillian.class) annotation on the class (#A). The @RunWith annotation tells JUnit to use Arquillian as the test controller.
+
+·  A public static method annotated with @Deployment that returns a ShrinkWrap archive (#B). The purpose of the test archive is to isolate the classes and resources that the test needs. The archive is defined with ShrinkWrap. The micro deployment strategy lets us focus on precisely the classes we want to test. As a result, the test remains very lean and manageable. For the moment, we have included only the Passenger and the Flight classes. We try to inject a Flight object as a class member, using the CDI @Inject annotation (#C). The @Inject annotation allows us to define injection points inside classes. In this case, @Inject instructs CDI to inject into the test a field of type reference to a Flight object.
+
+·  At least one method annotated with @Test (#D and #E). Arquillian looks for a public static method annotated with the @Deployment annotation to retrieve the test archive. Then each @Test annotated method is run inside the container environment.
+
+
+
+​	The error says `Unsatisfied dependencies for type Flight with qualifiers @Default`. It means that the container is trying to inject the dependency, as it has been instructed through the CDI `@Inject` annotation, but it is unsatisfied. Why? What have the developers from Tested Data Systems missed? The `Flight` class provides only a constructor with arguments, and it has no default constructor to be used by the container for the creation of the object. The container does not know how to invoke the constructor with parameters and which parameters to pass to it to create the `Flight` object that must be injected.
+
+​	What is the solution in this case? Java EE offers the producer methods that are designed to inject objects that require custom initialization (listing 9.9). The solution fixes the issue and is easy to put into practice, even by a junior developer.
+
+```java
+public class FlightProducer {
+ 
+    @Produces
+    public Flight createFlight() throws IOException {
+        return FlightBuilderUtil.buildFlightFromCsv();
+    }
+}
+```
+
+
+
