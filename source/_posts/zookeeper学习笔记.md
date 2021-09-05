@@ -467,3 +467,400 @@ Stopping zookeeper ... STOPPED
 
 ​	到目前为止，我们一直基于独立模式配置的服务器端。如果服务器启动，服务就启动了，但如果服务器故障，整个服务也因此而关闭。这非常不符合可靠的协作服务的承诺。出于可靠性，我们需要运行多个服务器。
 
+​	幸运的是，我们可以在一台机器上运行多个服务器。我们仅仅需要做的便是配置一个更复杂的配置文件。
+
+​	为了让服务器之间可以通信，服务器间需要一些联系信息。理论上，服务器可以使用多播来发现彼此，但我们想让ZooKeeper集合支持跨多个网络而不是单个网络，这样就可以支持多个集合的情况。
+
+```conf
+tickTime=2000
+initLimit=10
+syncLimit=5
+dataDir=./data
+clientPort=2181
+server.1=127.0.0.1:2222:2223
+server.2=127.0.0.1:3333:3334
+server.3=127.0.0.1:4444:4445
+```
+
+​	每一个server.n项指定了编号为n的ZooKeeper服务器使用的地址和端口号。每个server.n项通过冒号分隔为三部分，第一部分为服务器n的IP地址或主机名（hostname），第二部分和第三部分为TCP端口号，分别用于仲裁通信和群首选举。因为我们在同一个机器上运行三个服务器进程，所以我们需要在每一项中使用不同的端口号。通常，我们在不同的服务器上运行每个服务器进程，因此每个服务器项的配置可以使用相同的端口号。
+
+​	我们还需要分别设置data目录，我们可以在命令行中通过以下命令来操作：
+
+```sh
+mkdir z1
+mkdir z1/data
+mkdir z2
+mkdir z2/data
+mkdir z3
+mkdir z3/data
+```
+
+​	当启动一个服务器时，我们需要知道启动的是哪个服务器。一个服务器通过读取data目录下一个名为myid的文件来获取服务器ID信息。可以通过以下命令来创建这些文件：
+
+​	当服务器启动时，服务器通过配置文件中的dataDir参数来查找data目录的配置。它通过mydata获得服务器ID，之后使用配置文件中server.n对应的项来设置端口并监听。当在不同的机器上运行ZooKeeper服务器进程时，它们可以使用相同的客户端端口和相同的配置文件。但对于这个例子，在一台服务器上运行，我们需要自定义每个服务器的客户端端口。
+
+​	因此，首先使用本章之前讨论的配置文件，创建z1/z1.cfg。之后通过分别改变客户端端口号为2182和2183，创建配置文件z2/z2.cfg和z3/z3.cfg。
+
+​	现在可以启动服务器，让我们从z1开始：
+
+```sh
+cd z1
+{PATH_TO_ZK}/bin/zkServer.sh start ./z1.cfg
+```
+
+​	服务器的日志记录为zookeeper.out。因为我们只启动了三个ZooKeeper服务器中的一个，所以整个服务还无法运行。在日志中我们将会看到以下形式的记录：
+
+```
+... [myid:1] - INFO  [QuorumPeer[myid=1]/...:2181:QuorumPeer@670] - LOOKING
+... [myid:1] - INFO  [QuorumPeer[myid=1]/...:2181:FastLeaderElection@740] -
+New election. My id =  1, proposed zxid=0x0
+... [myid:1] - INFO  [WorkerReceiver[myid=1]:FastLeaderElection@542] -
+Notification: 1 ..., LOOKING (my state)
+... [myid:1] - WARN  [WorkerSender[myid=1]:QuorumCnxManager@368] - Cannot
+open channel to 2 at election address /127.0.0.1:3334
+       Java.net.ConnectException: Connection refused
+           at java.net.PlainSocketImpl.socketConnect(Native Method)
+           at java.net.PlainSocketImpl.doConnect(PlainSocketImpl.java:351)
+```
+
+​	这个服务器疯狂地尝试连接到其他服务器，然后失败，如果我们启动另一个服务器，我们可以构成仲裁的法定人数：
+
+```sh
+cd z2
+{PATH_TO_ZK}/bin/zkServer.sh start ./z2.cfg
+```
+
+​	如果我们观察第二个服务器的日志记录zookeeper.out，我们将会看到：
+
+```
+... [myid:2] - INFO  [QuorumPeer[myid=2]/...:2182:Leader@345] - LEADING
+- LEADER ELECTION TOOK - 279
+... [myid:2] - INFO  [QuorumPeer[myid=2]/...:2182:FileTxnSnapLog@240] -
+Snapshotting: 0x0 to ./data/version-2/snapshot.0
+```
+
+​	该日志指出服务器2已经被选举为群首。如果我们现在看看服务器1的日志，我们会看到：
+
+```
+... [myid:1] - INFO  [QuorumPeer[myid=1]/...:2181:QuorumPeer@738] -
+FOLLOWING
+... [myid:1] - INFO  [QuorumPeer[myid=1]/...:2181:ZooKeeperServer@162] -
+Created server ...
+... [myid:1] - INFO  [QuorumPeer[myid=1]/...:2181:Follower@63] - FOLLOWING
+- LEADER ELECTION TOOK - 212
+```
+
+​	服务器1作为服务器2的追随者被激活。我们现在具有了符合法定仲裁（三分之二）的可用服务器。
+
+​	在此刻服务开始可用。我们现在需要配置客户端来连接到服务上。连接字符串需要列出所有组成服务的服务器host：port对。对于这个例子，连接串为"127.0.0.1：2181，127.0.0.1：2182，127.0.0.1：2183"（我们包含第三个服务器的信息，即使我们永远不启动它，因为这可以说明ZooKeeper一些有用的属性）。
+
+​	我们使用zkCli.sh来访问集群：
+
+```
+{PATH_TO_ZK}/bin/zkCli.sh -server 
+127.0.0.1:2181,127.0.0.1:2182,127.0.0.1:2183
+```
+
+​	当连接到服务器后，我们会看到以下形式的消息：
+
+​	
+
+```
+[myid:] - INFO  [...] - Session establishment
+complete on server localhost/127.0.0.1:2182 ...
+```
+
+​	注意日志消息中的端口号，在本例中的2182。如果通过Ctrl-C来停止客户端并重启多次它，我们将会看到端口号在218102182之间来回变化。我们也许还会注意到尝试2183端口后连接失败的消息，之后为成功连接到某一个服务器端口的消息。
+
+**注意：简单的负载均衡**
+
+​	客户端以随机顺序连接到连接串中的服务器。这样可以用ZooKeeper来实现一个简单的负载均衡。不过，客户端无法指定优先选择的服务器来进行连接。例如，如果我们有5个ZooKeeper服务器的一个集合，其中3个在美国西海岸，另外两个在美国东海岸，为了确保客户端只连接到本地服务器上，我们可以使在东海岸客户端的连接串中只出现东海岸的服务器，在西海岸客户端的连接串中只有西海岸的服务器。
+
+​	这个连接尝试说明如何通过运行多个服务器来达到可靠性（当然，在生产环境中，你需要在不同的主机上进行这些操作）。对于本书大部分，包括后续几章，我们一直以独立模式的服务器进行开发，因为启动和管理多个服务器非常简单，实现这个例子也非常简单。除了连接串外，客户端不用关心ZooKeeper服务由多少个服务器组成，这也是ZooKeeper的优点之一。
+
+### 2.3.4 实现一个原语：通过ZooKeeper实现锁
+
+​	关于ZooKeeper的功能，一个简单的例子就是通过锁来实现临界区域。我们知道有很多形式的锁（如：读/写锁、全局锁），通过ZooKeeper来实现锁也有多种方式。这里讨论一个简单的方式来说明应用中如何使用ZooKeeper，我们不再考虑其他形式的锁。
+
+​	假设有一个应用由n个进程组成，这些进程尝试获取一个锁。再次强调，ZooKeeper并未直接暴露原语，因此我们使用ZooKeeper的接口来管理znode，以此来实现锁。为了获得一个锁，每个进程p尝试创建znode，名为/lock。如果进程p成功创建了znode，就表示它获得了锁并可以继续执行其临界区域的代码。不过一个潜在的问题是进程p可能崩溃，导致这个锁永远无法释放。在这种情况下，没有任何其他进程可以再次获得这个锁，整个系统可能因死锁而失灵。为了避免这种情况，我们不得不在创建这个节点时指定/lock为临时节点。
+
+​	其他进程因znode存在而创建/lock失败。因此，进程监听/lock的变化，并在检测到/lock删除时再次尝试创建节点来获得锁。当收到/lock删除的通知时，如果进程p还需要继续获取锁，它就继续尝试创建/lock的步骤，如果其他进程已经创建了，就继续监听节点。
+
+## 2.4 一个主-从模式例子的实现
+
+主-从模式的模型中包括三个角色：
+
+**主节点**
+
+​	主节点负责监视新的从节点和任务，分配任务给可用的从节点。
+
+**从节点**
+
+​	从节点会通过系统注册自己，以确保主节点看到它们可以执行任务，然后开始监视新任务。
+
+**客户端**
+
+​	客户端创建新任务并等待系统的响应。
+
+​	现在探讨这些不同的角色以及每个角色需要执行的确切步骤。
+
+### 2.4.1 主节点角色
+
+​	因为只有一个进程会成为主节点，所以一个进程成为ZooKeeper的主节点后必须锁定管理权。为此，进程需要创建一个临时znode，名为/master：
+
+```sh
+[zk: localhost:2181(CONNECTED) 0] create -e /master "master1.example.com:2223"①
+Created /master
+[zk: localhost:2181(CONNECTED) 1] ls /②
+[master, zookeeper]
+[zk: localhost:2181(CONNECTED) 2] get /master③
+"master1.example.com:2223"
+cZxid = 0x67
+ctime = Tue Dec 11 10:06:19 CET 2012
+mZxid = 0x67
+mtime = Tue Dec 11 10:06:19 CET 2012
+pZxid = 0x67
+cversion = 0
+dataVersion = 0
+aclVersion = 0
+ephemeralOwner = 0x13b891d4c9e0005
+dataLength = 26
+numChildren = 0
+[zk: localhost:2181(CONNECTED) 3]
+```
+
+①创建主节点的znode，以便获得管理权。使用-e标志来表示创建的znode为临时性的。
+
+②列出ZooKeeper树的根。
+
+③获取/master znode的元数据和数据。
+
+​	刚刚发生了什么？首先创建一个临时znode/master。我们在znode中添加了主机信息，以便ZooKeeper外部的其他进程需要与它通信。添加主机信息并不是必需的，但这样做仅仅是为了说明我们可以在需要时添加数据。为了设置znode为临时性的，需要添加-e标志。记得，一个临时节点会在会话过期或关闭时自动被删除。
+
+​	现在让我们看下我们使用两个进程来获得主节点角色的情况，尽管在任何时刻最多只能有一个活动的主节点，其他进程将成为备份主节点。假如其他进程不知道已经有一个主节点被选举出来，并尝试创建一个/master节点。让我们看看会发生什么：
+
+```sh
+[zk: localhost:2181(CONNECTED) 0] create -e /master 
+"master2.example.com:2223"
+Node already exists: /master
+[zk: localhost:2181(CONNECTED) 1]
+```
+
+​	ZooKeeper告诉我们一个/master节点已经存在。这样，第二个进程就知道已经存在一个主节点。然而，一个活动的主节点可能会崩溃，备份主节点需要接替活动主节点的角色。为了检测到这些，需要在/master节点上设置一个监视点，操作如下：
+
+```sh
+[zk: localhost:2181(CONNECTED) 0] create -e /master "master2.example.com:2223"
+Node already exists: /master
+[zk: localhost:2181(CONNECTED) 1] stat /master true
+cZxid = 0x67
+ctime = Tue Dec 11 10:06:19 CET 2012
+mZxid = 0x67
+mtime = Tue Dec 11 10:06:19 CET 2012
+pZxid = 0x67
+cversion = 0
+dataVersion = 0
+aclVersion = 0
+ephemeralOwner = 0x13b891d4c9e0005
+dataLength = 26
+numChildren = 0
+[zk: localhost:2181(CONNECTED) 2]
+```
+
+​	stat命令可以得到一个znode节点的属性，并允许我们在已经存在的znode节点上设置监视点。通过在路径后面设置参数true来添加监视点。当活动的主节点崩溃时，我们会观察到以下情况：
+
+```sh
+[zk: localhost:2181(CONNECTED) 0] create -e /master "master2.example.com:2223"
+Node already exists: /master
+[zk: localhost:2181(CONNECTED) 1] stat /master true
+cZxid = 0x67
+ctime = Tue Dec 11 10:06:19 CET 2012
+mZxid = 0x67
+mtime = Tue Dec 11 10:06:19 CET 2012
+pZxid = 0x67
+cversion = 0
+dataVersion = 0
+aclVersion = 0
+ephemeralOwner = 0x13b891d4c9e0005
+dataLength = 26
+numChildren = 0
+[zk: localhost:2181(CONNECTED) 2]
+WATCHER::
+WatchedEvent state:SyncConnected type:NodeDeleted path:/master
+[zk: localhost:2181(CONNECTED) 2] ls /
+[zookeeper]
+[zk: localhost:2181(CONNECTED) 3]
+```
+
+​	在输出的最后，我们注意到NodeDeleted事件。这个事件指出活动主节点的会话已经关闭或过期。同时注意，/master节点已经不存在了。现在备份主节点通过再次创建/master节点来成为活动主节点。
+
+​	因为备份主节点成功创建了/master节点，所以现在客户端开始成为活动主节点。
+
+#### 2.4.2 从节点、任务和分配
+
+​	在我们讨论从节点和客户端所采取的步骤之前，让我们先创建三个重要的父znode，/workers、/tasks和/assign：
+
+```
+[zk: localhost:2181(CONNECTED) 0] create /workers ""
+Created /workers
+[zk: localhost:2181(CONNECTED) 1] create /tasks ""
+Created /tasks
+[zk: localhost:2181(CONNECTED) 2] create /assign ""
+Created /assign
+[zk: localhost:2181(CONNECTED) 3] ls /
+[assign, tasks, workers, master, zookeeper]
+[zk: localhost:2181(CONNECTED) 4]
+```
+
+​	这三个新的znode为持久性节点，且不包含任何数据。本例中，通过使用这些znode可以告诉我们哪个从节点当前有效，还告诉我们当前有任务需要分配，并向从节点分配任务。
+
+​	在真实的应用中，这些znode可能由主进程在分配任务前创建，也可能由一个引导程序创建，不管这些节点是如何创建的，一旦这些节点存在了，主节点就需要监视/workers和/tasks的子节点的变化情况：
+
+```
+[zk: localhost:2181(CONNECTED) 4] ls /workers true
+[]
+[zk: localhost:2181(CONNECTED) 5] ls /tasks true
+[]
+[zk: localhost:2181(CONNECTED) 6]
+```
+
+​	请注意，在主节点上调用stat命令前，我们使用可选的true参数调用ls命令。通过true这个参数，可以设置对应znode的子节点变化的监视点。
+
+#### 2.4.3 从节点角色
+
+​	从节点首先要通知主节点，告知从节点可以执行任务。从节点通过在/workers子节点下创建临时性的znode来进行通知，并在子节点中使用主机名来标识自己：
+
+```
+[zk: localhost:2181(CONNECTED) 0] create -e 
+/workers/worker1.example.com
+                                            "worker1.example.com:2224"
+Created /workers/worker1.example.com
+[zk: localhost:2181(CONNECTED) 1]
+```
+
+​	注意，输出中，ZooKeeper确认znode已经创建。之前主节点已经监视了/workers的子节点变化情况。一旦从节点在/workers下创建了一个znode，主节点就会观察到以下通知信息：
+
+```
+WATCHER::
+WatchedEvent state:SyncConnected type:NodeChildrenChanged 
+path:/workers
+```
+
+​	下一步，从节点需要创建一个父znode/assing/worker1.example.com来接收任务分配，并通过第二个参数为true的ls命令来监视这个节点的变化，以便等待新的任务
+
+```sh
+[zk: localhost:2181(CONNECTED) 0] create -e /workers/worker1.example.com
+                                            "worker1.example.com:2224"
+Created /workers/worker1.example.com
+[zk: localhost:2181(CONNECTED) 1] create /assign/worker1.example.com ""
+Created /assign/worker1.example.com
+[zk: localhost:2181(CONNECTED) 2] ls /assign/worker1.example.com true
+[]
+[zk: localhost:2181(CONNECTED) 3]
+```
+
+​	从节点现在已经准备就绪，可以接收任务分配。之后，我们通过讨论客户端角色来看一下任务分配的问题。
+
+### 2.4.4 客户端角色
+
+​	客户端向系统中添加任务。在本示例中具体任务是什么并不重要，我们假设客户端请求主从系统来运行cmd命令。为了向系统添加一个任务，客户端执行以下操作：
+
+```sh
+[zk: localhost:2181(CONNECTED) 0] create -s /tasks/task- "cmd"
+Created /tasks/task-0000000000
+```
+
+​	我们需要按照任务添加的顺序来添加znode，其本质上为一个队列。客户端现在必须等待任务执行完毕。执行任务的从节点将任务执行完毕后，会创建一个znode来表示任务状态。客户端通过查看任务状态的znode是否创建来确定任务是否执行完毕，因此客户端需要监视状态znode的创建事件：
+
+```
+[zk: localhost:2181(CONNECTED) 1] ls /tasks/task-0000000000 true
+[]
+[zk: localhost:2181(CONNECTED) 2]
+```
+
+​	执行任务的从节点会在/tasks/task-0000000000节点下创建状态znode节点，所以我们需要用ls命令来监视/tasks/task-0000000000的子节点。
+
+​	一旦创建任务的znode，主节点会观察到以下事件：
+
+```sh
+[zk: localhost:2181(CONNECTED) 6]
+WATCHER::
+WatchedEvent state:SyncConnected type:NodeChildrenChanged path:/tasks
+```
+
+​	主节点之后会检查这个新的任务，获取可用的从节点列表，之后分配这个任务给worker1.example.com：
+
+```sh
+[zk: 6] ls /tasks
+[task-0000000000]
+[zk: 7] ls /workers
+[worker1.example.com]
+[zk: 8] create /assign/worker1.example.com/task-0000000000 ""
+Created /assign/worker1.example.com/task-0000000000
+[zk: 9]
+```
+
+​	从节点接收到新任务分配的通知：
+
+```sh
+[zk: localhost:2181(CONNECTED) 3]
+WATCHER::
+WatchedEvent state:SyncConnected type:NodeChildrenChanged
+path:/assign/worker1.example.com
+```
+
+​	从节点之后便开始检查新任务，并确认该任务是否分配给自己：
+
+```sh
+WATCHER::
+WatchedEvent state:SyncConnected type:NodeChildrenChanged
+path:/assign/worker1.example.com
+[zk: localhost:2181(CONNECTED) 3] ls /assign/worker1.example.com
+[task-0000000000]
+[zk: localhost:2181(CONNECTED) 4]
+```
+
+​	一旦从节点完成任务的执行，它就会在/tasks中添加一个状态znode：
+
+```sh
+[zk: localhost:2181(CONNECTED) 4] create /tasks/task-0000000000/status "done"
+Created /tasks/task-0000000000/status
+[zk: localhost:2181(CONNECTED) 5]
+```
+
+​	之后，客户端接收到通知，并检查执行结果：
+
+```sh
+WATCHER::
+WatchedEvent state:SyncConnected type:NodeChildrenChanged
+path:/tasks/task-0000000000
+[zk: localhost:2181(CONNECTED) 2] get /tasks/task-0000000000
+"cmd"
+cZxid = 0x7c
+ctime = Tue Dec 11 10:30:18 CET 2012
+mZxid = 0x7c
+mtime = Tue Dec 11 10:30:18 CET 2012
+pZxid = 0x7e
+cversion = 1
+dataVersion = 0
+aclVersion = 0
+ephemeralOwner = 0x0
+dataLength = 5
+numChildren = 1
+[zk: localhost:2181(CONNECTED) 3] get /tasks/task-0000000000/status
+"done"
+cZxid = 0x7e
+ctime = Tue Dec 11 10:42:41 CET 2012
+mZxid = 0x7e
+mtime = Tue Dec 11 10:42:41 CET 2012
+pZxid = 0x7e
+cversion = 0
+dataVersion = 0
+aclVersion = 0
+ephemeralOwner = 0x0
+dataLength = 8
+numChildren = 0
+[zk: localhost:2181(CONNECTED) 4]
+```
+
+​	客户端检查状态znode的信息，并确认任务的执行结果。本例中，我们看到任务成功执行，其状态为“done”。当然任务也可能非常复杂，甚至涉及另一个分布式系统。最终不管是什么样的任务，执行任务的机制与通过ZooKeeper来传递结果，本质上都是一样的。
+
