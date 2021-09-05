@@ -278,3 +278,192 @@ Zookeep的客户端API功能强大，其中包括：
 
 ​	这就是第1章中讲述的脑裂场景的例子。为了避免这个问题，这个例子中，法定人数的大小必须至少为3，即集合中5个服务器的多数原则。为了能正常工作，集合中至少要有3个有效的服务器。为了确认一个请求对状态的更新是否成功完成，这个集合同时需要至少3个服务器确认已经完成了数据的复制操作。因此，如果要保证集合可以正常工作，对任何更新操作的成功完成，我们至少要有1个有效的服务器来保存更新的副本（即至少在一个节点上合理的法定人数存在交集）。
 
+### 2.2.2 会话
+
+​	在对ZooKeeper集合执行任何请求前，一个客户端必须先与服务建立会话。会话的概念非常重要，对ZooKeeper的运行也非常关键。客户端提交给ZooKeeper的所有操作均关联在一个会话上。当一个会话因某种原因而中止时，在这个会话期间创建的临时节点将会消失。
+
+​	当客户端通过某一个特定语言套件来创建一个ZooKeeper句柄时，它就会通过服务建立一个会话。客户端初始连接到集合中某一个服务器或一个独立的服务器。客户端通过TCP协议与服务器进行连接并通信，但当会话无法与当前连接的服务器继续通信时，会话就可能转移到另一个服务器上。ZooKeeper客户端库透明地转移一个会话到不同的服务器。
+
+​	会话提供了顺序保障，这就意味着同一个会话中的请求会以FIFO（先进先出）顺序执行。通常，一个客户端只打开一个会话，因此客户端请求将全部以FIFO顺序执行。如果客户端拥有多个并发的会话，FIFO顺序在多个会话之间未必能够保持。而即使一个客户端中连贯的会话并不重叠，也未必能够保证FIFO顺序。下面的情况说明如何发生这种问题：
+
+* 客户端建立了一个会话，并通过两个连续的异步调用来创建/tasks和/workers。
+* 第一个会话过期。
+* 客户端创建另一个会话，并通过异步调用创建/assign。
+
+
+
+​	在这个调用顺序中，可能只有/tasks和/assign成功创建了，因为第一个会话保持了FIFO顺序，但在跨会话时就违反了FIFO顺序。
+
+### 2.3 开始使用ZooKeeper
+
+​	开始之前，需要下载ZooKeeper发行包。ZooKeeper作为Apache项目托管到http://zookeeper.apache.org。通过下载链接，你会下载到一个名字类似zookeepe-3.4.5.tar.gz的压缩TAR格式文件。在Linux、Mac OS X或任何其他类UNIX系统上，可以通过一下命令解压缩发行包：
+
+```sh
+tar -xvzf zookeeper-3.4.5.tar.gz
+```
+
+ 	在发行包（distribution）的目录中，你会发现在bin目录中有启动ZooKeeper的脚本。以.sh结尾的脚本运行于UNIX平台（Linux、Mac OS X等），以.cmd结尾的脚本则用于Windows。在conf目录中保存配置文件。lib目录包括Java的JAR文件，它们是运行ZooKeeper所需要的第三方文件。稍后我们需要引用ZooKeeper解压缩的目录。我们以{PATH_TO_ZK}方式来引用该目录
+
+### 2.3.1 第一个ZooKeeper会话
+
+​	首先我们以独立模式运行ZooKeeper并创建一个会话。要做到这一点，使用ZooKeeper发行包中bin/目录下的zkServer和zkCli工具。有经验的管理员常常使用这两个工具来进行调试和管理，同时也非常适合初学者熟悉和了解ZooKeeper。
+
+​	假设你已经下载并解压了ZooKeeper发行包，进入shell，变更目录（cd）到项目根目录下，重命名配置文件：
+
+```sh
+mv conf/zoo_sample.cfg conf/zoo.cfg
+```
+
+​	虽然是可选的，最好还是把data目录移出/tmp目录，以防止ZooKeeper填满了根分区（root partition）。可以在zoo.cfg文件中修改这个目录的位置。
+
+```
+dataDir=/users/me/zookeeper
+```
+
+​	最后，为了启动服务器，执行以下命令：
+
+```sh
+bin/zkServer.sh start
+JMX enabled by default
+Using config: ../conf/zoo.cfg
+Starting zookeeper ... STARTED
+```
+
+​	这个服务器命令使得ZooKeeper服务器在后台中运行。如果在前台中运行以便查看服务器的输出，可以通过以下命令运行：
+
+```sh
+bin/zkServer.sh start-foreground
+```
+
+​	这个选项提供了大量详细信息的输出，以便允许查看服务器发生了什么。
+
+​	现在我们准备启动客户端。在另一个shell中进入项目根目录，运行以下命令：
+
+```sh
+bin/zkCli.sh
+.
+.
+.
+<some omitted output>
+.
+.
+.
+2012-12-06 12:07:23,545 [myid:] - INFO  [main:ZooKeeper@438] -①
+Initiating client connection, connectString=localhost:2181
+sessionTimeout=30000 watcher=org.apache.zookeeper.
+ZooKeeperMain$MyWatcher@2c641e9a
+Welcome to ZooKeeper!
+2012-12-06 12:07:23,702 [myid:] - INFO  [main-SendThread②
+(localhost:2181):ClientCnxn$SendThread@966] - Opening
+socket connection to server localhost/127.0.0.1:2181.
+Will not attempt to authenticate using SASL (Unable to
+locate a login configuration)
+JLine support is enabled
+2012-12-06 12:07:23,717 [myid:] - INFO  [main-SendThread③
+(localhost:2181):ClientCnxn$SendThread@849] - Socket
+connection established to localhost/127.0.0.1:2181, initiating
+session [zk: localhost:2181(CONNECTING) 0]
+2012-12-06 12:07:23,987 [myid:] - INFO  [main-SendThread④
+(localhost:2181):ClientCnxn$SendThread@1207] - Session
+establishment complete on server localhost/127.0.0.1:2181,
+sessionid = 0x13b6fe376cd0000, negotiated timeout = 30000
+WATCHER::
+WatchedEvent state:SyncConnected type:None path:null⑤
+```
+
+①客户端启动程序来建立一个会话。
+
+②客户端尝试连接到localhost/127.0.0.1：2181。
+
+③客户端连接成功，服务器开始初始化这个新会话。
+
+④会话初始化成功完成。
+
+⑤服务器向客户端发送一个SyncConnected事件。
+
+​	在输出的结尾，我们看到会话建立的日志消息。第一处提到“Initiating client connection.”。消息本身说明到底发生了什么，而额外的重要细节说明了客户端尝试连接到客户端发送的连接串localhost/127.0.0.1：2181中的一个服务器。这个例子中，字符串只包含了localhost，因此指明了具体连接的地址。之后我们看到关于SASL的消息，我们暂时忽略这个消息，随后一个确认信息说明客户端与本地的ZooKeeper服务器建立了TCP连接。后面的日志信息确认了会话的建立，并告诉我们会话ID为：0x13b6fe376cd0000。最后客户端库通过SyncConncted事件通知了应用。应用需要实现Watcher对象来处理这个事件。下一节将详细说明事件。
+
+​	为了更加了解ZooKeeper，让我们列出根（root）下的所有znode，然后创建一个znode。首先我们要确认此刻znode树为空，除了节点/zookeeper之外，该节点内标记了ZooKeeper服务所需的元数据树。
+
+```sh
+WATCHER::
+WatchedEvent state:SyncConnected type:None path:null
+[zk: localhost:2181(CONNECTED) 0] ls /
+[zookeeper]
+```
+
+现在发生了什么？我们执行ls/后看到这里只有/zookeeper节点。现在我们创建一个名为/workers的znode，确保如下所示：
+
+```sh
+WATCHER::
+WatchedEvent state:SyncConnected type:None path:null
+[zk: localhost:2181(CONNECTED) 0]
+[zk: localhost:2181(CONNECTED) 0] ls /
+[zookeeper]
+[zk: localhost:2181(CONNECTED) 1] create /workers ""
+Created /workers
+[zk: localhost:2181(CONNECTED) 2] ls /
+[workers, zookeeper]
+[zk: localhost:2181(CONNECTED) 3]
+```
+
+**注意：Znode数据**
+
+​	当创建/workers节点后，我们指定了一个空字符串（""），说明我们此刻不希望在这个znode中保存数据。然而，该接口中的这个参数可以使我们保存任何字符串到ZooKeeper的节点中。比如，可以替换""为"workers"。
+
+​	为了完成这个练习，删除znode，然后退出：
+
+------
+
+```sh
+[zk: localhost:2181(CONNECTED) 3] delete /workers
+[zk: localhost:2181(CONNECTED) 4] ls /
+[zookeeper]
+[zk: localhost:2181(CONNECTED) 5] quit
+Quitting...
+2012-12-06 12:28:18,200 [myid:] - INFO  [main-EventThread:ClientCnxn$
+EventThread@509] - EventThread shut down
+2012-12-06 12:28:18,200 [myid:] - INFO  [main:ZooKeeper@684] - Session:
+0x13b6fe376cd0000 closed
+```
+
+​	观察到znode/workers已经被删除，并且会话现在也关闭。为了完成最后的清理，退出ZooKeeper服务器：
+
+```sh
+bin/zkServer.sh stop
+JMX enabled by default
+Using config: ../conf/zoo.cfg
+Stopping zookeeper ... STOPPED
+#
+```
+
+### 2.3.2 会话的状态和声明周期
+
+​	会话的生命周期（lifetime）是指会话从创建到结束的时期，无论会话正常关闭还是因超时而导致过期。为了讨论在会话中发生了什么，我们需要考虑会话可能的状态，以及可能导致会话状态改变的事件。
+
+​	一个会话的主要可能状态大多是简单明了的：CONNECTING、CONNECTED、CLOSED和NOT_CONNECTED。状态的转换依赖于发生在客户端与服务之间的各种事件（见图2-6）。
+
+![](https://pic.imgdb.cn/item/6131e9df44eaada739843f8b.jpg)
+
+​	一个会话从NOT_CONNECTED状态开始，当ZooKeeper客户端初始化后转换到CONNECTING状态（图2-6中的箭头1）。正常情况下，成功与ZooKeeper服务器建立连接后，会话转换到CONNECTED状态（箭头2）。当客户端与ZooKeeper服务器断开连接或者无法收到服务器的响应时，它就会转换回CONNECTING状态（箭头3）并尝试发现其他ZooKeeper服务器。如果可以发现另一个服务器或重连到原来的服务器，当服务器确认会话有效后，状态又会转换回CONNECTED状态。否则，它将会声明会话过期，然后转换到CLOSED状态（箭头4）。应用也可以显式地关闭会话（箭头4和箭头5）。
+
+**注意：发生网络分区时等待CONNECTING**
+
+​	如果一个客户端与服务器因超时而断开连接，客户端仍然保持CONNECTING状态。如果因网络分区问题导致客户端与ZooKeeper集合被隔离而发生连接断开，那么其状态将会一直保持，直到显式地关闭这个会话，或者分区问题修复后，客户端能够获悉ZooKeeper服务器发送的会话已经过期。发生这种行为是因为ZooKeeper集合对声明会话超时负责，而不是客户端负责。直到客户端获悉ZooKeeper会话过期，否则客户端不能声明自己的会话过期。然而，客户端可以选择关闭会话。
+
+​	创建一个会话时，你需要设置会话超时这个重要的参数，这个参数设置了ZooKeeper服务允许会话被声明为超时之前存在的时间。如果经过时间t之后服务接收不到这个会话的任何消息，服务就会声明会话过期。而在客户端侧，如果经过t/3的时间未收到任何消息，客户端将向服务器发送心跳消息。在经过2t/3时间后，ZooKeeper客户端开始寻找其他的服务器，而此时它还有t/3时间去寻找。
+
+**注意：客户端会尝试连接哪一个服务器？**
+
+​	在仲裁模式下，客户端有多个服务器可以连接，而在独立模式下，客户端只能尝试重新连接单个服务器。在仲裁模式中，应用需要传递可用的服务器列表给客户端，告知客户端可以连接的服务器信息并选择一个进行连接。
+
+​	当尝试连接到一个不同的服务器时，非常重要的是，这个服务器的ZooKeeper状态要与最后连接的服务器的ZooKeeper状态保持最新。客户端不能连接到这样的服务器：它未发现更新而客户端却已经发现的更新。ZooKeeper通过在服务中排序更新操作来决定状态是否最新。ZooKeeper确保每一个变化相对于所有其他已执行的更新是完全有序的。因此，如果一个客户端在位置i观察到一个更新，它就不能连接到只观察到i'<i的服务器上。在ZooKeeper实现中，系统根据每一个更新建立的顺序来分配给事务标识符。
+
+​	图2-7描述了在重连情况下事务标识符（zkid）的使用。当客户端因超时与s1断开连接后，客户端开始尝试连接s2，但s2延迟于客户端所知的变化。然而，s3对这个变化的情况与客户端保持一致，所以s3可以安全连接。
+
+![](https://pic.imgdb.cn/item/6131eaca44eaada73985e742.jpg)
+
+### 2.3.3 ZooKeeper与仲裁模式
+
+​	到目前为止，我们一直基于独立模式配置的服务器端。如果服务器启动，服务就启动了，但如果服务器故障，整个服务也因此而关闭。这非常不符合可靠的协作服务的承诺。出于可靠性，我们需要运行多个服务器。
+
