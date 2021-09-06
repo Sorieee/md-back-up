@@ -3744,5 +3744,734 @@ public class FlightProducer {
 }
 ```
 
+# 10. Running JUnit tests from Maven 3
 
+* Creating a Maven project from the scratch
+* Testing the Maven project with JUnit 5
+* Using Maven plugins
+* Using the Maven Surefire Plugins
+
+## 10.1 Setting up a Maven project
+
+​	First, create the `C:\junitbook\` folder. This directory is our work directory and where we will set up the Maven examples. Type the following on the command line:
+
+```sh
+mvn archetype:generate -DgroupId=com.manning.junitbook 
+-DartifactId=maven-sampling 
+-DarchetypeArtifactid=maven-artifact-mojo
+```
+
+​	After we press Enter, wait for the appropriate artifacts to be downloaded, and accept the default options, we should see a folder named `maven-sampling` being created. If we open the new project into IntelliJ IDEA, its structure should look like figure 10.1.
+
+![](https://pic.imgdb.cn/item/6135d77144eaada739a295dd.jpg)
+
+​	What happened here? We invoked the `maven-archetype-plugin` from the command line and told it to generate a new project from scratch with the given parameters. As a result, this Maven plugin created a new project with a new folder structure, following the convention of the folder structure. Further, it created a sample `App.java` class with the main method and a corresponding `AppTest.java` file that is a unit test for our application. After looking at this folder structure, you should understand what files stay in `src/main/java` and what files stay in `src/test/java.`
+
+```xml
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
+         xmlns:xsi=http://www.w3.org/2001/XMLSchema-instance
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/maven-v4_0_0.xsd">
+  
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.manning.junitbook</groupId>
+  <artifactId>maven-sampling</artifactId>
+  <version>1.0-SNAPSHOT</version>
+  <name>maven-sampling</name>
+    <!-- FIXME change it to the project's website -->
+  <url>http://www.example.com</url>
+  […]
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.11</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+  […]
+</project>
+```
+
+**Listing 10.2 Changes and additions to the pom.xml**
+
+```xml
+      <dependencies>
+         <dependency>
+            <groupId>org.junit.jupiter</groupId>
+         <artifactId>junit-jupiter-api</artifactId>
+         <version>5.4.2</version>
+         <scope>test</scope>
+      </dependency>
+   <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-engine</artifactId>
+      <version>5.4.2</version>
+      <scope>test</scope>
+   </dependency>
+   </dependencies>
+ 
+<developers>
+      <developer>
+       <name>Catalin Tudose</name>
+       <id>ctudose</id>
+       <organization>Manning</organization>
+       <roles>
+          <role>Java Developer</role>
+       </roles>
+</developer>
+<developer>
+      <name>Petar Tahchiev</name>
+     <id>ptahchiev</id>
+     <organization>Apache Software Foundation</organization>
+     <roles>
+        <role>Java Developer</role>
+     </roles>    
+</developer>
+</developers>
+```
+
+We also specify `organization`, `description` and `inceptionYear`:
+
+```xml
+<description>
+   “JUnit in Action III” book, the sample project for the “Running Junit   
+   tests from Maven” chapter.
+</description>
+<organization>
+   <name>Manning Publications</name>
+   <url>http://manning.com/</url>
+</organization>
+<inceptionYear>2019</inceptionYear>
+```
+
+​	Now we can start developing our software. What if we want to use a Java IDE other than IntelliJ IDEA, such as Eclipse? No problem. Maven offers additional plugins that let us import the project into our favorite IDE. If we want to use Eclipse, we open a terminal and navigate to the directory that contains the project descriptor (pom.xml). Then we type the following and press Enter:
+
+```sh
+mvn eclipse:eclipse
+```
+
+## 10.2 Using the Maven plugins
+
+​	Whenever we would like to clean the project from the previous activities, we may execute the following command:
+
+```sh
+mvn clean
+```
+
+### 10.2.1 Maven compiler plugin
+
+​	Like any other build system, Maven is supposed to build our projects (compile our software and package in an archive). Every task in Maven is performed by an appropriate plugin, the configuration of which is in the `<plugins>` section of the project descriptor. To compile the source code, all we need to do is invoke the compile phase on the command line
+
+```sh
+mvn compile
+```
+
+​	which causes Maven to execute all the plugins attached to *the compile* phase (in particular it will invoke the `maven-compiler-plugin`). But before invoking the compile phase, as already discussed, Maven goes through the validate phase, downloads all the dependencies listed in the pom.xml file, and includes them in the classpath of the project. When the compilation process is complete, we can go to the `target/classes/` folder and see the compiled classes there.
+
+**Configuring the maven-compiler-plugin**
+
+```xml
+<build>
+   <plugins>
+      <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+         <version>2.3.2</version>
+        <configuration>
+           <source>1.8</source>
+           <target>1.8</target>
+        </configuration>
+     </plugin>
+   </plugins>
+</build>
+```
+
+### 10.2.2  Maven surefire plugin
+
+​	To process the unit tests from our project, Maven uses (of course) a plugin. The Maven plugin that executes the unit tests is called `maven-surefire-plugin`. The surefire plugin executes the unit tests for our code, but these unit tests are not necessarily JUnit tests.
+
+**The maven-surefire-plugin**
+
+```xml
+<build>
+   <plugins>
+      <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+         <version>2.22.2</version>
+     </plugin>
+   </plugins>
+</build>
+```
+
+​	The conventional way to start the `maven-surefire-plugin` is very simple: invoke the test phase of Maven. This way, Maven first invokes all the phases that are supposed to come before the test phase (validate and compile) and then invokes all the plugins that are attached to the test phase, this way invoking the `maven-surefire-plugin`. So by calling
+
+```xml
+mvn clean test
+```
+
+​	That’s great, but what if we want to execute only a single test case? This execution is unconventional*,* so we need to configure the `maven-surefire-plugin` to do it. Ideally, a parameter for the plugin allows us to specify the pattern of test cases that we want to execute. We configure the surefire plugin in absolutely the same way that we configure the compiler plugin, as shown in listing 10.6.
+
+```xml
+<build>
+   <plugins>
+   […]
+      <plugin>
+          <artifactId>maven-surefire-plugin</artifactId>
+         <version>2.22.2</version>
+          <configuration>
+             <includes>**/*Test.java</includes>
+          </configuration>
+        […]
+      </plugin>
+   […]
+   </plugins>
+</build>
+```
+
+​	The next step is generating some documentation for the project. But wait for a second—how are we supposed to do that with no files to generate the documentation from? This is another one of Maven’s great benefits: with a little bit of configuration and description that we have, we can produce a fully functional website skeleton.
+
+​	First, add the `maven-site-plugin` to the Maven `pom.xml` configuration file:
+
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-site-plugin</artifactId>
+    <version>3.7.1</version>
+</plugin>
+```
+
+Then type
+
+```
+mvn site
+```
+
+​	on the command line where our pom.xml file is. Maven should start downloading its plugins, and after their successful installation, it produces the nice website shown in figure 10.4.
+
+### 10.2.3  HTML JUnit reports with Maven
+
+​	As you already guess, the job of producing these reports is done by a Maven plugin. The name of the plugin is `maven-surefire-report-plugin`, and by default, it is not attached to any of the core phases that we already know. (Many people do not need HTML reports every time they build software.) We can’t invoke the plugin by running a certain phase (as we did with both the compiler plugin and the surefire plugin). Instead, we have to call it directly from the command line:
+
+```xml
+mvn surefire-report:report
+```
+
+​	Maven tries to compile the source files and the test cases; then it invokes the `surefire` plugin to produce the plain-text and XML-formatted output of the tests. After that, the `surefire-report` plugin tries to transform all the XMLs from the`target/surefire-reports/` directory into an HTML report that will be placed in the `target/site` directory. (Remember that this is the convention for the folder—to keep all the generated documentation of the project—and that the HTML reports are considered to be documentation.)
+
+​	If we try to open the generated HTML report, it should look something like figure 10.5.
+
+![](https://pic.imgdb.cn/item/6135da8f44eaada739a79bdb.jpg)
+
+## 10.3 Putting it all together
+
+略
+
+## 10.4  Maven challenges
+
+​	A lot of people who have used Maven agree that it is really easy to start and that the idea behind the project is amazing. Things seem to be more challenging when we need to do something unconventional, however.
+
+​	What is great about Maven is that it sets up a frame for us and constrains us to think inside that frame—to think the Maven way and do things the Maven way.
+
+​	In most cases, Maven will not let us execute any nonsense. It restricts us and shows us the way things need to be done. But these restrictions may be a real challenge if we are accustomed to doing things our own way and to having real freedom of choice as build engineers.
+
+​	Chapter 11 shows how to run JUnit tests with another build automation tool inspired by Maven: Gradle.
+
+# 12. JUnit 5 IDE support
+
+​	When running the whole tests suite from IntelliJ IDEA, the tagged tests are also run. If you would like to run only some particular tagged tests, the IDE will provide this option. You have to go to *Run -> Edit Configurations…* and to choose from *Test kind -> Tags*, as shown in figure 12.9. Then, you will be able to run only that particular configuration addressing tagged tests. You would like to do this when you have a larger suite of tests and you need to focus on particular ones and not to spend time with the whole suite. Details about the functionality of the `@Tag` annotation are to be found in chapter 2.
+
+![](https://pic.imgdb.cn/item/6135db5544eaada739a8e8ca.jpg)
+
+# 14. JUnit 5 extension model
+
+* Introducing the JUnit 5 extension model
+* Creating JUnit 5 extensions
+* Implementing JUnit 5 tests using available extension points
+* Developing an application with tests extended by JUnit 5 extensions
+
+## 14.1 Introducing the JUnit 5 extension model
+
+Although JUnit 4 provides extension points through runners and rules (chapter 3), the JUnit 5 extension model consists of a single concept: the `Extension` API. `Extension` itself is just a *marker interface* (or *tag* or *token interface*)—an interface with no fields or methods inside. It is used to mark the fact that the class implementing an interface of this category has some special behavior. Among the best-known, Java marker interfaces are `Serializable` and `Cloneable`.
+
+JUnit 5 can extend the behavior of classes or methods of test and these extensions can be reused by many tests.
+
+A JUnit 5 extension is connected to the occurrence of some particular event during the execution of a test. This kind of event is called an extension point. At the moment when such a point in the lifecycle of a test has been reached, the JUnit engine automatically calls the registered extension.
+
+The list of available extension points is made of:
+
+*  *Conditional test execution*—Controls whether a test should be run
+*  *Life-cycle callbacks*— Reacts to events in the life cycle of a test
+* *Parameter resolution*—Resolves at run time the parameter received by a test
+* *Exception handling*—Defines the behavior of a test when it encounters certain types of exceptions
+*  *Test instance postprocessing*—Executed after an instance of a test is created
+
+Please note that the extensions are largely used inside frameworks and build tools. They may also be used for application programming, but not to the same extent. The creation and usage of extensions follow common principles, our demonstration will use examples appropriate for regular applications development.
+
+## 14.2  Creating the first JUnit 5 extension
+
+```java
+public class Passenger {
+ 
+   private String identifier;                                            #A
+   private String name;                                                  #A
+ 
+   public Passenger(String identifier, String name) {                    #B
+      this.identifier = identifier;                                      #B
+      this.name = name;                                                  #B
+   }                                                                     #B
+ 
+   public String getIdentifier() {                                       #C
+      return identifier;                                                 #C
+   }                                                                     #C
+ 
+   public String getName() {                                             #C
+      return name;                                                       #C
+   }                                                                     #C
+ 
+ 
+   @Override                                                             #D
+   public String toString() {                                            #D
+      return "Passenger " + getName() + " with identifier: " +           #D
+             getIdentifier();                                            #D
+   }                                                                     #D
+}
+```
+
+```java
+public class PassengerTest {
+ 
+    @Test                                                                  
+    void testPassenger() throws IOException {                              
+        Passenger passenger = new Passenger("123-456-789", "John Smith");  
+        assertEquals("Passenger John Smith with identifier: 123-456-789",  
+                     passenger.toString());                                
+    }                                                                      
+ 
+}
+```
+
+**The ExecutionContextExtension class**
+
+```java
+public class ExecutionContextExtension implements ExecutionCondition {   #A
+ 
+    @Override                                                            #B
+    public ConditionEvaluationResult                                     #B
+           evaluateExecutionCondition(ExtensionContext context) {        #B
+        Properties properties = new Properties();                        #C
+        String executionContext = "";                                    #C
+ 
+        try {
+            properties.load(ExecutionContextExtension.class              
+                                                     .getClassLoader()   #C
+                      .getResourceAsStream("context.properties"));       #C
+            executionContext = properties.getProperty("context");        #C
+            if (!"regular".equalsIgnoreCase(executionContext) &&         #D
+                !"low".equalsIgnoreCase(executionContext)) {             #D
+                return ConditionEvaluationResult.disabled(               #D
+    "Test disabled outside regular and low contexts");                   #D
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        return ConditionEvaluationResult.enabled("Test enabled on the "+ #E
+                                    executionContext + " context");      #E
+    }
+}
+```
+
+The context is configured through the resources/context.properties configuration file:
+
+```
+  context =regular 
+```
+
+For the current business logic, the `"regular"` value means that the tests will be executed in the current context.
+
+The last thing to do is annotate the existing `PassengerTest` with the new extension:
+
+```java
+@ExtendWith({ExecutionContextExtension.class})
+public class PassengerTest {
+[…]
+```
+
+![](https://pic.imgdb.cn/item/6135dcda44eaada739ab38e8.jpg)
+
+​	We may instruct the JVM (Java Virtual Machine) to bypass the effects of conditional execution, however, deactivating it by setting the `junit.jupiter.conditions.deactivate` configuration key to a pattern that matches the condition. From the Run -> Edit Configurations menu, we may set `junit.jupiter.conditions.deactivate=*`, for example, and the result will be the deactivation of all conditions (figure 14.2). The result of the execution will not be influenced by any of the conditions, so all tests will run.
+
+![](https://pic.imgdb.cn/item/6135dd3b44eaada739abdaff.jpg)
+
+## 14.3  Writing JUnit 5 tests using the available extension points
+
+​	Harry’s next task is saving the passengers in a test database. Before the whole test suite is executed, the database must be reinitialized, and a connection to it must be open. At the end of the execution of the suite, the connection to the database must be closed. Before executing a test, we have to set up the database in a known state so we can be sure that its content will be tested correctly. Harry decides to use the H2 database, JDBC, and JUnit 5 extensions.
+
+​	H2 is a relational database management system developed in Java that permits the creation of an in-memory database. It can also be embedded in Java applications when testing purposes require this.
+
+​	JDBC (Java Database Connectivity) is a Java API that defines how a client accesses a database. JDBC is part of the Java Standard Edition platform.
+
+​	To solve the task, the first thing Harry needs to do is add the H2 dependency to the pom.xml file, as shown in listing 14.4.
+
+```mysql
+<dependency>
+  <groupId>com.h2database</groupId>
+  <artifactId>h2</artifactId>
+  <version>1.4.199</version>
+</dependency>
+```
+
+To manage the connection to the database, Harry implements the `ConnectionManager` class (listing 14.5).
+
+```java
+public class ConnectionManager {
+   private static Connection connection;                                 #A
+ 
+   public static Connection getConnection() {                            #A
+       return connection;                                                #A
+    }                                                                    #A
+   
+   public static Connection openConnection() {
+        try {
+            Class.forName("org.h2.Driver"); // this is driver for H2     #B
+            connection = DriverManager.getConnection("jdbc:h2:~/book",   #C
+                "sa", // login                                           #C
+                "" // password                                           #C
+                );                                                       #C
+            return connection;
+        } catch(ClassNotFoundException | SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+ 
+    public static void closeConnection() {
+       if (null != connection) {
+           try {
+               connection.close();                                       #D
+           } catch(SQLException e) {
+               throw new RuntimeException(e);
+           }
+       }
+    }
+ 
+}
+```
+
+To manage the database tables, Harry implements the `TablesManager` class (listing 14.6).
+
+```java
+public class TablesManager {
+   
+    public static void createTable(Connection connection) {              #A
+       String sql =                                                      #A
+          "CREATE TABLE IF NOT EXISTS PASSENGERS (ID VARCHAR(50), " +    #A
+          "NAME VARCHAR(50));";                                          #A
+       
+       executeStatement(connection, sql);                                #A
+    }                                                                    #A
+ 
+    public static void dropTable(Connection connection) {                #B
+       String sql = "DROP TABLE IF EXISTS PASSENGERS;";                  #B
+       
+       executeStatement(connection, sql);                                #B
+    }                                                                    #B
+    
+    private static void executeStatement(Connection connection,          #C
+                                         String sql)                     #C
+    {                                                                    #C
+       try(PreparedStatement statement =                                 #C
+           connection.prepareStatement(sql))                             #C
+       {                                                                 #C
+            statement.executeUpdate();                                   #C
+       } catch (SQLException e) {                                        #C
+            throw new RuntimeException(e);                               #C
+       }                                                                 #C
+    }                                                                    #C
+ 
+}
+```
+
+​	To manage the execution of the queries against the database, Harry implements the `PassengerDao` interface (listing 14.7) and the `PassengerDaoImpl` class (listing 14.8). A *DAO* (data access object) provides an interface to a database and maps the application calls to specific database operations without exposing the details of the persistence layer.
+
+```java
+public interface PassengerDao {
+   public void insert(Passenger passenger);                              #A
+   public void update(String id, String name);                           #B
+   public void delete(Passenger passenger);                              #C
+   public Passenger getById(String id);                                  #D
+}
+```
+
+**The PassengerDaoImpl class**
+
+```java
+public class PassengerDaoImpl implements PassengerDao {
+ 
+    private Connection connection;                                         #A
+ 
+    public PassengerDaoImpl(Connection connection) {                       #A
+       this.connection = connection;                                       #A
+    }                                                                      #A
+ 
+    @Override
+    public void insert(Passenger passenger) {
+        String sql = "INSERT INTO PASSENGERS (ID, NAME) VALUES (?, ?)";    #B
+ 
+        try (PreparedStatement statement = connection.prepareStatement(sql)){
+            statement.setString(1, passenger.getIdentifier());             #C
+            statement.setString(2, passenger.getName());                   #C
+            statement.executeUpdate();                                     #D
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+ 
+    @Override
+    public void update(String id, String name) {
+        String sql = "UPDATE PASSENGERS SET NAME = ? WHERE ID = ?";        #E
+ 
+        try (PreparedStatement statement = connection.prepareStatement(sql)){
+            statement.setString(1, name);                                  #F
+            statement.setString(2, id);                                    #F
+            statement.executeUpdate();                                     #G
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+ 
+    @Override
+    public void delete(Passenger passenger) {
+        String sql = "DELETE FROM PASSENGERS WHERE ID = ?";                #H
+ 
+        try (PreparedStatement statement = connection.prepareStatement(sql)){
+            statement.setString(1, passenger.getIdentifier());             #I
+            statement.executeUpdate();                                     #J
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+ 
+    @Override
+    public Passenger getById(String id) {
+        String sql = "SELECT * FROM PASSENGERS WHERE ID = ?";              #K
+        Passenger passenger = null;
+ 
+        try (PreparedStatement statement = connection.prepareStatement(sql)){
+            statement.setString(1, id);                                    #L
+            ResultSet resultSet = statement.executeQuery();                #M
+ 
+            if (resultSet.next()) {
+                passenger = new Passenger(resultSet.getString(1),          #N
+                                          resultSet.getString(2));         #N
+            }
+ 
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+ 
+        return passenger;                                                  #O
+    }
+}
+```
+
+**The DatabaseOperationsExtension class**
+
+```java
+public class DatabaseOperationsExtension implements                      #A
+             BeforeAllCallback, AfterAllCallback, BeforeEachCallback,    #A
+             AfterEachCallback {                                         #A
+ 
+    private Connection connection;                                       #B
+    private Savepoint savepoint;                                         #B
+ 
+    @Override                                                             
+    public void beforeAll(ExtensionContext context) {                    
+        connection = ConnectionManager.openConnection();                 #C
+        TablesManager.dropTable(connection);                             #C
+        TablesManager.createTable(connection);                           #C
+    }                                                                     
+ 
+    @Override                                                             
+    public void afterAll(ExtensionContext context) {                      
+        ConnectionManager.closeConnection();                             #D
+    }                                                                     
+ 
+    @Override                                                             
+    public void beforeEach(ExtensionContext context) 
+                           throws SQLException {
+        connection.setAutoCommit(false);                                 #E
+        savepoint = connection.setSavepoint("savepoint");                #F
+    }                                                                     
+ 
+    @Override                                                             
+    public void afterEach(ExtensionContext context) 
+                           throws SQLException { 
+        connection.rollback(savepoint);                                  #G
+    }                                                                     
+ 
+}
+```
+
+**The updated PassengerTest class**
+
+```java
+@ExtendWith({ExecutionContextExtension.class,                            #A
+             DatabaseOperationsExtension.class })                        #A
+public class PassengerTest {
+ 
+    private PassengerDao passengerDao;
+ 
+    public PassengerTest(PassengerDao passengerDao) {                      
+        this.passengerDao = passengerDao;                                #B
+    }
+ 
+    @Test
+    void testPassenger(){
+        Passenger passenger = new Passenger("123-456-789", "John Smith");
+        assertEquals("Passenger John Smith with identifier: 123-456-789", 
+                     passenger.toString());
+    }
+ 
+ 
+    @Test
+    void testInsertPassenger() {
+        Passenger passenger = new Passenger("123-456-789",               #C
+                                           "John Smith");                #C
+        passengerDao.insert(passenger);                                  #D
+        assertEquals("John Smith",                                       #E
+              passengerDao.getById("123-456-789").getName());            #E
+    }
+ 
+    @Test
+    void testUpdatePassenger() {
+        Passenger passenger = new Passenger("123-456-789",               #F
+                                            "John Smith");               #F
+        passengerDao.insert(passenger);                                  #G
+        passengerDao.update("123-456-789", "Michael Smith");             #H
+        assertEquals("Michael Smith",                                    #I
+              passengerDao.getById("123-456-789").getName());            #I
+    }
+ 
+    @Test
+    void testDeletePassenger() {
+        Passenger passenger = new Passenger("123-456-789",               #J
+                                            "John Smith");               #J
+        passengerDao.insert(passenger);                                  #K
+        passengerDao.delete(passenger);                                  #L
+        assertNull(passengerDao.getById("123-456-789"));                 #M
+    }
+ 
+}
+```
+
+![](https://pic.imgdb.cn/item/6135de0544eaada739ad27b0.jpg)
+
+**The DatabaseAccessObjectParameterResolver class**
+
+```java
+public class DatabaseAccessObjectParameterResolver implements            #A
+          ParameterResolver{                                             #A
+ 
+    @Override
+    public boolean supportsParameter(ParameterContext parameterContext, 
+                                     ExtensionContext extensionContext) 
+           throws ParameterResolutionException {
+        return parameterContext.getParameter()                           #B
+            .getType()                                                   #B
+            .equals(PassengerDao.class);                                 #B
+    }
+ 
+    @Override
+    public Object resolveParameter(ParameterContext parameterContext, 
+                                   ExtensionContext extensionContext) 
+           throws ParameterResolutionException {
+        return new PassengerDaoImpl(ConnectionManager.getConnection());  #C
+    }
+ 
+}
+```
+
+Additionally, Harry extends the `PassengerTest` class with the `DatabaseAccessObjectParameterResolver`. The first lines of the `PassengerTest` class look like listing 14.12.
+
+```java
+@ExtendWith({ExecutionContextExtension.class, DatabaseOperationsExtension.class, DatabaseAccessObjectParameterResolver.class})
+public class PassengerTest {
+[…]
+```
+
+![](https://pic.imgdb.cn/item/6135de3e44eaada739ad82be.jpg)
+
+```java
+public class PassengerExistsException extends Exception {
+    private Passenger passenger;                                         #A
+ 
+    public PassengerExistsException(Passenger passenger, String message) {
+        super(message);                                                  #B
+        this.passenger = passenger;                                      #C
+    }
+}
+```
+
+Next, Harry changes the `PassengerDao` interface and the `PassengerDaoImpl` class so that the insert method
+
+```java
+public void insert(Passenger passenger) throws PassengerExistsException;
+```
+
+hrows PassengerExistsException, as shown in listing 14.14.
+
+Listing 14.14 The modified insert method from PassengerDaoImpl
+
+```java
+public void insert(Passenger passenger) throws PassengerExistsException {
+    String sql = "INSERT INTO PASSENGERS (ID, NAME) VALUES (?, ?)";
+ 
+    if (null != getById(passenger.getIdentifier()) ) {                   #A
+      throw new PassengerExistsException                                 #A
+               (passenger, passenger.toString());                        #A
+    }                                                                    #A
+ 
+    try (PreparedStatement statement = connection.prepareStatement(sql)){
+        statement.setString(1, passenger.getIdentifier());
+        statement.setString(2, passenger.getName());
+        statement.executeUpdate();
+    } catch (SQLException e) {
+        throw new RuntimeException(e);
+    }
+}
+```
+
+**The LogPassengerExistsExceptionExtension class**
+
+```java
+public class LogPassengerExistsExceptionExtension implements             #A
+             TestExecutionExceptionHandler {                             #A
+    private Logger logger = Logger.getLogger(this.getClass().getName()); #B
+ 
+    @Override
+    public void handleTestExecutionException(ExtensionContext context,   #C
+                   Throwable throwable) throws Throwable {               #C
+        if (throwable instanceof PassengerExistsException) {             #D
+            logger.severe("Passenger exists:" + throwable.getMessage()); #D
+            return;                                                      #D
+        }
+        throw throwable;                                                 #E
+    }
+}
+```
+
+```java
+@ExtendWith({ExecutionContextExtension.class, DatabaseOperationsExtension.class, DatabaseAccessObjectParameterResolver.class, LogPassengerExistsExceptionExtension.class})
+public class PassengerTest {
+[…]
+```
+
+Table 14.2 Extension points and corresponding interfaces
+
+| Extension point              | Interfaces to implement                                      |
+| ---------------------------- | ------------------------------------------------------------ |
+| Conditional test execution   | ExecutionCondition                                           |
+| Life-cycle callbacks         | BeforeAllCallback, AfterAllCalback, BeforeEachCallback, AfterEachCallback |
+| Parameter resolution         | ParameterResolver                                            |
+| Exception handling           | TestExecutionExceptionHandler                                |
+| Test instance postprocessing | TestInstancePostProcessor                                    |
 
