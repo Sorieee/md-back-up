@@ -6,6 +6,10 @@ https://www.yuque.com/apache-dubbo/dubbo3/pyrcyr
 
 https://www.yuque.com/apache-dubbo
 
+钉钉群
+
+31982034
+
 # XSD教程
 
 https://www.w3school.com.cn/schema/schema_intro.asp1
