@@ -4475,3 +4475,827 @@ Table 14.2 Extension points and corresponding interfaces
 | Exception handling           | TestExecutionExceptionHandler                                |
 | Test instance postprocessing | TestInstancePostProcessor                                    |
 
+# 15. Presentation Layer Testing
+
+  Introducing presentation layer testing
+
+* Operating with HtmlUnit
+
+* Developing HtmlUnit tests
+
+* Operating with Selenium
+
+* Developing Selenium tests
+
+* Comparing HtmlUnit and Selenium
+
+## 15.1  Choosing a Testing Framework
+
+​	We will look at two free open source tools to implement presentation layer tests within JUnit 5: HtmlUnit and Selenium.
+
+## 15.2  Introducing HtmlUnit
+
+​	HtmlUnit is an open-source Java headless browser framework. It allows tests to imitate programmatically the user of a browser-based web application. HtmlUnit JUnit 5 tests do not display a user interface. In the remainder of this HtmlUnit section, when we talk about "testing with a web browser", it is with the understanding that we are really "testing by emulating a specific web browser".
+
+### 15.2.1  A live example
+
+```java
+import com.gargoylesoftware.htmlunit.WebClient;
+[…]
+ 
+public abstract class ManagedWebClient {
+    protected WebClient webClient;                              #A
+ 
+    @BeforeEach                                                 #B
+    public void setUp() {                                       #B
+        webClient = new WebClient();                            #B
+    }                                                           #B
+ 
+    @AfterEach                                                  #C
+    public void tearDown() {                                    #C
+        webClient.close();                                      #C
+    }                                                           #C
+}
+```
+
+**Listing 15.2 Our first HtmlUnit example**
+
+```java
+public class HtmlUnitPageTest extends ManagedWebClient {
+ 
+    @Test
+    public void homePage() throws IOException {
+      HtmlPage page = webClient.getPage("http://htmlunit.sourceforge.net"); #A
+      assertEquals("HtmlUnit – Welcome to HtmlUnit", page.getTitleText());  #A
+ 
+      String pageAsXml = page.asXml();                                      #B
+      assertTrue(pageAsXml.contains("<div class=\"container-fluid\">"));    #B
+ 
+      String pageAsText = page.asText();                                    #C
+      assertTrue(pageAsText.contains(                                       #C
+            "Support for the HTTP and HTTPS protocols"));                   #C
+    }
+ 
+    @Test
+    public void testClassNav() throws IOException {
+      HtmlPage mainPage = webClient.getPage(                                #D
+            "http://htmlunit.sourceforge.net/apidocs/index.html");          #D
+      HtmlPage packagePage = (HtmlPage)                                     #E
+            mainPage.getFrameByName("packageFrame").getEnclosedPage();      #E
+      HtmlListItem htmlListItem = (HtmlListItem)                            #F
+            packagePage.getElementsByTagName("li").item(0);                 #F
+      assertEquals("AboutURLConnection", htmlListItem.getTextContent());    #G
+    }
+}
+```
+
+## 15.3  Writing HtmlUnit tests
+
+### 15.3.1  HTML Assertions
+
+​	We know that JUnit 5 provides a class called `Assertions` to allow tests to fail when they detect an error condition. `Assertions`are the bread and butter of any unit test.
+
+​	HtmlUnit may work with JUnit 5, but it also provides a class in the same spirit called `WebAssert`, which contains standard assertions for HTML like `assertTitleEquals`, `assertTextPresent` or `notNull`.
+
+### 15.3.2  Testing for a specific web browser
+
+**Table 15.1 HTMLUnit supported browsers.**
+
+| Web Browser and Version                  | HtmlUnit BrowserVersion Constant |
+| ---------------------------------------- | -------------------------------- |
+| Internet Explorer 11                     | BrowserVersion.INTERNET_EXPLORER |
+| Firefox 5.2 (deprecated)                 | BrowserVersion.FIREFOX_52        |
+| Firefox 6.0                              | BrowserVersion.FIREFOX_60        |
+| Latest Chrome                            | BrowserVersion.CHROME            |
+| The best-supported browser at the moment | BrowserVersion.BEST_SUPPORTED    |
+
+​	By default, `WebClient` emulates `BrowserVersion.BEST_SUPPORTED` which, at the time of writing this chapter, is Google Chrome, but may change in the future, depending on the evolution of each particular browser. In order to specify which browser to emulate, you provide the `WebClient` constructor with a `BrowserVersion`. For example, for Firefox 6.0, use:
+
+```java
+WebClient webClient = new WebClient(BrowserVersion.FIREFOX_60);
+```
+
+### 15.3.3  Testing more than one web browser
+
+**Listing 15.3 Testing for all HtmlUnit supported browsers**
+
+```java
+public class JavadocPageAllBrowserTest {
+ 
+    private static Collection<BrowserVersion[]> getBrowserVersions() {      #A
+        return Arrays.asList(new BrowserVersion[][] {                       #A
+                               { BrowserVersion.FIREFOX_60 },               #A
+                               { BrowserVersion.INTERNET_EXPLORER },        #A
+                               { BrowserVersion.CHROME },                   #A
+                               { BrowserVersion.BEST_SUPPORTED } });        #A
+    }
+ 
+    @ParameterizedTest                                                      #B
+    @MethodSource("getBrowserVersions")                                     #C
+    public void testClassNav(BrowserVersion browserVersion)                 #D
+                                            throws IOException              #D
+    {
+        WebClient webClient = new WebClient(browserVersion);                #E
+ 
+        HtmlPage mainPage = (HtmlPage)webClient                             #F
+                   .getPage(                                                #F
+                   "http://htmlunit.sourceforge.net/apidocs/index.html");   #F
+        WebAssert.notNull("Missing main page", mainPage);                   #G
+ 
+        HtmlPage packagePage = (HtmlPage) mainPage                          #H
+                       .getFrameByName("packageFrame").getEnclosedPage();   #H
+        WebAssert.notNull("Missing package page", packagePage);             #I
+ 
+        HtmlListItem htmlListItem = (HtmlListItem) packagePage              #J
+                       .getElementsByTagName("li").item(0);                 #J
+        assertEquals("AboutURLConnection", htmlListItem.getTextContent());  #K
+    }
+}
+```
+
+### 15.3.4  Creating stand-alone tests
+
+**Listing 15.4 Configuring a stand-alone test**
+
+```java
+public class InLineHtmlFixtureTest extends ManagedWebClient {              
+ 
+    @Test
+    public void testInLineHtmlFixture() throws IOException {               
+        final String expectedTitle = "Hello 1!";                           #A
+        String html = "<html><head><title>" +                              #B
+                      expectedTitle +                                      #B
+                      "</title></head></html>";                            #B
+        MockWebConnection connection = new MockWebConnection();            #C
+        connection.setDefaultResponse(html);                               #D
+        webClient.setWebConnection(connection);                            #E
+        HtmlPage page = webClient.getPage("http://page");                  #F
+        WebAssert.assertTitleEquals(page, expectedTitle);                  #G
+    }
+   
+}
+```
+
+**Listing 15.5 Configuring a test with multiple page fixtures**
+
+```java
+    @Test
+    public void testInLineHtmlFixtures() throws IOException {
+        final URL page1Url = new URL("http://Page1/");                      #A
+        final URL page2Url = new URL("http://Page2/");                      #A
+        final URL page3Url = new URL("http://Page3/");                      #A
+ 
+        MockWebConnection connection = new MockWebConnection();             #B
+        connection.setResponse(page1Url, 
+           "<html><head><title>Hello 1!</title></head></html>");            #C
+        connection.setResponse(page2Url,   
+                "<html><head><title>Hello 2!</title></head></html>");       #C
+        connection.setResponse(page3Url, 
+             "<html><head><title>Hello 3!</title></head></html>");          #C
+        webClient.setWebConnection(connection);                             #D
+ 
+        HtmlPage page1 = webClient.getPage(page1Url);                       #E
+        WebAssert.assertTitleEquals(page1, "Hello 1!");                     #E
+ 
+        HtmlPage page2 = webClient.getPage(page2Url);                       #E
+        WebAssert.assertTitleEquals(page1, "Hello 2!");                     #E
+ 
+        HtmlPage page3 = webClient.getPage(page3Url);                       #E
+        WebAssert.assertTitleEquals(page1, "Hello 3!");                     #E
+    }
+```
+
+### 15.3.5  Testing forms
+
+**Listing 15.6 Example form page**
+
+```html
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<script>
+function validate_form(form) {
+    if (form.in_text.value=="") {
+        alert("Please enter a value.");
+        form.in_text.focus();
+        return false;
+    }
+}
+</script>
+<title>Form</title></head>
+<body>
+<form name="validated_form" action="submit.html" onsubmit="return validate_form(this);" method="post">
+  Value: 
+  <input type="text" name="in_text" id="in_text" size="30"/>
+  <input type="submit" value="Submit" id="submit"/>
+</form>
+</body>
+</html>
+```
+
+**Listing 15.7 Testing a form**
+
+```java
+public class FormTest extends ManagedWebClient {
+ 
+@Test
+public void testForm() throws IOException {
+   HtmlPage page = 
+        webClient.getPage("file:src/main/webapp/formtest.html");    #A
+   HtmlForm form = page.getFormByName("validated_form");            #B
+   HtmlTextInput input = form.getInputByName("in_text");            #C
+   input.setValueAttribute("typing...");                            #D
+   HtmlSubmitInput submitButton = form.getInputByName("submit");    #E
+   HtmlPage resultPage = submitButton.click();                      #E
+   WebAssert.assertTitleEquals(resultPage, "Result");               #F
+}
+}
+```
+
+### 15.3.6  Testing JavaScript
+
+​	HtmlUnit processes JavaScript automatically. Even when, for example, HTML is generated with `Document.write()`, you follow the usual pattern: call `getPage`, find an element, click on it, and check the result.
+
+​	You can toggle JavaScript support on and off in a web client by calling:
+
+```java
+webClient.getOptions().setJavaScriptEnabled(true);
+webClient.getOptions().setJavaScriptEnabled(false);
+```
+
+​	HtmlUnit enables JavaScript support by default. You can also set how long a script is allowed to run before being terminated by calling:
+
+```java
+webClient.setJavaScriptTimeout(timeout);
+```
+
+**Listing 15.8 Asserting expected alerts**
+
+```java
+public class FormTest extends ManagedWebClient {
+[…]
+ 
+@Test
+public void testFormAlert() throws IOException {
+    CollectingAlertHandler alertHandler =                         #A
+            new CollectingAlertHandler();                         #A
+    webClient.setAlertHandler(alertHandler);                      #B
+    HtmlPage page = webClient.getPage(                            #C
+             "file:src/main/webapp/formtest.html");               #C
+    HtmlForm form = page.getFormByName("validated_form");         #D
+    HtmlSubmitInput submitButton = form.getInputByName("submit"); #E
+    HtmlPage resultPage = submitButton.click();                   #F
+    WebAssert.assertTitleEquals(resultPage, page.getTitleText()); #G
+    WebAssert.assertTextPresent(resultPage, page.asText());       #H
+ 
+    List<String> collectedAlerts =                                #I
+                 alertHandler.getCollectedAlerts();               #I
+    List<String> expectedAlerts = Collections.singletonList(      #J
+                                       "Please enter a value.");  #J
+    assertEquals(expectedAlerts, collectedAlerts);                #K
+}
+}
+```
+
+**Listing 15.9 Asserting no alerts under normal operation**
+
+```java
+public class FormTest extends ManagedWebClient {
+[…]
+ 
+    @Test
+    public void testFormNoAlert() throws IOException {
+        CollectingAlertHandler alertHandler = new CollectingAlertHandler(); #A
+        webClient.setAlertHandler(alertHandler);                            #A
+        HtmlPage page = webClient.getPage(
+                "file:src/main/webapp/formtest.html");
+        HtmlForm form = page.getFormByName("validated_form");
+        HtmlTextInput input = form.getInputByName("in_text");
+        input.setValueAttribute("typing...");                               #B
+        HtmlSubmitInput submitButton = form.getInputByName("submit");
+        HtmlPage resultPage = submitButton.click();
+        WebAssert.assertTitleEquals(resultPage, "Result");
+        assertTrue(alertHandler.getCollectedAlerts().isEmpty(),             #C
+                   "No alerts expected");                                   #C
+    }
+ 
+}
+```
+
+**Listing 15.10 Custom alert handler**
+
+```
+webClient.setAlertHandler((page, message) -> 
+                           fail("JavaScript alert: " + message));
+```
+
+**Listing 15.11 Asserting the expected confirmation messages**
+
+```java
+public class WindowConfirmTest extends ManagedWebClient {
+ 
+    @Test
+    public void testWindowConfirm() throws FailingHttpStatusCodeException, 
+                                           IOException {
+        String html = "<html><head><title>Hello</title></head>            #A
+                       <body onload='confirm(\"Confirm Message\")'>       #A
+                       </body></html>";                                   #A
+        URL testUrl = new URL("http://Page1/");                           #B
+        MockWebConnection mockConnection = new MockWebConnection();       #C
+        final List<String> confirmMessages = new ArrayList<String>();     #D
+ 
+        webClient.setConfirmHandler((page, message) -> {                  #E
+            confirmMessages.add(message);                                 #E
+            return true;                                                  #E
+        });                                                               #E
+        mockConnection.setResponse(testUrl, html);                        #F
+        webClient.setWebConnection(mockConnection);                       #G
+ 
+        HtmlPage firstPage = webClient.getPage(testUrl);                  #H
+        WebAssert.assertTitleEquals(firstPage, "Hello");                  #I
+        assertArrayEquals(new String[] { "Confirm Message" },             #J
+                          confirmMessages.toArray());                     #J
+    }
+}
+```
+
+**Listing 15.12 Asserting the expected confirmation messages from a JavaScript function**
+
+```java
+public class WindowConfirmTest extends ManagedWebClient {
+ 
+  @Test
+  public void testWindowConfirmAndAlert() throws 
+                FailingHttpStatusCodeException, IOException {
+    String html = "<html><head><title>Hello</title>                #A
+               <script>function go(){                              #A
+                  alert(confirm('Confirm Message'))                #A
+               }</script>\n" +                                     #A
+               "</head><body onload='go()'></body></html>";        #A
+    URL testUrl = new URL("http://Page1/");
+    MockWebConnection mockConnection = new MockWebConnection();
+    final List<String> confirmMessages = new ArrayList<String>();
+    webClient.setAlertHandler(new CollectingAlertHandler());       #B
+    webClient.setConfirmHandler((page, message) -> {
+        confirmMessages.add(message);
+        return true;
+    });
+    mockConnection.setResponse(testUrl, html);
+    webClient.setWebConnection(mockConnection);
+ 
+    HtmlPage firstPage = webClient.getPage(testUrl);
+    WebAssert.assertTitleEquals(firstPage, "Hello");
+    assertArrayEquals(new String[] { "Confirm Message" },          #C
+                  confirmMessages.toArray());                      #C
+    assertArrayEquals(new String[] { "true" },                     #D
+                  ((CollectingAlertHandler)                        #D
+                   webClient.getAlertHandler())                    #D
+                  .getCollectedAlerts().toArray());                #D
+  }
+}
+```
+
+## 15.4  Introducing Selenium
+
+​	Selenium is a free open-source tool suite used to test web applications. Selenium’s strength lies in its ability to run tests against a real browser on a specific operating system, this is unlike HtmlUnit, which emulates the browser in the same VM (Virtual Machine) as your tests. Selenium lets you write tests in a few programming languages, including Java with JUnit 5.
+
+![](https://pic.imgdb.cn/item/613f126144eaada73920cbe1.jpg)
+
+Selenium WebDriver includes the following four components:
+
+1. Selenium Client Libraries - Selenium supports multiple libraries for programming languages as Java, C#, PHP, Python, Ruby, etc.
+
+2. JSON Wire Protocol Over HTTP - JSON (JavaScript Object Notation) is used to transfer data between servers and clients on the web. JSON Wire Protocol is a REST API that transfers the information to the HTTP server. Each WebDriver (such as FirefoxDriver, ChromeDriver, InternetExplorerDriver, etc.) has its own HTTP server.
+
+3. Browser Drivers - Each browser contains a separate browser driver. Browser drivers communicate with the respective browser without revealing the internal logic of the browser functionality. When a browser driver has received any command, then that command will be executed on the respective browser and the response will go back in the form of an HTTP response.
+
+4. Browsers - Selenium supports multiple browsers such as Firefox, Chrome, Internet Explorer, Safari, etc.
+
+## 15.5  Writing Selenium Tests
+
+```xml
+<dependency>
+     <groupId>org.seleniumhq.selenium</groupId>
+     <artifactId>selenium-java</artifactId>
+     <version>3.141.59</version>
+</dependency>
+```
+
+**Table 15.2 Browsers supported by Selenium**
+
+| Web Browser       | Browser driver class   |
+| ----------------- | ---------------------- |
+| Google Chrome     | ChromeDriver           |
+| Internet Explorer | InternetExplorerDriver |
+| Safari            | SafariDriver           |
+| Opera             | OperaDriver            |
+| Firefox           | FirefoxDriver          |
+| Edge              | EdgeDriver             |
+
+​	For our demonstration purposes, we are going to use three of the most popular browsers: Google Chrome, Internet Explorer and Mozilla Firefox. So, we have downloaded the Selenium drivers for them and copied them into a dedicated folder, as shown in fig. 15.3.
+
+![](https://pic.imgdb.cn/item/613f154444eaada739241b5b.jpg)
+
+​	Please note that you will need exactly the driver corresponding to the browser installed on your computer. For example, if your Google Chrome version is 79, you will be able to use only version 79 of the driver. Versions as 77, 78 or 80 will not work.
+
+​	We need to include the folder with the Selenium drivers on the path of the operating system. On Windows, the most used operating system, you can do this by accessing This PC -> Properties -> Advanced system settings -> Environment variables -> Path -> Edit (fig. 15.4). For doing the same on other operating systems, consult their documentation.
+
+![](https://pic.imgdb.cn/item/613f15d544eaada73924d885.jpg)
+
+### 15.5.1  Testing for a specific web browser
+
+**Listing 15.14 Accessing the Manning and the Google homepages with Chrome**
+
+```java
+public class ChromeSeleniumTest {
+ 
+    private WebDriver driver;                                               #A
+ 
+    @BeforeEach
+    void setUp() {
+        driver = new ChromeDriver();                                        #B
+    }
+ 
+    @Test
+    void testChromeManning() {
+        driver.get("https://www.manning.com/");                             #C
+        assertThat(driver.getTitle(), is("Manning | Home"));                #C
+    }
+    
+    @Test
+    void testChromeGoogle() {
+        driver.get("https://www.google.com");                               #D
+        assertThat(driver.getTitle(), is("Google"));                        #D
+    }
+ 
+ 
+    @AfterEach
+    void tearDown() {
+        driver.quit();                                                      #E
+    }
+}
+```
+
+**Listing 15.15 Accessing the Manning and the Google homepages with Firefox**
+
+```java
+public class FirefoxSeleniumTest {
+ 
+    private WebDriver driver;                                              #A’
+ 
+    @BeforeEach
+    void setUp() {
+        driver = new FirefoxDriver();                                      #B’
+    }
+ 
+    @Test
+    void testFirefoxManning() {
+        driver.get("https://www.manning.com/");                            #C’
+        assertThat(driver.getTitle(), is("Manning | Home"));               #C’
+    }
+ 
+    @Test
+    void testFirefoxGoogle() {
+        driver.get("https://www.google.com");                              #D’
+        assertThat(driver.getTitle(), is("Google"));                       #D’
+    }
+ 
+    @AfterEach
+    void tearDown() {
+        driver.quit();                                                     #E’
+    }
+}
+```
+
+### 15.5.2  Testing navigation using a web browser
+
+**Listing 15.16 Finding an element on a page with Firefox**
+
+```java
+public class WikipediaAccessTest {
+ 
+    private RemoteWebDriver driver;                                         #A
+ 
+    @BeforeEach
+    void setUp() {
+        driver = new FirefoxDriver();                                       #B
+    }
+ 
+    @Test
+    void testWikipediaAccess() {
+        driver.get("https://en.wikipedia.org/");                            #C
+        assertThat(driver.getTitle(),                                       #C
+                    is("Wikipedia, the free encyclopedia"));                #C
+ 
+        WebElement contents = driver.findElementByLinkText("Contents");     #D
+        assertTrue(meap.isDisplayed());                                     #D
+ 
+        contents.click();                                                   #E
+        assertThat(driver.getTitle(),                                       #E
+                             is("Wikipedia:Contents - Wikipedia "));        #E
+    }
+ 
+    @AfterEach
+    void tearDown() {
+        driver.quit();                                                      #F
+    }
+}
+```
+
+### 15.5.3  Testing more than one web browser
+
+```
+public class MultiBrowserSeleniumTest {
+ 
+    public static Collection<WebDriver> getBrowserVersions() {              #A
+        return Arrays.asList(new WebDriver[] {new FirefoxDriver(), new      #A
+               ChromeDriver(), new InternetExplorerDriver()});              #A
+    }                                                                       #A
+ 
+    @ParameterizedTest                                                      #B
+    @MethodSource("getBrowserVersions")                                     #B
+    void testManningAccess(WebDriver driver) {
+        driver.get("https://www.manning.com/");                             #C
+        assertThat(driver.getTitle(), is("Manning | Home"));                #C
+        driver.quit();                                                      #D
+    }
+ 
+    @ParameterizedTest                                                      #B
+    @MethodSource("getBrowserVersions")                                     #B
+    void testGoogleAccess(WebDriver driver) {
+        driver.get("https://www.google.com");                               #E
+        assertThat(driver.getTitle(), is("Google"));                        #E
+        driver.quit();                                                      #F
+    }
+ 
+}
+```
+
+### 15.5.4  Testing Google search and navigation using different web browsers
+
+**Listing 15.18 Testing Google search and navigating inside the Wikipedia website**
+
+```java
+public class GoogleSearchTest {
+ 
+    public static Collection<RemoteWebDriver> getBrowserVersions() {        #A
+        return Arrays.asList(new RemoteWebDriver[] {new FirefoxDriver(),    #A
+             new ChromeDriver(), new InternetExplorerDriver()});            #A
+    }                                                                       #A
+ 
+    @ParameterizedTest                                                      #B
+    @MethodSource("getBrowserVersions")                                     #B
+    void testGoogleSearch(RemoteWebDriver driver) {
+        driver.get("http://www.google.com");                                #C
+        WebElement element = driver.findElement(By.name("q"));              #C
+        element.sendKeys("en.wikipedia.org");                               #D
+        driver.findElement(By.name("q")).sendKeys(Keys.ENTER);              #D
+ 
+        WebElement myDynamicElement = (new WebDriverWait(driver, 10))       #E
+                 .until(ExpectedConditions                                  #E
+                 .presenceOfElementLocated(By.id("resultStats")));          #E
+ 
+        List<WebElement> findElements =                                     #F
+                driver.findElements(By.xpath("//*[@id='rso']//a/h3"));      #F
+ 
+        findElements.get(0).click();                                        #G
+ 
+        assertEquals("https://en.wikipedia.org/wiki/Main_Page",             #G
+                            driver.getCurrentUrl());                        #G
+        assertThat(driver.getTitle(),                                       #G
+                    is("Wikipedia, the free encyclopedia"));                #G
+ 
+        WebElement contents = driver.findElementByLinkText("Contents");     #H
+        assertTrue(contents.isDisplayed());                                 #H
+        
+        contents.click();                                                   #I
+        assertThat(driver.getTitle(),                                       #I
+                              is("Wikipedia:Contents - Wikipedia"));        #I
+ 
+        driver.quit();                                                      #J
+    }
+}
+```
+
+![](https://pic.imgdb.cn/item/613f19db44eaada73929f7af.jpg)
+
+### 15.5.5  Testing the authentication scenario to a website
+
+![](https://pic.imgdb.cn/item/613f19fb44eaada7392a1cbd.jpg)
+
+```java
+public class Homepage {
+    private WebDriver webDriver;                                            #A
+ 
+    public Homepage(WebDriver webDriver) {
+        this.webDriver = webDriver;                                         #B
+    }
+ 
+    public LoginPage openFormAuthentication() {
+        webDriver.get("https://the-internet.herokuapp.com/");               #C
+        webDriver.findElement(By.cssSelector("[href=\"/login\"]"))          #D
+                 .click();
+        return new LoginPage(webDriver);                                    #E
+    }
+}
+```
+
+![](https://pic.imgdb.cn/item/613f1a7544eaada7392aa817.jpg)
+
+**Listing 15.20 The class describing the login page of the tested website**
+
+```java
+public class LoginPage {
+ 
+    private WebDriver webDriver;                                            #A
+ 
+    public LoginPage(WebDriver webDriver) {
+        this.webDriver = webDriver;                                         #B
+    }
+ 
+    public LoginPage loginWith(String username, String password) {
+        webDriver.findElement(By.id("username")).sendKeys(username);        #C
+        webDriver.findElement(By.id("password")).sendKeys(password);        #C
+        webDriver.findElement(By.cssSelector("#login button")).click();     #D
+ 
+        return this;                                                        #E
+    }
+ 
+    public void thenLoginSuccessful() {
+        assertTrue(webDriver                                                #F
+                  .findElement(By.cssSelector("#flash.success"))            #F
+                  .isDisplayed());                                          #F
+        assertTrue(webDriver                                                #F
+                   .findElement(By.cssSelector("[href=\"/logout\"]"))       #F
+                   .isDisplayed());                                         #F
+    }
+ 
+    public void thenLoginUnsuccessful() {
+        assertTrue(webDriver.findElement(By.id("username")).isDisplayed()); #G
+        assertTrue(webDriver.findElement(By.id("password")).isDisplayed()); #G
+    }
+}
+```
+
+![](https://pic.imgdb.cn/item/613f1b0944eaada7392b5f06.jpg)
+
+**Listing 15.21 The successful and unsuccessful login tests**
+
+```java
+public class LoginTest {
+ 
+    private Homepage homepage;                                              #A
+ 
+    public static Collection<WebDriver> getBrowserVersions() {              #B
+        return Arrays.asList(new WebDriver[] {new FirefoxDriver(),          #B
+               new ChromeDriver(), new InternetExplorerDriver()});          #B
+    }                                                                       #B
+ 
+    @ParameterizedTest                                                      #C
+    @MethodSource("getBrowserVersions")                                     #C
+    public void loginWithValidCredentials(WebDriver webDriver) {            #C
+        homepage = new Homepage(webDriver);                                 #D
+        homepage                                                            #E
+                .openFormAuthentication()                                   #E
+                .loginWith("tomsmith", "SuperSecretPassword!")              #E
+                .thenLoginSuccessful();                                     #E
+        webDriver.quit();                                                   #G
+    }
+ 
+    @ParameterizedTest                                                      #C
+    @MethodSource("getBrowserVersions")                                     #C
+    public void loginWithInvalidCredentials(WebDriver webDriver) {          #C
+        homepage = new Homepage(webDriver);                                 #D
+        homepage                                                            #F
+                .openFormAuthentication()                                   #F
+                .loginWith("tomsmith", "SuperSecretPassword")               #F
+                .thenLoginUnsuccessful();                                   #F
+        webDriver.quit();                                                   #G
+    }
+}
+```
+
+## 15.6  HtmlUnit vs. Selenium
+
+​	The major difference between the two is that HtmlUnit emulates a specific web browser while Selenium drives a real web browser process.
+
+Finally:
+
+> Use HtmlUnit when…
+>
+> Use HtmlUnit when your application is independent of operating system features and browser-specific implementations not accounted for by HtmlUnit.
+
+ 
+
+> Use Selenium when…
+>
+> Use Selenium when you require validation of specific browsers and operating systems, especially if the application takes advantage of or depends on a browser-specific implementation.
+
+# 16. Testing Spring applications
+
+```java
+public class SimpleAppTest {                                                #A
+   
+   private static final String APPLICATION_CONTEXT_XML_FILE_NAME =          #B
+          "classpath:application-context.xml";                              #B
+ 
+   private ClassPathXmlApplicationContext context;                          #C
+ 
+   private Passenger expectedPassenger;                                     #D
+ 
+   @Before
+   public void setUp() {
+      context = new ClassPathXmlApplicationContext(                         #E
+            APPLICATION_CONTEXT_XML_FILE_NAME);                             #E
+      expectedPassenger = getExpectedPassenger();                           #F
+   }
+ 
+   @Test
+   public void testInitPassenger() {
+      Passenger passenger = (Passenger) context.getBean("passenger");       #G
+      assertEquals(expectedPassenger, passenger);                           #H
+   }
+ 
+}
+```
+
+### 16.3.2  Using the Spring TestContext framework
+
+```java
+@RunWith(SpringJUnit4ClassRunner.class)                                     #A
+@ContextConfiguration("classpath:application-context.xml")                  #B
+public class SpringAppTest {
+   
+   @Autowired                                                               #C
+   private Passenger passenger;                                             #C
+   private Passenger expectedPassenger;
+   
+ 
+   @Before
+   public void setUp() {
+      expectedPassenger = getExpectedPassenger();
+   }
+ 
+   @Test
+   public void testInitPassenger() {
+      assertEquals(expectedPassenger, passenger);
+   }
+ 
+}
+```
+
+## 16.4  Using the SpringExtension for JUnit Jupiter
+
+**Listing 16.12 The pom.xml file with the Spring 5 and JUnit 5 dependencies**
+
+```xml
+<dependency>                                                                #A
+    <groupId>org.springframework</groupId>                                  #A
+    <artifactId>spring-context</artifactId>                                 #A
+    <version>5.2.0.RELEASE</version>                                        #A
+</dependency>                                                               #A
+<dependency>                                                                #B
+    <groupId>org.springframework</groupId>                                  #B
+    <artifactId>spring-test</artifactId>                                    #B
+    <version>5.2.0.RELEASE</version>                                        #B
+</dependency>                                                               #B
+<dependency>                                                                #C
+    <groupId>org.junit.jupiter</groupId>                                    #C
+    <artifactId>junit-jupiter-api</artifactId>                              #C
+    <version>5.6.0</version>                                                #C
+    <scope>test</scope>                                                     #C
+</dependency>                                                               #C
+<dependency>                                                                #D
+    <groupId>org.junit.jupiter</groupId>                                    #D
+    <artifactId>junit-jupiter-engine</artifactId>                           #D
+    <version>5.6.0</version>                                                #D
+    <scope>test</scope>                                                     #D
+</dependency>                                                               #D
+```
+
+**Listing 16.13 The SpringAppTest class**
+
+```java
+@ExtendWith(SpringExtension.class)                                          #A
+@ContextConfiguration("classpath:application-context.xml")                  #B
+public class SpringAppTest {
+   
+   @Autowired                                                               #C
+   private Passenger passenger;                                             #C
+   private Passenger expectedPassenger;
+   
+   @BeforeEach                                                              #D
+   public void setUp() {
+      expectedPassenger = getExpectedPassenger();
+   }
+ 
+   @Test
+   public void testInitPassenger() {
+      assertEquals(expectedPassenger, passenger);
+      System.out.println(passenger);
+   }
+}
+```
+
+## 16.5  Adding a new feature and testing it with JUnit 5
+
