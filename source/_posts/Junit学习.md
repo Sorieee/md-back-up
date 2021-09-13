@@ -5299,3 +5299,123 @@ public class SpringAppTest {
 
 ## 16.5  Adding a new feature and testing it with JUnit 5
 
+​	略。
+
+# 17.Testing Spring Boot applications
+
+略
+
+# 18.Testing a REST API
+
+```java
+@SpringBootTest                                                             #A
+@AutoConfigureMockMvc                                                       #B
+@Import(FlightBuilder.class)                                                #C
+public class RestApplicationTest {
+ 
+    @Autowired                                                              #D
+    private MockMvc mvc;                                                    #D
+ 
+    @Autowired                                                              #E
+    private Flight flight;                                                  #E
+ 
+    @Autowired                                                              #E
+    private Map<String, Country> countriesMap;                              #E
+ 
+    @MockBean                                                               #F
+    private PassengerRepository passengerRepository;                        #F
+ 
+ 
+    @MockBean                                                               #F
+    private CountryRepository countryRepository;                            #F
+ 
+    @Test
+    void testGetAllCountries() throws Exception {
+        when(countryRepository.findAll()).thenReturn(new                    #G
+               ArrayList<>(countriesMap.values()));                         #G
+        mvc.perform(get("/countries"))                                      #H
+           .andExpect(status().isOk())                                      #I
+           .andExpect(content().contentType(MediaType.APPLICATION_JSON))    #I
+           .andExpect(jsonPath("$", hasSize(3)));                           #I
+ 
+        verify(countryRepository, times(1)).findAll();                      #J
+    }
+ 
+    @Test
+    void testGetAllPassengers() throws Exception {
+        when(passengerRepository.findAll()).thenReturn(new                  #K
+             ArrayList<>(flight.getPassengers()));                          #K
+ 
+        mvc.perform(get("/passengers"))                                     #L
+           .andExpect(status().isOk())                                      #L
+           .andExpect(content().contentType(MediaType.APPLICATION_JSON))    #L
+           .andExpect(jsonPath("$", hasSize(20)));                          #L
+ 
+        verify(passengerRepository, times(1)).findAll();                    #M
+    }
+ 
+    @Test
+    void testPassengerNotFound() {
+        Throwable throwable = assertThrows(NestedServletException.class,    #N
+                  () -> mvc.perform(get("/passengers/30"))                  #N
+                               .andExpect(status().isNotFound()));          #N
+        assertEquals(PassengerNotFoundException.class,                      #O
+                     throwable.getCause().getClass());                      #O
+    }
+ 
+    @Test
+    void testPostPassenger() throws Exception {
+ 
+        Passenger passenger = new Passenger("Peter Michelsen");             #P
+        passenger.setCountry(countriesMap.get("US"));                       #P
+        passenger.setIsRegistered(false);                                   #P
+        when(passengerRepository.save(passenger))                           #P
+            .thenReturn(passenger);                                         #P
+ 
+        mvc.perform(post("/passengers")                                     #Q
+            .content(new ObjectMapper().writeValueAsString(passenger))      #Q
+            .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON))  #Q
+           .andExpect(status().isCreated())                                 #Q
+           .andExpect(jsonPath("$.name", is("Peter Michelsen")))            #Q
+           .andExpect(jsonPath("$.country.codeName", is("US")))             #Q
+           .andExpect(jsonPath("$.country.name", is("USA")))                #Q
+           .andExpect(jsonPath("$.registered", is(Boolean.FALSE)));         #Q
+ 
+   verify(passengerRepository, times(1)).save(passenger);                   #R
+  }
+ 
+  @Test
+  void testPatchPassenger() throws Exception {
+      Passenger passenger = new Passenger("Sophia Graham");                 #S
+      passenger.setCountry(countriesMap.get("UK"));                         #S
+      passenger.setIsRegistered(false);                                     #S
+      when(passengerRepository.findById(1L))                                #S
+           .thenReturn(Optional.of(passenger));                             #S
+      when(passengerRepository.save(passenger))                             #T
+           .thenReturn(passenger);                                          #T
+      String updates =                                                      #U
+        "{\"name\":\"Sophia Jones\", \"country\":\"AU\",                    #U
+         \"isRegistered\":\"true\"}";                                       #U
+ 
+      mvc.perform(patch("/passengers/1")                                    #U
+          .content(updates)                                                 #U
+          .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON))    #U
+          .andExpect(content().contentType(MediaType.APPLICATION_JSON))     #U
+          .andExpect(status().isOk());
+ 
+      verify(passengerRepository, times(1)).findById(1L);                   #V
+      verify(passengerRepository, times(1)).save(passenger);                #V
+  }
+ 
+  @Test
+  public void testDeletePassenger() throws Exception {
+ 
+      mvc.perform(delete("/passengers/4"))                                  #W
+             .andExpect(status().isOk());                                   #W
+ 
+      verify(passengerRepository, times(1)).deleteById(4L);                 #X
+  }
+ 
+}
+```
+
