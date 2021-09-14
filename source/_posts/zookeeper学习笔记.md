@@ -2622,3 +2622,858 @@ zk.multi(Arrays.asList(Op.check("/master-path", stat.getVersion()),
 
 ​	另一方面需要注意的问题，就是当服务端一侧通过监视点产生的状态变化。设置一个监视点需要在服务端创建一个Watcher对象，根据YourKit（http://www.yourkit.com/）的分析工具所分析，设置一个监视点会使服务端的监视点管理器的内存消耗上增加大约250到300个字节，设置非常多的监视点意味着监视点管理器会消耗大量的服务器内存。例如，如果存在一百万个监视点，估计会消耗0.3GB的内存，因此，开发者必须时刻注意设置的监视点数量。
 
+# 5. 故障处理
+
+​	故障发生的主要点有三个：ZooKeeper服务、网络、应用程序。故障恢复取决于所找到的故障发生的具体位置，不过查找具体位置并不是简单的事情。
+
+![](https://pic.imgdb.cn/item/613fe81344eaada739534ec1.jpg)
+
+​	图5-2展示了系统的不同组件中可能发生的一些故障。我们更关心如何区分一个应用中不同类型的故障，例如，如果发生网络故障，c1如何区分网络故障和ZooKeeper服务终端之间的区别？如果ZooKeeper服务中只有s1服务器停止运行，其他的ZooKeeper服务器还会继续运行，如果此时没有网络问题，c1可以连接到其他的服务器上。不过，如果c1无法连接到任何服务器，可能是因为当前服务不可用（也许因为集合中大多数服务器停止运行），或因为网络故障导致。
+
+![](https://pic.imgdb.cn/item/613feab344eaada73956d31e.jpg)
+
+​	这个例子展示了并不是所有的基于组件中发生的故障都可以被处理，因此ZooKeeper需要呈现系统视图，同时开发者也基于该视图进行开发。
+
+​	我们再从c2的视角看看图5-2，我们看到网络故障持续足够长的时间将会导致c1与ZooKeeper之间的会话过期，然而即使c1实际上仍然活着，ZooKeeper还是会因为c1无法与任何服务器通信而声明c1已经为不活动状态。如果c1正在监视自己创建的临时性节点，就可以收到c1终止的通知，因此c2也将确认c1已经终止，因为ZooKeeper也是如此通知的，即使在这个场景中c1还活着。
+
+​	在这个场景中，c1无法与ZooKeeper服务进行通信，它自己知道自己活着，但不无法确定ZooKeeper是否声明它的状态是否为终止状态，因此必须以最坏的情况进行假设。如果c1进行其他操作，但已经中止的进程不应该进行其他操作（例如改变外部资源），这样可能会破坏整个系统。如果c1再也无法重新连接到ZooKeeper并发现它的会话已经不再处于活动状态，它需要确保整个系统的其他部分的一致性，并中止或执行重启逻辑，以新的进程实例的方式再次连接。
+
+### 5.1 可恢复的故障
+
+​	ZooKeeper呈现给使用某些状态的所有客户端进程一致性的状态视图。当一个客户端从ZooKeeper获得响应时，客户端可以非常肯定这个响应信息与其他响应信息或其他客户端所接收的响应均保持一致性。有时，ZooKeeper客户端库与ZooKeeper服务的连接会丢失，而且无法提供一致性保障的信息，当客户端库发现自己处于这种情况时，就会使用Disconnected事件和ConnectionLossException异常来表示自己无法了解当前的系统状态。
+
+​	当然，ZooKeeper客户端库会积极地尝试，使自己离开这种情况，它会不断尝试重新连接另一个ZooKeeper服务器，直到最终重新建立了会话。一旦会话重新建立，ZooKeeper会产生一个SyncConnected事件，并开始处理请求。ZooKeeper还会注册之前已经注册过的监视点，并会对失去连接这段时间发生的变更产生监视点事件。
+
+​	Disconnected事件和ConnectionLossException异常的产生的一个典型原因是因为ZooKeeper服务器故障。图5-3展示了这种故障的一个示例。在该例子中，客户端连接到服务器s2，其中s2是两个活动ZooKeeper服务器中的一个，当s2发生故障，客户端的Watcher对象就会收到Disconnected事件，并且，所有进行中的请求都会返回ConnectionLossException异常。整个ZooKeeper服务本身依然正常，因为大多数的服务器仍然处于活动状态，所以客户端会快速与新的服务器重新建立会话。
+
+​	如果客户端没有进行中的请求，这种情况只会对客户端产生很小的影响。紧随Disconnected事件之后为SyncConnected事件，客户端并不会注意到变化，但是，如果存在进行中的请求，连接丢失就会产生很大的影响。
+
+![](https://pic.imgdb.cn/item/613febd544eaada7395855a2.jpg)
+
+​	如果此时客户端正在进行某些请求，比如刚刚提交了一个create操作的请求，当连接丢失发生时，对于同步请求，客户端会得到ConnectionLossException异常，对于异步请求，会得到CONNECTIONLOSS返回码。然而，客户端无法通过这些异常或返回码来判断请求是否已经被处理，如我们所看到的，处理连接丢失会使我们的代码更加复杂，因为应用程序代码必须判断请求是否已经完成。处理连接丢失这种复杂情况，一个非常糟糕的方法是简单处理，当接收到ConnectionLossException异常或CONNECTIONLOSS返回码时，客户端停止所有工作，并重新启动，虽然这样可以使代码更加简单，但是，本可能是一个小影响，却变为重要的系统事件。
+
+​	为了说明上面情况的原因，让我们看一个以90个客户端进程连接到一个由3个服务器组成的ZooKeeper集群的系统。如果应用采用了简单却糟糕的方式，现在有一个ZooKeeper服务器发生故障，30个客户端进程将会关闭，然后重启与ZooKeeper的会话，更糟糕的是，客户端进程在还没有与ZooKeeper连接时就关闭了会话，因此这些会话无法被显式地关闭，ZooKeeper也只能通过会话超时来监测故障。最后结果是三分之一的应用进程重启，重启却被延迟，因为新的进程必须等待之前旧的会话过期后才可以获得锁。换句话说，如果应用正确地处理连接丢失，这种情况只会产生很小的系统损坏。
+
+​	开发者必须知道，当一个进程失去连接后就无法收到ZooKeeper的更新通知，尽管这听起来很没什么，但是一个进程也许会在会话丢失时错过了某些重要的状态变化。图5-4展示了这种情况的例子。客户端c1作为群首，在t2时刻失去了连接，但是并没发现这个情况，直到t4时刻才声明为终止状态，同时，会话在t2时刻过期，在t3时刻另一个进程成为群首，从t2到t4时刻旧的群首并不知道它自己被声明为终止状态，而另一个群首已经接管控制。
+
+![](https://pic.imgdb.cn/item/614009a144eaada73980c693.jpg)
+
+​	如果开发者不仔细处理，旧的群首会继续担当群首，并且其操作可能与新的群首相冲突。因此，当一个进程接收到Disconnected事件时，在重新连接之前，进程需要挂起群首的操作。正常情况下，重新连接会很快发生，如果客户端失去连接持续了一段时间，进程也许会选择关闭会话，当然，如果客户端失去连接，关闭会话也不会使ZooKeeper更快地关闭会话，ZooKeeper服务依然会等待会话过期时间过去以后才声明会话已过期。
+
+**注意：很长的延时与过期**
+
+​	当连接丢失发生时，一般情况都会快速地重新连接到另一个服务器，但是网络中断持续了一段时间可能会导致客户端重新连接ZooKeeper服务的一个长延时。一些开发者想要知道为什么ZooKeeper客户端库没有在某些时刻（比如两倍的会话超时时间）做出判断，够了，自己关闭会话吧。
+
+​	对这个问题有两个答案。首先，ZooKeeper将这种策略问题的决策权交给开发者，开发者可以很容易地实现关闭句柄这种策略。其次，当整个ZooKeeper集合停机时，时间冻结，然而当整个集合恢复了，会话的超时时间被重置，如果使用ZooKeeper的进程挂起在那里，它们会发现长时间超时是因为ZooKeeper长时间的故障，ZooKeeper恢复后，客户端回到之前的正确状态，进程也就不用额外地重启延迟时间。
+
+**已存在的监视点与Disconnected事件**
+
+​	为了使连接断开与重现建立会话之间更加平滑，ZooKeeper客户端库会在新的服务器上重新建立所有已经存在的监视点。当客户端连接ZooKeeper的服务器，客户端会发送监视点列表和最后已知的zxid（最终状态的时间戳），服务器会接受这些监视点并检查znode节点的修改时间戳与这些监视点是否对应，如果任何已经监视的znode节点的修改时间戳晚于最后已知的zxid，服务器就会触发这个监视点。
+
+​	每个ZooKeeper操作都完全符合该逻辑，除了exists。exists操作与其他操作不同，因为这个操作可以在一个不存在的节点上设置监视点，如果我们仔细看前一段中所说的注册监视点逻辑，我们会发现存在一种错过监视点事件的特殊情况。
+
+​	图5-5说明了这种特殊情况，导致我们错过了一个设置了监视点的znode节点的创建事件，客户端监视/event节点的创建事件，然而就在/event被另一个客户端创建时，设置了监视点的客户端与ZooKeeper间失去连接，在这段时间，其他客户端删除了/event，因此当设置了监视点的客户端重新与ZooKeeper建立连接并注册监视点，ZooKeeper服务器已经不存在/event节点了，因此，当处理已经注册的监视点并判断/event的监视时，发现没有/event这个节点，所以就只是注册了这个监视点，最终导致客户端错过了/event的创建事件。因为这种特殊情况，你需要尽量避免监视一个znode节点的创建事件，如果一定要监视创建事件，应尽量监视存活期更长的znode节点，否则这种特殊情况可能会伤害你。
+
+![](https://pic.imgdb.cn/item/61400a5744eaada73981f5b5.jpg)
+
+**注意：自动重连处理危害**
+
+​	有些ZooKeeper的封装库通过简单的补发命令自动处理连接丢失的故障，有些情况这样做完全可以接受，但有些情况可能会导致错误的结果。例如，如果/leader节点用来建立领导权，你的程序在执行create操作建立/leader节点时连接丢失，而盲目地重试create操作会导致第二个create操作执行失败，因为/leader节点已经存在，因此该进程就会假设其他进程获得了领导权。当然，如果你知道这种情况的可能性，也了解封装库如何工作的，你可以识别并处理这种情况。有些库过于复杂，所以，如果你使用到了这种库，最好能理解ZooKeeper的原理以及该库提供给你的保障机制。
+
+### 5.2　不可恢复的故障
+
+​	有时，一些更糟的事情发生，导致会话无法恢复而必须被关闭。这种情况最常见的原因是会话过期，另一个原因是已认证的会话无法再次与ZooKeeper完成认证。这两种情况下，ZooKeeper都会丢弃会话的状态。
+
+​	对这种状态丢失最明显的例子就是临时性节点，这种节点在会话关闭时会被删除。会话关闭时，ZooKeeper内部也会丢弃一些不可见的状态。
+
+​	当客户端无法提供适当的认证信息来完成会话的认证时，或Disconnected事件后客户端重新连接到已过期的会话，就会发生不可恢复的故障。客户端库无法确定自己的会话是否已经失败，如图5-4中所看到的，直到在t4时刻，旧的客户端才已经失去连接，之后被系统其他部分声明为终止状态。
+
+​	处理不可恢复故障的最简单方法就是中止进程并重启，这样可以使进程恢复原状，通过一个新的会话重新初始化自己的状态。如果该进程继续工作，首先必须要清除与旧会话关联的应用内部的进程状态信息，然后重新初始化新的状态。
+
+**注意：从不可恢复故障自动恢复的危害**
+
+​	简单地重新创建ZooKeeper句柄以覆盖旧的句柄，通过这种方式从不可恢复的故障中自动恢复，这听起来很吸引人。事实上，早期ZooKeeper实现就是这么做的，但是早期用户注意到这会引发一些问题。认为自己是群首的一个进程的会话中断，但是在通知其他管理线程它不是群首之前，这些线程通过新句柄操作那些只应该被群首访问的数据。为了保证句柄与会话之间一对一的对应关系，ZooKeeper现在避免了这个问题。有些情况自动恢复机制工作得很好，比如客户端只读取数据某些情况，但是如果客户端修改ZooKeeper中的数据，从会话故障中自动恢复的危害就非常重要。
+
+### 5.3　群首选举和外部资源                                                                                                             
+
+​	ZooKeeper为所有客户端提供了系统的一致性视图，只要客户端与ZooKeeper进行任何交互操作（我们例子中所进行的操作），ZooKeeper都会保持同步。然而，ZooKeeper无法保护与外部设备的交互操作。这种缺乏保护的特殊问题的说明，在实际环境中也经常被发现，常常发生于主机过载的情况下。
+
+​	当运行客户端进程的主机发生过载，就会开始发生交换、系统颠簸或因已经超负荷的主机资源的竞争而导致的进程延迟，这些都会影响与ZooKeeper交互的及时性。一方面，ZooKeeper无法及时地与ZooKeeper服务器发送心跳信息，导致ZooKeeper的会话超时，另一方面，主机上本地线程的调度会导致不可预知的调度：一个应用线程认为会话仍然处于活动状态，并持有主节点，即使ZooKeeper线程有机会运行时才会通知会话已经超时。
+
+​	图5-6通过时间轴展示了这个棘手的问题。在这个例子中，应用程序通过使用ZooKeeper来确保每次只有一个主节点可以独占访问一个外部资源，这是一个很普遍的资源中心化管理的方法，用来确保一致性。在时间轴的开始，客户端c1为主节点并独占方案外部资源。事件发生顺序如下：
+
+1.在t1时刻，因为超载导致与ZooKeeper的通信停止，c1没有响应，c1已经排队等候对外部资源的更新，但是还没收到CPU时钟周期来发送这些更新。
+
+2.在t2时刻，ZooKeeper声明了c1'与ZooKeeper的会话已经终止，同时删除了所有与c1'会话关联的临时节点，包括用于成为主节点而创建的临时性节点。
+
+3.在t3时刻，c2成为主节点。
+
+4.在t4时刻，c2改变了外部资源的状态。
+
+5.在t5时刻，c1'的负载下降，并发送已队列化的更新到外部资源上。
+
+6.在t6时刻，c1与ZooKeeper重现建立连接，发现其会话已经过期且丢掉了管理权。遗憾的是，破坏已经发生，在t5时刻，已经在外部资源进行了更新，最后导致系统状态损坏。
+
+![](https://pic.imgdb.cn/item/61400c0044eaada73984269a.jpg)
+
+​	Apache HBase，作为早期采用ZooKeeper的项目，就遇到了这个问题。HBase通过区域服务器（region server）来管理一个数据库表的区域，数据被存储于分布式文件系统中，HDFS，每个区域服务器可以独占访问自己所管理的区域。HBase的每个特定的区域中，通过ZooKeeper的群首选举来确保每次只有一个区域服务器处于活动状态。
+
+​	区域服务器通过Java开发，占用大量内存，当可用内存越来越少，Java会周期性地执行垃圾回收，找到释放不再使用内存，以便以后分配使用。遗憾的是，当回收大量内存时，偶尔就会出现长时间的垃圾回收周期，导致进程暂停一段时间。HBase社区发现这个时间甚至达到几十秒，就会导致ZooKeeper认为区域服务器已经终止。当垃圾回收完成，区域服务器继续处理，有时候会先进行分布式文件系统的更新操作，这时还可以阻止数据被破坏，因为新的区域服务器接管了被认为是终止状态的区域服务器的管理权。
+
+​	时钟偏移也可能导致类似的问题，在HBase环境中，因系统超载而导致时钟冻结，有时候，时钟偏移会导致时间变慢甚至落后，使得客户端认为自己还安全地处于超时周期之内，因此仍然具有管理权，尽管其会话已经被ZooKeeper置为过期。
+
+​	解决这个问题有几个方法：一个方法是确保你的应用不会在超载或时钟偏移的环境中运行，小心监控系统负载可以检测到环境出现问题的可能性，良好设计的多线程应用也可以避免超载，时钟同步程序可以保证系统时钟的同步。
+
+​	另一个方法是通过ZooKeeper扩展对外部设备协作的数据，使用一种名为隔离（fencing）的技巧，分布式系统中常常使用这种方法用于确保资源的独占访问。
+
+​	我们用一个例子来说明如何通过隔离符号来实现一个简单的隔离。只有持有最新符号的客户端，才可以访问资源。
+
+​	在我们创建代表群首的节点时，我们可以获得Stat结构的信息，其中该结构中的成员之一，czxid，表示创建该节点时的zxid，zxid为唯一的单调递增的序列号，因此我们可以使用czxid作为一个隔离的符号。
+
+​	当我们对外部资源进行请求时，或我们在连接外部资源时，我们还需要提供这个隔离符号，如果外部资源已经接收到更高版本的隔离符号的请求或连接时，我们的请求或连接就会被拒绝。也就是说如果一个主节点连接到外部资源开始管理时，若旧的主节点尝试对外币资源进行某些处理，其请求将会失败，这些请求会被隔离开。即使出现系统超载或时钟偏移，隔离技巧依然可以可靠地工作。
+
+​	图5-7展示了如何通过该技巧解决图5-6的情况。当c1在t1时刻成为群首，创建/leader节点的zxid为3（真实环境中，zxid为一个很大的数字），在连接数据库时使用创建的zxid值作为隔离符号。之后，c1因超载而无法响应，在t2时刻，ZooKeeper声明c1终止，c2成为新的群首。c2使用4所作为隔离符号，因为其创建/leader节点的创建zxid为4。在t3时刻，c2开始使用隔离符号对数据库进行操作请求。在t4时刻，c1'的请求到达数据库，请求会因传入的隔离符号（3）小于已知的隔离符号（4）而被拒绝，因此避免了系统的破坏。
+
+​	不过，隔离方案需要修改客户端与资源之间的协议，需要在协议中添加zxid，外部资源也需要持久化保存来跟踪接收到的最新的zxid。
+
+​	一些外部资源，比如文件服务器，提供局部锁来解决隔离的问题。不过这种锁也有很多限制，已经被ZooKeeper移出并声明终止状态的群首可能仍然持有一个有效的锁，因此会阻止新选举出的群首获取这个锁而导致无法继续，在这种情况下，更实际的做法是使用资源锁来确定领导权，为了提供有用信息的目的，由群首创建/leader节点。
+
+![](https://pic.imgdb.cn/item/61400ca444eaada73984efc9.jpg)
+
+### 5.4 小结
+
+​	在分布式系统中，故障是无法避免的事实。ZooKeeper无法使故障消失，而是提供了处理故障的一套框架。为了更有效地处理故障，开发者在使用ZooKeeper时需要处理状态变化的事件、故障代码以及ZooKeeper抛出的异常。不过，不是所有故障在任何情况下都采用一样的方式去处理，有时开发者需要考虑连接断开的状态，或处理连接断开的异常，因为进程并不知道系统其他部分发生了什么，甚至不知道自己进行中的请求是否已经执行。在连接断开这段时间，进程不能假设系统中的其他部分还在运行中。即使ZooKeeper客户端库与ZooKeeper服务器重新建立了连接，并重新建立监视点，也需要校验之前进行中的请求的结果是否成功执行。
+
+# 6. ZooKeeper注意事项
+
+##  6.1 使用ACL
+
+​	正常情况下，你希望在管理或实施章节看到访问控制的内容，然而，对于ZooKeeper，开发人员往往负责管理访问控制的权限，而不是管理员。这是因为每次创建znode节点时，必须设置访问权限，而且子节点并不会继承父节点的访问权限。访问权限的检查也是基于每一个znode节点的，如果一个客户端可以访问一个znode节点，即使这个客户端无权访问该节点的父节点，仍然可以访问这个znode节点。
+
+​	ZooKeeper通过访问控制表（ACL）来控制访问权限。一个ACL包括以下形式的记录：scheme：auth-info，其中scheme对应了一组内置的鉴权模式，auth-info为对于特定模式所对应的方式进行编码的鉴权信息。ZooKeeper通过检查客户端进程访问每个节点时提交上来的授权信息来保证安全性。如果一个进程没有提供鉴权信息，或者鉴权信息与要请求的znode节点的信息不匹配，进程就会收到一个权限错误。
+
+为了给一个ZooKeeper增加鉴权信息，需要调用addAuthInfo方法，形式如下：
+
+```java
+void addAuthInfo(
+    String scheme,
+    byte auth[]
+    )
+```
+
+其中：
+
+**scheme**
+
+​	表示所采用的鉴权模式。
+
+**auth**
+
+​	表示发送给服务器的鉴权信息。该参数的类型为byte[]类型，不过大部分的鉴权模式需要一个String类型的信息，所以你可以通过String.getBytes（）来将String转换为byte[]。
+
+​	一个进程可以在任何时候调用addAuthInfo来添加鉴权信息。一般情况下，在ZooKeeper句柄创建后就会调用该方法来添加鉴权信息。进程中可以多次调用该方法，为一个ZooKeeper句柄添加多个权限的身份。
+
+#### 6.1.1 内置的鉴权模式
+
+​	ZooKeeper提供了4种内置模式进行ACL的处理。其中一个我们之前已经使用过，通过OPEN_ACL_UNSAFE常量隐式传递了ACL策略，这种ACL使用world作为鉴权模式，使用anyone作为auth-info，对于world这种鉴权模式，只能使用anyone这种auth-info。
+
+​	另一种特殊的内置模式为管理员所使用的super模式，该模式不会被列入到任何ACL中，但可以用于ZooKeeper的鉴权。一个客户端通过super鉴权模式连接到ZooKeeper后，不会被任何节点的ACL所限制。关于super方案的更多内容，请参考10.1.5节。
+
+​	我们通过下面的例子来介绍另外两个鉴权模式。
+
+​	当ZooKeeper以一个空树开始，只有一个znode节点：/，这个节点对所有人开放，我们假设管理员Amy负责配置ZooKeeper服务，Amy创建/apps节点，用于所有使用服务的应用需要创建节点的父节点，她现在需要锁定服务，所以她设置为/和/apps节点设置的ACL为：
+
+------
+
+```
+digest:amy:Iq0onHjzb4KyxPAp8YWOIC8zzwY=, READ | WRITE | CREATE | DELETE | ADMIN
+```
+
+------
+
+​	该ACL只有一条记录，为Amy提供所有访问权限。Amy使用amy作为用户ID信息。
+
+​	digest为内置鉴权模式，该模式的auth-info格式为userid：passwd_digest，当调用addAuthInfo时需要设置ACL和userid：password信息。其中passwd_digest为用户密码的加密摘要。在这个ACL例子中，Iq0onHjzb4KyxPAp8YWOIC8zzwY=为passwd_digest，因此当Amy调用addAuthInfo方法，auth参数传入的为amy：secret字符串的字节数组，Amy使用下面的DigestAuthenticationProvider来为她的账户amy生成摘要信息。
+
+------
+
+```
+java -cp $ZK_CLASSPATH \
+    org.apache.zookeeper.server.auth.DigestAuthenticationProvider amy:secret
+....
+amy:secret->amy:Iq0onHjzb4KyxPAp8YWOIC8zzwY=
+```
+
+------
+
+​	amy：后面生成的字符串为密码摘要信息，也就是我们在ACL记录总使用的信息。当Amy需要向ZooKeeper提供鉴权信息时，她就要使用digest amy：secret。例如，当Amy使用zkCli.sh连接到ZooKeeper，她可以通过以下方式提供鉴权信息：
+
+------
+
+```
+[zk: localhost:2181(CONNECTED) 1] addauth digest amy:secret
+```
+
+------
+
+​	为了避免在后面的例子中写出所有的摘要信息，我们将使用XXXXX作为占位符来简单的表示摘要信息。
+
+​	Amy想要设置一个子树，用于一个名为SuperApp的应用，该应用由开发人员Dom所开发，因此她创建了/apps/SuperApp节点，设置ACL如下：
+
+------
+
+```
+digest:dom:XXXXX, READ | WRITE | CREATE | DELETE | ADMIN
+digest:amy:XXXXX, READ | WRITE | CREATE | DELETE | ADMIN
+```
+
+------
+
+​	该ACL由两条记录组成，一个由Dom使用，一个由Amy使用。这些记录对所有以dom或amy密码信息认证的客户端提供了全部权限。
+
+​	注意，根据ACL中的Dom的记录，他对/apps/SuperApp节点具有ADMIN权限，他有权限修改ACL，这就意味着Dom可以删除Amy访问/apps/SuperApp节点的权限。当然Amy具有super的访问权限，所以她可以随时访问任何znode节点，即使Dom删除了她的访问权限。
+
+​	Dom使用ZooKeeper来保存其应用的配置信息，因此他创建了/apps/SuperApp/config节点来保存配置信息。之后他使用我们在之前例子中介绍的模式OPEN_ACL_UNSAFE来创建znode节点，因为Dom认为/apps和/apps/SuperApp的访问是受限制的，所以也能保护/apps/SuperApp/config节点的访问。我们后面就会看到，这样做称为UNSAFE。
+
+​	我们假设一个名为Gabe的人具有ZooKeeper服务的网络访问权限。因为ACL的策略设置，Gabe无法访问/app或/apps/SuperApp节点，Gabe也无法获取/apps/SuperApp节点的子节点列表。但是，也许Gabe猜测Dom使用ZooKeeper保存配置信息，config这个名字对于配置文件信息也非常显而易见，因此他连接到ZooKeeper服务，调用getData方法获取/apps/SuperApp/config节点的信息。因为该znode节点采用了开放的ACL策略，Gabe可以获取该节点信息。还不止这些，Gabe可以修改、删除该节点，甚至限制/apps/SuperApp/config节点的访问权限。
+
+​	假设Dom意识到这个问题，修改/apps/SuperApp/config节点的ACL策略为：
+
+------
+
+```
+digest:dom:XXXXX, READ | WRITE | CREATE | DELETE | ADMIN
+```
+
+------
+
+​	随着事情的发展，Dom得到一个新的开发人员Nico的帮助，来一同完善SuperApp。Nico需要访问SuperApp的子树，因此Dom修改了子树的ACL策略，将Nico添加进来。新的ACL策略为：
+
+------
+
+```
+digest:dom:XXXXX, READ | WRITE | CREATE | DELETE | ADMIN
+digest:nico:XXXXX, READ | WRITE | CREATE | DELETE | ADMIN
+```
+
+------
+
+​	注意：用户名和密码的摘要信息从何而来？
+
+​	你也许注意到我们用于摘要的用户名和密码似乎凭空而来。实际上确实如此。这些用户名或密码不用对应任何真实系统的标识，甚至用户名也可以重复。也许有另一个开发人员叫Amy，并且开始和Dom和Nico一同工作，Dom可以使用amy：XXXXX来添加她的ACL策略，只是在这两个Amy的密码一样时会发生冲突，因为这样就导致她们俩可以互相访问对方的信息。
+
+​	现在Dom和Nico具有了他们需要完成的SuperApp的所需的访问权限。应用部署到生产环境，然而Dom和Nico并不想提供进程访问ZooKeeper数据时所使用的密码信息，因此他们决定通过SuperApp所运行的服务器的网络地址来限制数据的访问权限。例如所有10.11.12.0/24网络中服务器，因此他们修改了SuperApp子树的znode节点的ACL为：
+
+------
+
+```
+digest:dom:XXXXX, READ | WRITE | CREATE | DELETE | ADMIN
+digest:nico:XXXXX, READ | WRITE | CREATE | DELETE | ADMIN
+ip:10.11.12.0/24, READ
+```
+
+------
+
+​	ip鉴权模式需要提供网络的地址和掩码，因为需要通过客户端的地址来进行ACL策略的检查，客户端在使用ip模式的ACL策略访问znode节点时，不需要调用addAuthInfo方法。
+
+​	现在，任何在10.11.12.0/24网段中运行的ZooKeeper客户端都具有SuperApp子树的znode节点的读取权限。该鉴权模式假设IP地址无法被伪造，这个假设也许并不能适合于所有环境中。
+
+**注意：用户名和密码的摘要信息从何而来？**
+
+​	你也许注意到我们用于摘要的用户名和密码似乎凭空而来。实际上确实如此。这些用户名或密码不用对应任何真实系统的标识，甚至用户名也可以重复。也许有另一个开发人员叫Amy，并且开始和Dom和Nico一同工作，Dom可以使用amy：XXXXX来添加她的ACL策略，只是在这两个Amy的密码一样时会发生冲突，因为这样就导致她们俩可以互相访问对方的信息。
+
+​	现在Dom和Nico具有了他们需要完成的SuperApp的所需的访问权限。应用部署到生产环境，然而Dom和Nico并不想提供进程访问ZooKeeper数据时所使用的密码信息，因此他们决定通过SuperApp所运行的服务器的网络地址来限制数据的访问权限。例如所有10.11.12.0/24网络中服务器，因此他们修改了SuperApp子树的znode节点的ACL为：
+
+------
+
+```
+digest:dom:XXXXX, READ | WRITE | CREATE | DELETE | ADMIN
+digest:nico:XXXXX, READ | WRITE | CREATE | DELETE | ADMIN
+ip:10.11.12.0/24, READ
+```
+
+------
+
+​	ip鉴权模式需要提供网络的地址和掩码，因为需要通过客户端的地址来进行ACL策略的检查，客户端在使用ip模式的ACL策略访问znode节点时，不需要调用addAuthInfo方法。
+
+​	现在，任何在10.11.12.0/24网段中运行的ZooKeeper客户端都具有SuperApp子树的znode节点的读取权限。该鉴权模式假设IP地址无法被伪造，这个假设也许并不能适合于所有环境中。
+
+#### 6.1.2 SASL和Kerberos
+
+​	前一节中的例子还有几个问题。首先，如果新的开发人员加入或离开组，管理员就需要改变所有的ACL策略，如果我们通过组来避免这种情况，那么事情就会好一些。其次，如果我们想修改某写开发人员的密码，我们也需要修改所有的ACL策略。最后，如果网络不可信，无论是digest模式还是ip模式都不是最合适的模式。我们可以通过使用ZooKeeper提供的sasl模式来解决这些问题。
+
+​	SASL表示简单认证与安全层（Simple Authentication and Security Layer）。SASL将底层系统的鉴权模型抽象为一个框架，因此应用程序可以使用SASL框架，并使用SASL支持多各种协议。在ZooKeeper中，SASL常常使用Kerberos协议，该鉴权协议提供之前我们提到的那些缺失的功能。在使用SASL模式时，使用sasl作为模式名，id则使用客户端的Kerberos的ID。
+
+​	SASL是ZooKeeper的扩展鉴权模式，因此，需要通过配置参数或Java系统中参数激活该模式。如果你采用ZooKeeper的配置文件方式，需要使用authProvider.XXX配置参数，如果你想要通过系统参数方式，需要使用zookeeper.authProvider.XXX作为参数名。这两种情况下，XXX可以为任意值，只要没有任何重名的authProvider，一般XXX采用以0开始的一个数字。配置项的参数值为org.apache.zookeeper.server.auth.SASLAuthenticationProvider，这样就可以激活SASL模式。
+
+#### 6.1.3 增加新鉴权模式
+
+​	ZooKeeper中还可以使用其他的任何鉴权模式。对于激活新的鉴权模式来说只是简单的编码问题。在org.apache.zookeeper.server.auth包中提供了一个名为AuthenticationProvider的接口类，如果你实现你自己的鉴权模式，你可以将你的类发布到服务器的classpath下，创建zookeeper.authProvider名称前缀的Java系统参数，并将参数值设置为你实现AuthenticationProvider接口的实际的类名。
+
+### 6.2 恢复会话
+
+​	假如你的ZooKeeper客户端崩溃，之后恢复运行，应用程序在恢复运行后需要处理一系列问题。首先，应用程序的ZooKeeper状态还处于客户端崩溃时的状态，其他客户端进程还在继续运行，也许已经修改了ZooKeeper的状态，因此，建议客户端不要使用任何之前从ZooKeeper获取的缓存状态，而是使用ZooKeeper作为协作状态的可信来源。
+
+​	例如，在我们的主从实现中，如果主要主节点崩溃并恢复，与此同时，集群也许已经对分配的任务完成了切换到备份主节点的故障转移。当主要主节点恢复后，就不能再认为自己是主节点，并认为待分配任务列表已经发生变化。
+
+​	第二个重要问题是客户端崩溃时，已经提交给ZooKeeper的待处理操作也许已经完成了，由于客户端崩溃导致无法收到确认消息，ZooKeeper无法保证这些操作肯定会成功执行，因此，客户端在恢复时也许需要进行一些ZooKeeper状态的清理操作，以便完成某些未完成的任务。例如，如果我们的主节点崩溃前进行了一个已分配任务的列表删除操作，在恢复并再次成为主要主节点时，就需要再次删除该任务。
+
+​	尽管到目前为止我们讨论的都是客户端崩溃的案例，本节中还需要讨论会话过期的问题。对于会话过期，不能认为是客户端崩溃。会话也许因为网络问题或其他问题过期，比如Java中的垃圾回收中断，在会话过期的情况下，客户端需要考虑ZooKeeper状态也许已经发生了改变，或者客户端对ZooKeeper的请求也许并未完成。
+
+### 6.3 当znode节点重新创建时，重置版本号
+
+​	这个话题似乎是显而易见的，但还是要再次强调，znode节点被删除并重建后，其版本号将会被重置。如果应用程序在一个znode节点重建后，进行版本号检查会导致错误的发生。
+
+​	假设客户端获取了一个znode节点（如：/z）的数据，改变该节点的数据，并基于版本号为1的条件进行回写，如果在客户端更新该节点数据时，znode节点被删除并重建了，版本号还是会匹配，但现在也许保存的是错误的数据了。
+
+​	另一种可能的情况，在一个znode节点删除中和重建中，对于znode节点发生的变化的情况。此时进行节点的更新操作，setData操作永远不会修改znode节点的数据，这种情况下，通过检查版本号并不能提供znode节点的变化情况，znode节点也许会被更新任意次，但其版本号仍然为0。
+
+### 6.4 sync方法
+
+​	如果应用客户端只对ZooKeeper的读写来通信，应用程序就不用考虑sync方法。sync方法的设计初衷，是因为与ZooKeeper的带外通信可能会导致某些问题，这种通信常常称为隐蔽通道（hidden channel），在4.7节中我们已经对此问题进行过解释。问题主要源于一个客户端c也许通过某些直接通道（例如，c和c'之间通过TCP连接进行通讯）来通知另一个客户端c进行ZooKeeper状态变化，但是当c读取ZooKeeper的状态时，却并未发现变化情况。
+
+​	这一场景发生的原因，可能因为这个客户端所连接的服务器还没来得及处理变化情况，而sync方法可以用于处理这种情况。sync为异步调用的方法，客户端在读操作前调用该方法，假如客户端从某些直接通道收到了某个节点变化的通知，并要读取这个znode节点，客户端就可以通过sync方法，然后再调用getData方法：
+
+------
+
+```
+...
+zk.sync(path, voidCb, ctx);①
+zk.getData(path, watcher, dataCb, ctx);②
+...
+```
+
+------
+
+​	①sync方法接受一个path参数，一个void返回类型的回调方法的示例，一个上下文对象实例。
+
+​	②getData方法与之前介绍的调用方式一样。
+
+​	sync方法的path参数指示需要进行操作的路径。在系统内部，sync方法实际上并不会影响ZooKeeper，当服务端处理sync调用时，服务端会刷新群首与调用sync操作的客户端c所连接的服务端之间的通道，刷新的意思就是说在调用getData的返回数据的时候，服务端确保返回所有客户端c调用sync方法时所有可能的变化情况。在上面的隐蔽通道的情况中，变化情况的通信会先于sync操作的调用而发生，因此当c收到getData调用的响应，响应中必然会包含c'所通知的变化情况。注意，在此时该节点也可能发生了其他变化，因此在调用getData时，ZooKeeper只保证所有变化情况能够返回。
+
+​	使用sync还有一个注意事项，这个需要深入ZooKeeper内部的技术问题（你可以选择跳过此部分）。因为ZooKeeper的设计初衷是用于快速读取以及以读为主要负载的扩展性考虑，所以简化了sync的实现，同时与其他常规的更新操作（如create、setData或delete）不同，sync操作并不会进入执行管道之中。sync操作只是简单地传递到群首，之后群首会将响应包队列化，传递给群组成员，之后发送响应包。不过还有另外一种可能，仲裁机制确定的群首l'，现在已经不被仲裁组成员所认可，仲裁组成员现在选举了另个群首l'，在这种情况下，群首l可能无法处理所有的更新操作的同步，而sync调用也就可能无法履行其保障。
+
+​	ZooKeeper的实现中，通过以下方式处理上面的问题，ZooKeeper中的仲裁组成员在放弃一个群首时会通知该群首，通过群首与群组成员之间的tickTime来控制超时时间，当它们之间的TCP连接丢失，群组成员在收到socket的异常后就会确定群首是否已经消失。群首与群组成员之间的超时会快于TCP连接的中止，虽然的确存在这种极端情况导致错误的可能，但是在我们现有经验中还未曾遇到过。
+
+​	在邮件列表的讨论组中，曾经多次讨论过该问题，希望将sync操作放入执行管道，并可以一并消除这种极端情况。就目前来看，ZooKeeper的实现依赖于合理的时序假设，因此没有什么问题。
+
+### 6.5 顺序性保障
+
+​	虽然ZooKeeper声明对一个会话中所有客户端操作提供顺序性的保障，但还是会存在ZooKeeper控制之外某些情况，可能会改变客户端操作的顺序。开发人员需要注意以下参考信息，以便保证程序按照你所期望的行为执行。我们将会讨论三种情况。
+
+#### 6.5.1 连接丢失时的顺序性
+
+​	对于连接丢失事件，ZooKeeper会取消等待中的请求，对于同步方法的调用客户端库会抛出异常，对于异步请求调用，客户端调用的回调函数会返回结果码来标识连接丢失。在应用程序的连接丢失后，客户端库不会再次重新提交请求，因此就需要应用程序对已经取消的请求进行重新提交的操作。所以，在连接丢失的情况下，应用程序可以依赖客户端库来解决所有后续操作，而不能依赖ZooKeeper来承担这些操作。
+
+​	为了明白连接丢失对应用程序的影响，让我们考虑以下事件顺序：
+
+​	1.应用程序提交请求，执行Op1操作。
+
+​	2.客户端检测到连接丢失，取消了Op1操作的请求。
+
+​	3.客户端在会话过期前重新连接。
+
+​	4.应用程序提交请求，执行Op2操作。
+
+​	5.Op2执行成功。
+
+​	6.Op1返回CONNECTIONLOSS事件。
+
+​	7.应用程序重新提交Op1操作请求。
+
+​	在这种情况中，应用程序按顺序提交了Op1和Op2请求，但Op2却先于Op1成功执行。当应用程序在Op1的回调函数中发现连接丢失情况后，应用程序再次提交请求，但是假设客户端还没有成功重连，再次提交Op1还是会得到连接丢失的返回，因此在重新连接前存在一个风险，即应用程序进入重新提交Op1请求的无限循环中，为了跳出该循环，应用程序可以设置重试的次数，或者在重新连接时间过长时关闭句柄。
+
+​	在某些情况中，确保Op1先于Op2成功执行可能是重要问题。如果Op2在某种程度上依赖与Op1操作，为了避免Op2在Op1之前成功执行，我们可以等待Op1成功执行之后在提交Op2请求，这种方法我们在很多主从应用的示例代码中使用过，以此来保证请求按顺序执行。通常，等待Op1操作结果的方法很安全，但是带来了性能上的损失，因为应用程序需要等待一个请求的操作结果再提交下一个，而不能将这些操作并行化。
+
+​	注意：假如我们摆脱CONNECTIONLOSS会怎样？
+
+​	CONNECTIONLOSS事件的存在的本质原因，因为请求正在处理中，但客户端与服务端失去了连接。比如，对于一个create操作请求，在这种情况下，客户端并不知道请求是否处理完成，然而客户端可以询问服务端来确认请求是否成功执行。服务端可以通过内存或日志中缓存的信息记录，知道自己处理了哪些请求，因此这种方式也是可行的。如果开发社区最终改变了ZooKeeper的设计，在重新连接时服务端访问这些缓存信息，我们就可以取消无法保证前置操作执行成功的限制，因为客户端可以在需要时重新执行待处理的请求。但到目前为止，开发人员还需要注意这一限制，并妥善处理连接丢失的事件。
+
+#### 6.5.2 同步API和多线程的顺序性
+
+​	目前，多线程应用程序非常普遍，如果你在多线程环境中使用同步API，你需要特别注意顺序性问题。一个同步ZooKeeper调用会阻塞运行，直到收到响应信息，如果两个或更多线程向ZooKeeper同时提交了同步操作，这些线程中将会被阻塞，直到收到响应信息，ZooKeeper会顺序返回响应信息，但操作结果可能因线程调度等原因导致后提交的操作而先被执行。如果ZooKeeper返回响应包与请求操作非常接近，你可能会看到以下场景。
+
+​	如果不同的线程同时提交了多个操作请求，可能是一些并不存在某些直接联系的操作，或不会因任意的执行顺序而导致一致性问题的操作。但如果这些操作具有相关性，客户端应用程序在处理结果时需要注意这些操作的提交顺序。
+
+#### 6.5.3 同步和异步混合调用的顺序性
+
+​	还有另外一种可能出现顺序混乱的情况。假如你通过异步操作提交了两个请求，Aop1和Aop2，不管这两个操作具体是什么，只是通过异步提交的两个操作。在Aop1的回调函数中，你进行了一个同步调用，Sop1，该同步调用阻塞了ZooKeeper客户端的分发线程，这样就会导致客户端应用程序接收Sop1的结果之后才能接收到Aop2的操作结果。因此应用程序观察到的操作结果顺序为Aop1、Sop1、Aop2，而实际的提交顺序并非如此。
+
+​	通常，混合同步调用和异步调用并不是好方法，不过也有例外的情况，例如当启动程序时，你希望在处理之前先在ZooKeeper中初始化某些数据，虽然这时可以使用Java锁或其他某些机制处理，但采用一个或多个同步调用也可以完成这项任务。
+
+### 6.6 数据字段和子节点的限制
+
+​	ZooKeeper默认情况下对数据字段的传输限制为1MB，该限制为任何节点数据字段的最大可存储字节数，同时也限制了任何父节点可以拥有的子节点数。选择1MB是随意制定的，在某种意义上来说，没有任何基本原则可以组织ZooKeeper使用其他值，更大或更小的限制。然而设置限制值可以保证高性能。如果一个znode节点可以存储很大的数据，就会在处理时消耗更多的时间，甚至在处理请求时导致处理管道的停滞。如果一个客户端在一个拥有大量子节点的znode节点上执行getChildren操作，也会导致同样的问题。
+
+​	ZooKeeper对数据字段的大小和子节点的数量的默认的限制值已经足够大，你需要避免接近该限制值的使用。我们也可以开启更大的限制值，来满足非常大量的应用的需求，如果你有特殊用途确实需要修改该限制值，你可以通过在10.1.6节所描述的方式来改变该值。
+
+### 6.7 嵌入式ZooKeeper服务器
+
+​	很多开发人员考虑在其应用中嵌入ZooKeeper服务器，以此来隐藏对ZooKeeper的依赖。对于“嵌入式”，我们指在应用内部实例化ZooKeeper服务器的情况。该方法使应用的用户对ZooKeeper的使用透明化，虽然这个主意听起来很吸引人（毕竟谁都不喜欢额外的依赖），但我们还是不建议这样做。我们观察到一些采用嵌入式方式的应用中所遇到的问题，如果ZooKeeper发生错误，用户将会查看与ZooKeeper相关的日志信息，从这个角度看，对用户已经不再是透明化的，而且应用开发人员也许无法处理这些ZooKeeper的问题。甚至更糟的是，整个应用的可用性和ZooKeeper的可用性被耦合在一起，如果其中一个退出，另一个也必然会退出。ZooKeeper常常被用来提供高可用服务，但对于应用中嵌入ZooKeeper的方式却降低了其最强的优势。
+
+​	虽然我们不建议采用嵌入式ZooKeeper服务器，但也没有什么理论阻止一个人这样做，例如，在ZooKeeper测试程序中，因此，如果你真的想要采用这种方式，ZooKeeper的测试程序是一个很好的资源，教你如何去做。
+
+### 6.8 小结
+
+​	有时，使用ZooKeeper进行开发需要非常小心，我们将读者的注意力集中到顺序性的保障和会话的语义学之上，起初这些概念看起来很容易理解，从某种意义上来说，的确是这样，但是在某些重要的极端情况下，开发人员需要小心应对。本章的主要目的就是提供一些开发的指导方针，并涉及某些极端情况的说明。
+
+## 7. C语言客户端
+
+略
+
+## 8. Curator：ZooKeeper API的高级封装库
+
+​	Curator作为ZooKeeper的一个高层次封装库，为开发人员封装了ZooKeeper的一组开发库，Curator的核心目标就是为你管理ZooKeeper的相关操作，将连接管理的复杂操作部分隐藏起来（理想上是隐藏全部）。我们在之前的内容中多次讨论了连接管理有多么棘手，通过Curator有时就可以顺利解决。
+
+​	Curator为开发人员实现了一组常用的管理操作的菜谱，同时结合开发过程中的最佳实践和常见的边际情况的处理。例如，Curator实现了如锁（lock）、屏障（barrier）、缓存（cache）这些原语的菜谱，还实现了流畅（fluent）式的开发风格的接口。流畅式接口能够让我们将ZooKeeper中create、delete、getData等操作以流水线式的编程方式链式执行。同时，Curator还提供了命名空间（namespace）、自动重连和一些其他组件，使得应用程序更加健壮。
+
+​	Curator的详细功能列表请访问该项目网站（http://curator.apache.org/）。
+
+### 8.1 Curator客户端程序
+
+​	与使用ZooKeeper库开发时一样，使用Curator库进行开发，我们首先需要创建一个客户端实例，客户端实例为CuratorFramework类的实例对象，我们通过调用Curator提供的工厂方法来获得该实例：
+
+```java
+CuratorFramework zkc =
+            CuratorFrameworkFactory.newClient(connectString, retryPolicy);
+```
+
+​	注意：我们的例子中，实例化CuratorFramework类作为客户端。事实上，在工厂类中还提供了其他方法来创建实例，但我们并不详细讨论。其中有一个CuratorZooKeeperClient类，该类在ZooKeeper客户端实例上提供了某些附加功能，如保证请求操作在不可预见的连接断开情况下也能够安全执行，与CuratorFramework类不同，CuratorZooKeeperClient类中的操作执行与ZooKeeper客户端句柄直接相对应。
+
+### 8.2　流畅式API
+
+​	流畅式API可以让我们编写链式调用的代码，而不用在进行请求操作时采用严格的签名方案。例如，在标准的ZooKeeper的API中，我们同步创建一个znode节点的方法如下
+
+```java
+zk.create("/mypath",
+          new byte[0],
+          ZooDefs.Ids.OPEN_ACL_UNSAFE,
+          CreateMode.PERSISTENT);
+```
+
+​	在Curator的流畅式API中，我们的调用方式如下：
+
+```java
+zkc.create().withMode(CreateMode.PERSISTENT).forPath("/mypath", new byte[0]);
+```
+
+​	其中create调用返回一个CreateBuilder类的实例，随后调用的返回均为CreateBuilder类所继承的对象。例如，CreateBuilder继承了CreateModable<ACLBackgroundPathAndBytesable<String>>类，而withMode方法中声明了泛型接口CreateModable<T>。在Curator框架的客户端对象实例中，其他的如delete、getData、checkExists和getChildren方法也适用这种Builder模式。
+
+​	对于异步的执行方法，我们只需要增加inBackground：
+
+```java
+zkc.create().inBackground().withMode(CreateMode.PERSISTENT).forPath("/mypath",
+    new byte[0]);
+```
+
+### 8.3 监听器
+
+​	监听器（listener）负责处理Curator库所产生的事件，使用这种机制时，应用程序中会实现一个或多个监听器，并将这些监听器注册到Curator的框架客户端实例中，当有事件发生时，这些事件就会传递给所有已注册的监听器。
+
+​	监听器机制是一种通用模式，在异步处理事件时都可以使用这种机制。我们在前一节中已经讨论过Curator的监听器，Curator使用监听器来处理回调方法和监视通知。该机制也可以用于后台任务产生的异常处理逻辑中。
+
+​	让我们来看一看如何实现一个监听器，在我们Curator主节点的例子中，如何处理所有的回调方法和监视点的通知，首先，我们需要实现一个CuratorListenner接口：
+
+------
+
+```
+CuratorListener masterListener = new CuratorListener() {
+    public void eventReceived(CuratorFramework client, CuratorEvent event) {
+        try {
+            switch (event.getType()) {
+            case CHILDREN:
+                ...
+                break;
+            case CREATE:
+                ...
+                break;
+            case DELETE:
+                ...
+                break;
+            case WATCHED:
+                ...
+                break;
+            }
+        } catch (Exception e) {
+            LOG.error("Exception while processing event.", e);
+            try {
+                close();
+            } catch (IOException ioe) {
+                LOG.error("IOException while closing.", ioe);
+            }
+        }
+    };
+```
+
+------
+
+因为我们只是为了说明监听器实现的结构，所以代码中每种事件的详细操作都被忽略了，对于代码细节，可以通过下载本书的代码示例来查看（https://github.com/fpj/zookeeper-book-example）。
+
+之后，我们需要注册这个监听器，此时，我们需要一个框架客户端实例，创建方式可以采用我们之前所介绍的方式：
+
+------
+
+```
+client = CuratorFrameworkFactory.newClient(hostPort, retryPolicy);
+```
+
+------
+
+现在我们有了框架客户端的实例，接下来注册监听器：
+
+------
+
+```
+client.getCuratorListenable().addListener(masterListener);
+```
+
+------
+
+还有一类比较特殊的监听器，这类监听器负责处理后台工作线程捕获的异常时的错误报告，该类监听器提供了底层细节的处理，不过，也许你在你的应用程序中需要处理这类问题。当应用程序需要处理这些问题时，就必须实现另一个监听器：
+
+------
+
+```
+UnhandledErrorListener errorsListener = new UnhandledErrorListener() {
+    public void unhandledError(String message, Throwable e) {
+        LOG.error("Unrecoverable error: " + message, e);
+        try {
+            close();
+        } catch (IOException ioe) {
+            LOG.warn( "Exception when closing.", ioe );
+        }
+    }
+};
+```
+
+------
+
+同时，将该监听器注册到客户端实例中，如下所示：
+
+------
+
+```
+client.getUnhandledErrorListenable().addListener(errorsListener);
+```
+
+------
+
+注意，我们本节中所讨论的关于将监听器作为事件处理器的实现方式，与在之前的章节中所建议的ZooKeeper应用程序的实现不同（请见4.3节）。之前，我们采用链式调用和回调方法，而且每个回调方法都需要提供一个不同的回调实现，而在Curator实例中，回调方法或监视点通知这些细节均被封装为Event类，这也是更适合使用一个事件处理器的实现方式。
+
+### 8.4 Curator中状态的转换
+
+​	在Curator中暴露了与ZooKeeper不同的一组状态，比如SUSPENDED状态，还有Curator使用LOST来表示会话过期的状态。图8-1中展示了连接状态的状态机模型，当处理状态的转换时，我们建议将所有主节点操作请求暂停，因为我们并不知道ZooKeeper客户端能否在会话过期前重新连接，即使ZooKeeper客户端重新连接成功，也可能不再是主要主节点的角色，因此谨慎处理连接丢失的情况，对应用程序更加安全。
+
+![](https://pic.imgdb.cn/item/61404a7044eaada739ef78da.jpg)
+
+​	在我们的例子中，并未涉及的状态还有一个READ_ONLY状态，当ZooKeeper集群启用了只读模式，客户端所连接的服务器就会进入只读模式中，此时的连接状态也将进入只读模式。服务器转换到只读模式后，该服务器就会因隔离问题而无法与其他服务器共同形成仲裁的最低法定数量，当连接状态为制度模式，客户端也将漏掉此时发生的任何更新操作，因为如果集群中存在一个子集的服务器数量，可以满足仲裁最低法定数量，并可以接收到客户端的对ZooKeeper的更新操作，还是会发生ZooKeeper的更新，也许这个子集的服务器会持续运行很久（ZooKeeper无法控制这种情况），那么漏掉的更新操作可能会无限多。漏掉更新操作的结果可能会导致应用程序的不正确的操作行为，所以，我们强烈建议启用该模式前仔细考虑其后果。注意，只读模式并不是Curator所独有的功能，而是通过ZooKeeper启用该选项（见第10章）。
+
+### 8.5 两种边界情况
+
+​	有两种有趣的错误场景，在Curator中都可以处理得很好，第一种是在有序节点的创建过程中发生的错误情况的处理，第二种为删除一个节点时的错误处理。
+
+**有序节点的情况**
+
+​	如果客户端所连接的服务器崩溃了，但还没来得及返回客户端所创建的有序节点的节点名称（即节点序列号），或者客户端只是连接丢失，客户端没接收到所请求操作的响应信息，结果，客户端并不知道所创建的znode节点路径名称。回忆我们对于有序节点的应用场景，例如，建立一个有序的所有客户端列表。为了解决这个问题，CreateBuilder提供了一个withProtection方法来通知Curator客户端，在创建的有序节点前添加一个唯一标识符，如果create操作失败了，客户端就会开始重试操作，而重试操作的一个步骤就是验证是否存在一个节点包含这个唯一标识符。
+
+**删除节点的保障**
+
+​	在进行delete操作时也可能发生类似情况，如果客户端在执行delete操作时，与服务器之间的连接丢失，客户端并不知道delete操作是否成功执行。如果一个znode节点删除与否表示某些特殊情况，例如，表示一个资源处于锁定状态，因此确保该节点删除才能确保资源的锁定被释放，以便可以再次使用。Curator客户端中提供了一个方法，对应用程序的delete操作的执行提供了保障，Curator客户端会重新执行操作，直到成功为止，或Curator客户端实例不可用时。使用该功能，我们只需要使用DeleteBuilder接口中定义的guaranteed方法。
+
+### 8.6 菜谱
+
+​	Curator提供了很多种菜谱，建议你看一看这些可用的菜谱实现的列表。在我们的Curator主节点例子的实现中，用到了三种菜谱：LeaderLatch、LeaderSelector和PathChildrenCache。
+
+#### 8.6.1 群首闩
+
+​	我们可以在应用程序中使用群首闩（leader latch）这个原语进行主节点选举的操作。首先我们需要创建一个	LeaderLatch的实例：
+
+------
+
+```
+leaderLatch = new LeaderLatch(client, "/master", myId);
+```
+
+------
+
+​	LeaderLatch的构造函数中，需要传入一个Curator框架客户端的实例，一个用于表示集群管理节点的群组的ZooKeeper路径，以及一个表示当前主节点的标识符。为了在Curator客户端获得或失去管理权时能够进行回调处理操作，我们需要注册一个LeaderLatchListener接口的实现，该接口中有两个方法：isLeader和notLeader。以下为isLeader实现的代码：
+
+------
+
+```java
+@Override
+public void isLeader()
+{
+...
+    /*
+     * Start workersCache①
+     */
+    workersCache.getListenable().addListener(workersCacheListener);
+    workersCache.start();
+    (new RecoveredAssignments(
+      client.getZooKeeperClient().getZooKeeper())).recover(
+        new RecoveryCallback() {
+            public void recoveryComplete (int rc, List<String> tasks) {
+                try {
+                    if(rc == RecoveryCallback.FAILED) {
+                        LOG.warn("Recovery of assigned tasks failed.");
+                    } else {
+                        LOG.info( "Assigning recovered tasks" );
+                        recoveryLatch = new CountDownLatch(tasks.size());
+                        assignTasks(tasks);②
+                    }
+                    new Thread( new Runnable() {③
+                        public void run() {
+                            try {
+                            /*
+                             * Wait until recovery is complete
+                             */
+                            recoveryLatch.await();
+                            /*
+                             * Start tasks cache
+                             */
+                            tasksCache.getListenable().
+                                addListener(tasksCacheListener);④
+                            tasksCache.start();
+                            } catch (Exception e) {
+                                LOG.warn("Exception while assigning
+                                         and getting tasks.",
+                                         e  );
+                            }
+                        }
+                    }).start();
+                } catch (Exception e) {
+                    LOG.error("Exception while executing the recovery callback",
+                               e);
+                }
+            }
+        });
+    }
+```
+
+------
+
+​	①我们首先初始化一个从节点缓存列表的实例，以确保有可以分配任务的从节点。
+
+​	②一旦发现存在之前的主节点没有分配完的任务需要分配，我们将继续进行任务分配。
+
+​	③我们实现了一个任务分配的屏障，这样我们就可以在开始分配新任务前，等待已恢复的任务的分配完成，如果我们不这样做，新的主节点会再次分配所有已恢复的任务。我们启动了一个单独的线程进行处理，以便不会锁住ZooKeeper客户端回调线程的运行。
+
+​	④当主节点完成恢复任务的分配操作，我们开始进行新任务的分配操作。
+
+​	我们实现的这个方法作为CuratorMasterLatch类的一部分，而CuratorMasterLatch类为LeaderLatchListener接口的实现类，我们需要在具体流程开始前注册监听器。我们在runForMaster方法中进行这两步操作，同时，我们还将注册另外两个监听器，来处理事件的监听和错误：
+
+------
+
+```
+public void runForMaster() {
+    client.getCuratorListenable().addListener(masterListener);
+    client.getUnhandledErrorListenable().addListener(errorsListener);
+    leaderLatch.addListener(this);
+    leaderLatch.start();
+}
+```
+
+------
+
+​	对于notLeader方法，我们会在主节点失去管理权时进行调用，在本例中，我们只是简单地关闭了所有对象实例，对这个例子来说，这些操作已经足够了。在实际的应用程序中，你也许还需要进行某些状态的清理操作并等待再次成为主节点。如果LeaderLatch对象没有关闭，Curator客户端有可能再次获得管理权。
+
+#### 8.6.2 群首选举器
+
+​	选举主节点时还可以使用的另一个菜谱为LeaderSelector。LeaderSelector和LeaderLatch之间主要区别在于使用的监听器接口不同，其中LeaderSelector使用了LeaderSelectorListener接口，该接口中定义了takeLeadership方法，并继承了stateChanged方法，我们可以在我们的应用程序中使用群首闩原语来进行一个主节点的选举操作，首先我们需要创建一个LeaderSelector实例。
+
+------
+
+```
+leaderSelector = new LeaderSelector(client, "/master", this);
+```
+
+------
+
+​	LeaderSelector的构造函数中，接受一个Curator框架客户端实例，一个表示该主节点所参与的集群管理节点群组的ZooKeeper路径，以及一个LeaderSelectorListener接口的实现类的实例。集群管理节点群组表示所有参与主节点选举的Curator客户端。在LeaderSelectorListener的实现中必须包含takeLeadership方法和stateChanged方法，其中takeLeadership方法用于获取管理权，在我们的例子中，该代码实现与isLeader类似，以下为我们实现的takeLeadership方法：
+
+------
+
+```
+CountDownLatch leaderLatch = new CountDownLatch(1);
+CountDownLatch closeLatch = new CountDownLatch(1);’
+@Override
+public void takeLeadership(CuratorFramework client) throws Exception
+{
+...
+    /*
+     * Start workersCache
+     */
+    workersCache.getListenable().addListener(workersCacheListener);
+    workersCache.start();
+    (new RecoveredAssignments(
+      client.getZooKeeperClient().getZooKeeper())).recover(
+        new RecoveryCallback() {
+            public void recoveryComplete (int rc, List<String> tasks) {
+                try {
+                    if(rc == RecoveryCallback.FAILED) {
+                        LOG.warn("Recovery of assigned tasks failed.");
+                    } else {
+                        LOG.info( "Assigning recovered tasks" );
+                        recoveryLatch = new CountDownLatch(tasks.size());
+                        assignTasks(tasks);
+                    }
+                    new Thread( new Runnable() {
+                        public void run() {
+                            try {
+                            /*
+                             * Wait until recovery is complete
+                             */
+                            recoveryLatch.await();
+                            /*
+                             * Start tasks cache
+                             */
+                            tasksCache.getListenable().
+                                addListener(tasksCacheListener);
+                            tasksCache.start();
+                            } catch (Exception e) {
+                                LOG.warn("Exception while assigning
+                                         and getting tasks.",
+                                         e  );
+                            }
+                        }
+                    }).start();
+                    /*
+                     * Decrement latch
+                     */
+                    leaderLatch.countDown();①
+                } catch (Exception e) {
+                    LOG.error("Exception while executing the recovery callback",
+                               e);
+                }
+            }
+        });
+        /*
+         * This latch is to prevent this call from exiting. If we exit, then
+         * we release mastership.
+         */
+        closeLatch.await();②
+    }
+```
+
+------
+
+​	①我们通过一个单独的CountDownLatch原语来等待该Curator客户端获取管理权。
+
+​	②如果主节点退出了takeLeadership方法，也就放弃了管理权，我们通过CountDownLatch来阻止退出该方法，直到主节点关闭为止。
+
+​	我们实现的这个方法为CuratorMaster类的一部分，而CuratorMaster类实现了LeaderSelectorListener接口。对于主节点来说，如果想要释放管理权只能退出takeLeadership方法，所以我们需要通过某些锁等机制来阻止该方法的退出，在我们的实现中，我们在退出主节点时通过递减闩（latch）值来实现。
+
+​	我们依然在runForMaster方法中启动我们的主节点选择器，与LeaderLatch的方式不同，我们不需要注册一个监听器（因为我们在构造函数中已经注册了监听器）：
+
+------
+
+```
+public void runForMaster() {
+    client.getCuratorListenable().addListener(masterListener);
+    client.getUnhandledErrorListenable().addListener(errorsListener);
+    leaderSelector.setId(myId);
+    leaderSelector.start();
+}
+```
+
+------
+
+​	另外我们还需要给这个主节点一个任意的标识符，虽然我们在本例中并未实现，但我们可以设置群首选择器在失去管理权后自动重新排队（LeaderSelector.autoRequeue）。重新排队意味着该客户端会一直尝试获取管理权，并在获得管理权后执行takeLeadership方法。
+
+​	作为LeaderSelectorListener接口实现的一部分，我们还实现了一个处理连接状态变化的方法：
+
+------
+
+```
+@Override
+public void stateChanged(CuratorFramework client, ConnectionState newState)
+{
+    switch(newState) {
+    case CONNECTED:
+        //Nothing to do in this case.
+        break;
+    case RECONNECTED:
+        // Reconnected, so I should①
+        // still be the leader.
+        break;
+    case SUSPENDED:
+        LOG.warn("Session suspended");
+        break;
+    case LOST:
+        try {
+            close();②
+        } catch (IOException e) {
+            LOG.warn( "Exception while closing", e );
+        }
+        break;
+    case READ_ONLY:
+        // We ignore this case.
+        break;
+    }
+}
+```
+
+------
+
+​	①所有操作均需要通过ZooKeeper集群实现，因此，如果连接丢失，主节点也就无法先进行任何操作请求，因此在这里我们最好什么都不做。
+
+​	②如果会话丢失，我们只是关闭这个主节点程序。
+
+#### 8.6.3 子节点缓存器
+
+​	我们在示例中使用的最后一个菜谱是子节点缓存器（PathChildrenCached类）。我们将使用该类保存从节点的列表和任务列表，该缓存器负责保存一份子节点列表的本地拷贝，并会在该列表发生变化时通知我们。注意，因为时间问题，也许在某些特定时间点该缓存的数据集合与ZooKeeper中保存的信息并不一致，但这些变化最终都会反映到ZooKeeper中。
+
+​	为了处理每一个缓存器实例的变化情况，我们需要一个PathChildrenCacheListener接口的实现类，该接口中只有一个方法childEvent。对于从节点信息的列表，我们只关心从节点离开的情况，因为我们需要重新分配已经分给这些节点的任务，而列表中添加信息对于分配新任务更加重要：
+
+------
+
+```java
+PathChildrenCacheListener workersCacheListener = new PathChildrenCacheListener()
+{
+    public void childEvent(CuratorFramework client, PathChildrenCacheEvent event)
+    {
+        if(event.getType() == PathChildrenCacheEvent.Type.CHILD_REMOVED) {
+            /*
+             * Obtain just the worker's name
+             */
+            try {
+                getAbsentWorkerTasks(event.getData().getPath().replaceFirst(
+                                     "/workers/", ""));
+            } catch (Exception e) {
+                LOG.error("Exception while trying to re-assign tasks.", e);
+            }
+        }
+    }
+};
+```
+
+------
+
+​	对于任务列表，我们通过列表增加的情况来触发任务分配的过程：
+
+------
+
+```java
+PathChildrenCacheListener tasksCacheListener = new PathChildrenCacheListener() {
+    public void childEvent(CuratorFramework client, PathChildrenCacheEvent
+                           event) {
+        if(event.getType() == PathChildrenCacheEvent.Type.CHILD_ADDED) {
+            try {
+                assignTask(event.getData().getPath().replaceFirst("/tasks/",""));
+            } catch (Exception e) {
+                LOG.error("Exception when assigning task.", e);
+            }
+        }
+    }
+};
+```
+
+------
+
+​	注意，我们这里假设至少有一个可用的从节点可以分配任务给它，当前没有可用的从节点时，我们需要暂停任务分配，并保存列表信息的增加信息，以便在从节点列表中新增可用从节点时可以将这些没有分配的任务进行分配。为了简单起见，我们并没有实现这一功能，读者可以作为练习自己实现。
+
+### 8.7　小结
+
+​	Curator实现了一系列很不错的ZooKeeper API的扩展，将ZooKeeper的复杂性进行了抽象，并实现了在实际生产环境中经验的最佳实践和社区讨论的某些特性。在本章中，我们通过我们的主从模式的例子，描述了如何通过Curator所提供的功能来实现一个主节点角色的程序，我们用到了群首选举的实现和子节点缓存器，通过这些我们实现了主节点中的重要特性。这两个菜谱并不是Curator所提供的所有特性，还有很多其他菜谱和特性可以供我们使用。
+
