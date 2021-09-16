@@ -2292,3 +2292,18 @@ https://dev.mysql.com/doc/refman/8.0/en/connection-management.html
 
 略
 
+## 5.4 MySQL Server Logs
+
+https://dev.mysql.com/doc/refman/8.0/en/server-logs.html
+
+| Log Type               | Information Written to Log                                   |
+| :--------------------- | :----------------------------------------------------------- |
+| Error log              | Problems encountered starting, running, or stopping [**mysqld**](https://dev.mysql.com/doc/refman/8.0/en/mysqld.html) |
+| General query log      | Established client connections and statements received from clients |
+| Binary log             | Statements that change data (also used for replication)      |
+| Relay log              | Data changes received from a replication source server       |
+| Slow query log         | Queries that took more than [`long_query_time`](https://dev.mysql.com/doc/refman/8.0/en/server-system-variables.html#sysvar_long_query_time) seconds to execute |
+| DDL log (metadata log) | Metadata operations performed by DDL statements              |
+
+​	By default, no logs are enabled, except the error log on Windows. (The DDL log is always created when required, and has no user-configurable options; see [The DDL Log](https://dev.mysql.com/doc/refman/5.7/en/ddl-log.html).) The following log-specific sections provide information about the server options that enable logging.
+
