@@ -12,6 +12,8 @@ guide:
 
 https://spring-cloud-alibaba-group.github.io/github-pages/hoxton/en-us/index.html#_spring_cloud_alibaba_rocketmq_binder
 
+https://github.com/fangjian0423/rocketmq-binder-demo
+
 # 项目说明
 
 本项目演示如何使用 RocketMQ Binder 完成 Spring Cloud 应用消息的订阅和发布。
