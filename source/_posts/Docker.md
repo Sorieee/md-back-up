@@ -1403,3 +1403,194 @@ docker run -d -p 127.0.0.1:5000:5000 training/webapp python app.py
 * 调整合理的指令顺序：在开启cache的情况下，内容不变的指令尽量放在前面，这样可以尽量复用；
 * 减少外部源的干扰：如果确实要从外部引入数据，需要指定持久的地址，并带版本信息等，让他人可以复用而不出错。
 
+# 9. 操作系统
+
+## 9.1 Busybox
+
+​	BusyBox是一个集成了一百多个最常用Linux命令（如cat、echo、grep、mount、telnet等）的精简工具箱，它只有不到2 MB大小，被誉为“Linux系统的瑞士军刀”。BusyBox可运行于多款POSIX环境的操作系统中，如Linux（包括Android）、Hurd、FreeBSD等。
+
+**获取官方镜像并运行**
+
+```sh
+docker search busybox
+docker pull busybix:lastest
+docker run -it busybox
+```
+
+**相关资源**
+
+* BusyBox官网：https://busybox.net/
+* BusyBox官方仓库：https://git.busybox.net/busybox/
+*  BusyBox官方镜像：https://hub.docker.com/_/busybox/
+*  BusyBox官方镜像仓库：https://github.com/docker-library/busybox
+
+## 9.2 Alpine
+
+**简介**
+
+​	Alpine操作系统是一个面向安全的轻型Linux发行版，关注安全，性能和资源效能。不同于其他发行版，Alpine采用了musl libc和BusyBox以减小系统的体积和运行时资源消耗，比BusyBox功能上更完善。在保持瘦身的同时，Alpine还提供了包管理工具apk查询和安装软件包。
+
+**获取并使用官方镜像**
+
+​	由于镜像很小，下载时间几乎可以忽略，读者可以使用docker [container] run指令直接运行一个Alpine容器，并指定运行的指令，例如：
+
+![](https://pic.imgdb.cn/item/614b35002ab3f51d91f3a804.jpg)
+
+**迁移至Alpine基础镜像**
+
+​	目前，大部分Docker官方镜像都已经支持Alpine作为基础镜像，可以很容易进行迁移。例如：
+
+* ubuntu/debian -> alpine
+* python:2.7-> python:3.6-alpine
+* ruby:2.6-> ruby:2.6-alpine
+
+
+
+​	另外，如果使用Alpine镜像，安装软件包时可以使用apk工具，则如：
+
+![](https://pic.imgdb.cn/item/614b35292ab3f51d91f3ec1a.jpg)
+
+**相关资源**
+
+* Apline官网：http://alpinelinux.org/
+* Apline官方仓库：https://github.com/alpinelinux
+* Apline官方镜像：https://hub.docker.com/_/alpine/
+* Apline官方镜像仓库：https://github.com/gliderlabs/docker-alpine
+
+## 9.3 Debian/Ubuntu
+
+​	Debian和Ubuntu都是目前较为流行的Debian系的服务器操作系统，十分适合研发场景。Docker Hub上提供了它们的官方镜像，国内各大容器云服务都提供了完整的支持。
+
+**Debian系统简介及官方镜像使用**
+
+```sh
+docker search debian
+docker run -it debian bash
+```
+
+![](https://pic.imgdb.cn/item/614b35292ab3f51d91f3ec1a.jpg)
+
+**ubuntu**
+
+​	略
+
+**相关资源**
+
+Debian的相关资源如下：
+
+* Debian官网：https://www.debian.org/
+* Debian官方镜像：https://hub.docker.com/_/debian/
+
+Ubuntu的相关资源
+
+* Ubuntu官网：http://www.ubuntu.org.cn/global
+* Ubuntu官方镜像：https://hub.docker.com/_/ubuntu/
+
+## 9.4 CentOS/Fedora
+
+​	略
+
+# 10. 为镜像添加SSH服务
+
+​	在第一部分中介绍了一些进入容器的办法，比如用attach、exec等命令，但是这些命令都无法解决远程管理容器的问题。因此，当读者需要远程登录到容器内进行一些操作的时候，就需要SSH的支持了。
+
+​	本章将具体介绍如何自行创建一个带有SSH服务的镜像，并详细介绍了两种创建容器的方法：基于docker commit命令创建和基于Dockerfile创建。
+
+## 10.1 基于commit命令创建
+
+**1．准备工作**
+
+​	首先，获取ubuntu:18.04镜像，并创建一个容器：
+
+```sh
+docker pull ubuntu:18.04
+docker run -it ubuntu:18.04 bash
+```
+
+**2．配置软件源**
+
+​	检查软件源，并使用apt-get update命令来更新软件源信息：
+
+```sh
+apt-get update
+```
+
+​	如果默认的官方源速度慢的话，也可以替换为国内163、sohu等镜像的源。以163源为例，在容器内创建/etc/apt/sources.list.d/163.list文件：
+
+![](https://pic.imgdb.cn/item/614b37092ab3f51d91f75e1b.jpg)
+
+**3．安装和配置SSH服务**
+
+​	更新软件包缓存后可以安装SSH服务了，选择主流的openssh-server作为服务端。可以看到需要下载安装众多的依赖软件包：
+
+```sh
+apt-get install openssh-server
+```
+
+​	如果需要正常启动SSH服务，则目录 /var/run/sshd必须存在。下面手动创建它，并启动SSH服务：
+
+```sh
+mkdir -p /var/run/sshd
+/usr/bin/sshd -D &
+```
+
+![](https://pic.imgdb.cn/item/614b37522ab3f51d91f7e108.jpg)
+
+![](https://pic.imgdb.cn/item/614b37622ab3f51d91f803f0.jpg)
+
+**4．保存镜像**
+
+​	将所退出的容器用docker commit命令保存为一个新的sshd:ubuntu镜像。
+
+![](https://pic.imgdb.cn/item/614b37772ab3f51d91f82f65.jpg)
+
+**5.使用镜像**
+
+![](https://pic.imgdb.cn/item/614b37e82ab3f51d91f8fd41.jpg)
+
+![](https://pic.imgdb.cn/item/614b37f52ab3f51d91f91979.jpg)
+
+## 10.2 使用Dockerfile创建
+
+​	在第一部分中笔者曾介绍过Dockerfile的基础知识，下面将介绍如何使用Dockerfile来创建一个支持SSH服务的镜像。
+
+**1．创建工作目录**
+
+首先，创建一个sshd_ubuntu工作目录：
+
+```sh
+mkdir sshd_ubuntu
+cd sshd_ubuntu/
+touch Dockerfile run.sh
+```
+
+**2．编写run.sh脚本和authorized_keys文件**
+
+![](https://pic.imgdb.cn/item/614b385e2ab3f51d91f9db0e.jpg)
+
+**3．编写Dockerfile**
+
+​	下面是Dockerfile的内容及各部分的注释，可以对比上一节中利用docker commit命令创建镜像过程，所进行的操作基本一致：
+
+![](https://pic.imgdb.cn/item/614b38762ab3f51d91fa0cdb.jpg)
+
+![](https://pic.imgdb.cn/item/614b38832ab3f51d91fa2339.jpg)
+
+**4．创建镜像**
+
+​	在sshd_ubuntu目录下，使用docker build命令来创建镜像。这里用户需要注意在最后还有一个“.”，表示使用当前目录中的Dockerfile：
+
+![](https://pic.imgdb.cn/item/614b38a12ab3f51d91fa5a38.jpg)
+
+![](https://pic.imgdb.cn/item/614b38ab2ab3f51d91fa6beb.jpg)
+
+**5．测试镜像，运行容器**
+
+![](https://pic.imgdb.cn/item/614b38be2ab3f51d91fa8eba.jpg)
+
+​	在Docker社区中，对于是否需要为Docker容器启用SSH服务一直有争论。	
+
+​	一方的观点是：Docker的理念是一个容器只运行一个服务。因此，如果每个容器都运行一个额外的SSH服务，就违背了这个理念。而且认为根本没有从远程主机进入容器进行维护的必要。
+
+​	笔者认为，这两种说法各有道理，其实是在讨论不同的容器场景：作为应用容器，还是作为系统容器。应用容器行为围绕应用生命周期，较为简单，不需要人工的额外干预；而系统容器则需要支持管理员的登录操作，这个时候，对SSH服务的支持就变得十分必要了。
+
