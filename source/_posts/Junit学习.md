@@ -5419,3 +5419,1433 @@ public class RestApplicationTest {
 }
 ```
 
+# 19. Testing database applications
+
+* Examining the challenges of database testing
+*  Implementing tests for a JDBC application
+* Implementing tests for a Spring JDBC application
+* Implementing tests for a Hibernate application
+*  Implementing tests for a Spring Hibernate application
+* Comparing the different approaches of building and testing database applications
+
+## 19.1  The Database Unit Testing Impedance Mismatch
+
+### 19.1.1  Unit tests must exercise code in isolation
+
+* Unit tests are used to test classes that interact directly with the database (like DAOs). A DAO (*Data Access Object)* is an object that provides an interface to a database and maps application calls to the specific database operations without exposing details of the persistence layer. Such tests guarantee these classes execute the proper operation against the database. Although these tests depend on external entities (like the database and/or persistence frameworks), they exercise classes that are building blocks in a bigger application (and hence are units).
+* Similarly, unit tests can be written to test the upper layers (like Facades), without the need of accessing the database – in these tests, the persistence layer can be emulated by mocks or stubs. As a facade in architecture, the Facade design pattern provides an object that serves as a front-facing interface masking a more complex underlying code.
+
+### 19.1.2  Unit tests must be easy to write and run
+
+略
+
+### 19.1.3  Unit tests must be fast to run
+
+略
+
+## 19.2  Testing a JDBC application
+
+```java
+public class Country {
+    private String name;                                                    #A
+    private String codeName;                                                #A
+ 
+    public Country(String name, String codeName) {                          #B
+        this.name = name;                                                   #B
+        this.codeName = codeName;                                           #B
+    }                                                                       #B
+ 
+    public String getName() {                                               #A
+        return name;                                                        #A
+    }                                                                       #A
+ 
+    public void setName(String name) {                                      #A
+        this.name = name;                                                   #A
+    }                                                                       #A
+ 
+    public String getCodeName() {                                           #A
+        return codeName;                                                    #A
+    }                                                                       #A
+ 
+    public void setCodeName(String codeName) {                              #A
+        this.codeName = codeName;                                           #A
+    }                                                                       #A
+ 
+    @Override                                                               #C
+    public String toString() {                                              #C
+        return "Country{" +                                                 #C
+                "name='" + name + '\'' +                                    #C
+                ", codeName='" + codeName + '\'' +                          #C
+                '}';                                                        #C
+    }                                                                       #C  
+ 
+    @Override                                                               #D
+    public boolean equals(Object o) {                                       #D
+        if (this == o) return true;                                         #D
+        if (o == null || getClass() != o.getClass()) return false;          #D
+        Country country = (Country) o;                                      #D
+        return Objects.equals(name, country.name) &&                        #D
+                Objects.equals(codeName, country.codeName);                 #D
+    }                                                                       #D
+ 
+    @Override                                                               #D
+    public int hashCode() {                                                 #D
+        return Objects.hash(name, codeName);                                #D
+    }                                                                       #D
+}
+```
+
+**Listing 19.2 The Maven pom.xml dependencies**
+
+```xml
+<dependencies>
+   <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-api</artifactId>
+      <version>5.6.0</version>
+      <scope>test</scope>
+   </dependency>
+   <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-engine</artifactId>
+      <version>5.6.0</version>
+      <scope>test</scope>
+   </dependency>
+   <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <version>1.4.193</version>
+   </dependency>
+</dependencies>
+```
+
+**Listing 19.3 The ConnectionManager class**
+
+```java
+public class ConnectionManager {
+   
+   private static Connection connection;                                    #A
+   
+   public static Connection openConnection() {
+ 
+        try {
+            Class.forName("org.h2.Driver");                                 #B
+            connection = DriverManager.getConnection("jdbc:h2:~/country",   #C
+                "sa",                                                       #C
+                ""                                                          #C
+                );                                                          #C
+            return connection;                                              #D
+        } catch(ClassNotFoundException | SQLException e) {                  #E
+            throw new RuntimeException(e);                                  #E
+        }                                                                   #E
+    }
+ 
+    public static void closeConnection() {
+       if (null != connection) {                                            #F
+           try {
+               connection.close();                                          #G
+           } catch(SQLException e) {                                        #H
+               throw new RuntimeException(e);                               #H
+           }                                                                #H
+       }
+    }
+}
+```
+
+**Listing 19.4 The TablesManager class**
+
+```java
+public class TablesManager {
+   
+    public static void createTable() {
+       String sql = "CREATE TABLE COUNTRY( ID IDENTITY,                     #A
+                     NAME VARCHAR(255), CODE_NAME VARCHAR(255) );";         #A
+       executeStatement(sql);                                               #B
+    }
+ 
+    public static void dropTable() {
+       String sql = "DROP TABLE IF EXISTS COUNTRY;";                        #C
+       executeStatement(sql);                                               #D
+    }
+    
+    private static void executeStatement(String sql) {
+      PreparedStatement statement;                                          #E
+       
+       try {
+            Connection connection = openConnection();                       #F
+            statement = connection.prepareStatement(sql);                   #G
+            statement.executeUpdate();                                      #H
+            statement.close();                                              #I
+       } catch (SQLException e) {
+            throw new RuntimeException(e);                                  #J
+       } finally {
+            closeConnection();                                              #K
+       }
+   }
+ 
+}
+```
+
+**Listing 19.5 The CountryDao class**
+
+```java
+public class CountryDao {
+   private static final String GET_ALL_COUNTRIES_SQL =                      #A
+           "select * from country";                                         #A
+   private static final String GET_COUNTRIES_BY_NAME_SQL =                  #B
+           "select * from country where name like ?";                       #B
+ 
+   public List<Country> getCountryList() {
+      List<Country> countryList = new ArrayList<>();                        #C
+ 
+      try {
+         Connection connection = openConnection();                          #D
+         PreparedStatement statement =                                      #E
+                     connection.prepareStatement(GET_ALL_COUNTRIES_SQL);    #E
+         ResultSet resultSet = statement.executeQuery();                    #E
+ 
+         while (resultSet.next()) {                                         #F
+            countryList.add(new Country(resultSet.getString(2),             #F
+                            resultSet.getString(3)));                       #F
+         }
+         statement.close();                                                 #G
+      } catch (SQLException e) {                                            #H
+         throw new RuntimeException(e);                                     #H
+      } finally {
+         closeConnection();                                                 #I
+      }
+      return countryList;                                                   #J
+   }
+ 
+   public List<Country> getCountryListStartWith(String name) {
+      List<Country> countryList = new ArrayList<>();                        #K
+ 
+      try {
+         Connection connection = openConnection();                          #L
+         PreparedStatement statement =                                      #M
+                   connection.prepareStatement(GET_COUNTRIES_BY_NAME_SQL);  #M
+         statement.setString(1, name + "%");                                #M
+         ResultSet resultSet = statement.executeQuery();                    #M
+ 
+         while (resultSet.next()) {                                         #N
+            countryList.add(new Country(resultSet.getString(2),             #N
+                            resultSet.getString(3)));                       #N
+         }
+         statement.close();                                                 #O
+      } catch (SQLException e) {                                            #P
+         throw new RuntimeException(e);                                     #P
+      } finally {
+         closeConnection();                                                 #Q
+      }
+      return countryList;                                                   #R
+   }
+}
+```
+
+**Listing 19.6 The CountriesLoader class**
+
+```java
+public class CountriesLoader {
+ 
+    private static final String LOAD_COUNTRIES_SQL =                        #A
+            "insert into country (name, code_name) values ";
+ 
+    public static final String[][] COUNTRY_INIT_DATA = {                    #B
+          { "Australia", "AU"}, { "Canada", "CA" }, { "France", "FR" },     #B
+          { "Germany", "DE" }, { "Italy", "IT" }, { "Japan", "JP" },        #B
+          { "Romania", "RO" },{ "Russian Federation", "RU" },               #B
+          { "Spain", "ES" }, { "Switzerland", "CH" },                       #B
+          { "United Kingdom", "UK" }, { "United States", "US" } };          #B
+ 
+    public void loadCountries() {
+        for (String[] countryData : COUNTRY_INIT_DATA) {                    #C
+            String sql = LOAD_COUNTRIES_SQL + "('" + countryData[0] + "',   #D
+                           '" + countryData[1] + "');";                     #D
+ 
+            try {
+                Connection connection = openConnection();                   #E
+                PreparedStatement statement =                               #F
+                      connection.prepareStatement(sql);                     #F
+                statement.executeUpdate();                                  #F
+                statement.close();                                          #F
+            } catch (SQLException e) {                                      #G
+                throw new RuntimeException(e);                              #G 
+            } finally {
+                closeConnection();                                          #H
+            }
+        }
+    }
+}
+```
+
+**Listing 19.7 The CountriesDatabaseTest class**
+
+```java
+import static com.manning.junitbook.databases.CountriesLoader.COUNTRY_INIT_DATA;          #A
+[…]
+ 
+public class CountriesDatabaseTest {
+    private CountryDao countryDao = new CountryDao();                       #A
+    private CountriesLoader countriesLoader = new CountriesLoader();        #A
+   
+    private List<Country> expectedCountryList = new ArrayList<>();          #B
+    private List<Country> expectedCountryListStartsWithA =                  #C
+                          new ArrayList<>();                                #C
+ 
+    @BeforeEach                                                             #D
+    public void setUp() {
+        TablesManager.createTable();                                        #E
+        initExpectedCountryLists();                                         #F
+        countriesLoader.loadCountries();                                    #G
+    }
+ 
+    @Test
+    public void testCountryList() {
+        List<Country> countryList = countryDao.getCountryList();            #H
+        assertNotNull(countryList);                                         #I
+        assertEquals(expectedCountryList.size(), countryList.size());       #J
+        for (int i = 0; i < expectedCountryList.size(); i++) {              #K
+            assertEquals(expectedCountryList.get(i), countryList.get(i));   #K
+        }
+    }
+ 
+    @Test
+    public void testCountryListStartsWithA() {
+        List<Country> countryList =                                         #L
+                      countryDao.getCountryListStartWith("A");              #L
+        assertNotNull(countryList);                                         #M
+        assertEquals(expectedCountryListStartsWithA.size(),                 #N
+                     countryList.size());                                   #N
+        for (int i = 0; i < expectedCountryListStartsWithA.size(); i++) {   #O
+            assertEquals(expectedCountryListStartsWithA.get(i),             #O
+                         countryList.get(i));                               #O
+        }
+    }
+ 
+    @AfterEach                                                              #P
+    public void dropDown() {
+        TablesManager.dropTable();                                          #Q
+    }
+ 
+    private void initExpectedCountryLists() {
+         for (int i = 0; i < COUNTRY_INIT_DATA.length; i++) {               #R
+             String[] countryInitData = COUNTRY_INIT_DATA[i];               #S
+             Country country = new Country(countryInitData[0],              #S
+                                   countryInitData[1]);                     #S
+             expectedCountryList.add(country);                              #T
+             if (country.getName().startsWith("A")) {                       #U
+                 expectedCountryListStartsWithA.add(country);               #U
+             }
+         }
+     }
+}
+```
+
+## 19.3  Testing a Spring JDBC application
+
+**Listing 19.8 The new dependencies introduced into the Maven pom.xml file**
+
+```xml
+<dependency>                                                             #A
+	<groupId>org.springframework</groupId>                            #A
+	<artifactId>spring-context</artifactId>                           #A
+	<version>5.2.1.RELEASE</version>                                  #A
+</dependency>                                                            #A
+<dependency>                                                             #B
+	<groupId>org.springframework</groupId>                            #B
+	<artifactId>spring-jdbc</artifactId>                              #B
+	<version>5.2.1.RELEASE</version>                                  #B
+</dependency>                                                            #B
+<dependency>                                                             #C
+	<groupId>org.springframework</groupId>                            #C
+	<artifactId>spring-test</artifactId>                              #C
+	<version>5.2.1.RELEASE</version>                                  #C
+</dependency> 
+```
+
+**The db-schema.sql file**
+
+```sql
+create table country( id identity , name varchar (255) , code_name varchar (255) );
+```
+
+**Listing 19.10 The application-context.xml file**
+
+```xml
+<jdbc:embedded-database id="dataSource" type="H2">                          #A
+   <jdbc:script location="classpath:db-schema.sql"/>                        #A
+</jdbc:embedded-database>                                                   #A
+ 
+<bean id="countryDao"                                                       #B
+      class="com.manning.junitbook.databases.dao.CountryDao">               #B
+       <property name="dataSource" ref="dataSource"/>                       #B
+</bean>                                                                     #B
+ 
+<bean id="countriesLoader"                                                  #C class="com.manning.junitbook.databases.CountriesLoader">             #C
+   <property name="dataSource" ref="dataSource"/>                           #C
+</bean>                                                                     #C
+```
+
+**Listing 19.11 The CountriesLoader class**
+
+```java
+public class CountriesLoader extends JdbcDaoSupport                         #A
+{
+ 
+    private static final String LOAD_COUNTRIES_SQL =                        #B
+            "insert into country (name, code_name) values ";
+ 
+    public static final String[][] COUNTRY_INIT_DATA = {                    #C
+          { "Australia", "AU"}, { "Canada", "CA" }, { "France", "FR" },     #C
+          { "Germany", "DE" }, { "Italy", "IT" }, { "Japan", "JP" },        #C
+          { "Romania", "RO" },{ "Russian Federation", "RU" },               #C
+          { "Spain", "ES" }, { "Switzerland", "CH" },                       #C
+   { "United Kingdom", "UK" }, { "United States", "US" } };                 #C
+ 
+    public void loadCountries() {
+    for (String[] countryData : COUNTRY_INIT_DATA) {                        #D
+      String sql = LOAD_COUNTRIES_SQL + "('" + countryData[0] + "',         #E
+                     '" + countryData[1] + "');";                           #E
+       getJdbcTemplate().execute(sql);                                      #E
+    }
+   }
+ 
+}
+```
+
+**Listing 19.12 The CountryRowMapper class**
+
+```java
+public class CountryRowMapper implements RowMapper<Country> {               #A
+   public static final String NAME = "name";                                #B
+   public static final String CODE_NAME = "code_name";                      #B
+ 
+   @Override
+   public Country mapRow(ResultSet resultSet, int i) throws SQLException {  #C
+      Country country = new Country(resultSet.getString(NAME),              #C
+           resultSet.getString(CODE_NAME));                                 #C
+      return country;                                                       #D
+   }
+}
+```
+
+**Listing 19.13 The CountryDao class**
+
+```java
+public class CountryDao extends JdbcDaoSupport                              #A
+{
+   private static final String GET_ALL_COUNTRIES_SQL =                      #B
+           "select * from country";                                         #B
+   private static final String GET_COUNTRIES_BY_NAME_SQL =                  #B
+           "select * from country where name like :name";                   #B
+ 
+   private static final CountryRowMapper COUNTRY_ROW_MAPPER =               #C
+           new CountryRowMapper();                                          #C
+ 
+   public List<Country> getCountryList() {
+      List<Country> countryList =                                           #D
+       getJdbcTemplate().query(GET_ALL_COUNTRIES_SQL, COUNTRY_ROW_MAPPER);  #D
+      return countryList;                                                   #D
+   }
+ 
+   public List<Country> getCountryListStartWith(String name) {
+        NamedParameterJdbcTemplate namedParameterJdbcTemplate =             #E
+            new NamedParameterJdbcTemplate(getDataSource());                #E
+        SqlParameterSource sqlParameterSource =                             #F
+            new MapSqlParameterSource("name", name + "%");                  #F
+        return namedParameterJdbcTemplate.query(GET_COUNTRIES_BY_NAME_SQL,  #G
+           sqlParameterSource, COUNTRY_ROW_MAPPER);                         #G
+   }
+ 
+}
+```
+
+**Listing 19.14 The CountriesDatabaseTest class**
+
+```java
+@ExtendWith(SpringExtension.class)                                          #A
+@ContextConfiguration("classpath:application-context.xml")                  #B
+public class CountriesDatabaseTest {
+ 
+    @Autowired                                                              #C
+    private CountryDao countryDao;                                          #C
+ 
+    @Autowired                                                              #D
+    private CountriesLoader countriesLoader;                                #D
+ 
+    private List<Country> expectedCountryList = new ArrayList<Country>();   #E
+    private List<Country> expectedCountryListStartsWithA =                  #F
+          new ArrayList<Country>();                                         #F
+ 
+    @BeforeEach                                                             #G
+    public void setUp() {
+        initExpectedCountryLists();                                         #H
+        countriesLoader.loadCountries();                                    #I
+    }
+ 
+    
+    @Test
+    @DirtiesContext                                                         #J
+    public void testCountryList() {
+        List<Country> countryList = countryDao.getCountryList();            #K
+        assertNotNull(countryList);                                         #L
+        assertEquals(expectedCountryList.size(), countryList.size());       #M
+        for (int i = 0; i < expectedCountryList.size(); i++) {              #N
+            assertEquals(expectedCountryList.get(i), countryList.get(i));   #N
+        }                                                                   #N
+    }
+ 
+    @Test
+    @DirtiesContext                                                         #J
+    public void testCountryListStartsWithA() {
+        List<Country> countryList = countryDao.getCountryListStartWith("A");#O
+        assertNotNull(countryList);                                         #P 
+        assertEquals(expectedCountryListStartsWithA.size(),                 #Q
+                     countryList.size());                                   #Q
+        for (int i = 0; i < expectedCountryListStartsWithA.size(); i++) {   #R
+            assertEquals(expectedCountryListStartsWithA.get(i),             #R
+                         countryList.get(i));                               #R
+        }
+    }
+ 
+    private void initExpectedCountryLists() {
+      for (int i = 0; i < CountriesLoader.COUNTRY_INIT_DATA.length; i++) {
+          String[] countryInitData = CountriesLoader.COUNTRY_INIT_DATA[i];  #S
+          Country country = new Country(countryInitData[0],                 #T
+                  countryInitData[1]);                                      #T 
+          expectedCountryList.add(country);                                 #U
+          if (country.getName().startsWith("A")) {                          #V
+              expectedCountryListStartsWithA.add(country);                  #V
+          }                                                                 #V
+      }
+    }
+}
+```
+
+## 19.4  Testing a Hibernate application
+
+```xml
+<dependency>
+    <groupId>org.hibernate</groupId>
+    <artifactId>hibernate-core</artifactId>
+    <version>5.4.9.Final</version>
+</dependency>
+```
+
+**Listing 19.16 The annotated Country class**
+
+```java
+@Entity                                                                     #A
+@Table(name = "COUNTRY")                                                    #B
+public class Country {
+    @Id                                                                     #C
+    @GeneratedValue(strategy = GenerationType.IDENTITY)                     #D
+    @Column(name = "ID")                                                    #E
+    private int id;
+ 
+    @Column(name = "NAME")                                                  #F
+    private String name;
+ 
+    @Column(name = "CODE_NAME")                                             #F
+    private String codeName;
+ 
+    […]
+}
+```
+
+**Listing 19.17 The persistence.xml file**
+
+```xml
+<persistence-unit name="manning.hibernate">                                 #A
+        <provider>org.hibernate.jpa.HibernatePersistenceProvider</provider> #B
+        <class>com.manning.junitbook.databases.model.Country</class>        #C
+ 
+        <properties>
+            <property name="javax.persistence.jdbc.driver"                  #D
+                            value="org.h2.Driver"/>                         #D
+            <property name="javax.persistence.jdbc.url"                     #E
+                            value="jdbc:h2:mem:test;DB_CLOSE_DELAY=-1"/>    #E
+            <property name="javax.persistence.jdbc.user" value="sa"/>       #F
+            <property name="javax.persistence.jdbc.password" value=""/>     #F
+            <property name="hibernate.dialect"                              #G
+                            value="org.hibernate.dialect.H2Dialect"/>       #G
+            <property name="hibernate.show_sql" value="true"/>              #H
+            <property name="hibernate.hbm2ddl.auto" value="create"/>        #I
+        </properties>
+</persistence-unit>
+```
+
+**Listing 19.18 The CountriesHibernateTest file**
+
+```java
+public class CountriesHibernateTest {
+ 
+    private EntityManagerFactory emf;                                       #A
+    private EntityManager em;                                               #B
+ 
+    private List<Country> expectedCountryList =                             #C
+                          new ArrayList<>();                                #C
+    private List<Country> expectedCountryListStartsWithA =                  #C
+                          new ArrayList<>();                                #C
+ 
+    public static final String[][] COUNTRY_INIT_DATA = {                    #D
+        { "Australia", "AU" }, { "Canada", "CA" }, { "France", "FR" },      #D
+        { "Germany", "DE" }, { "Italy", "IT" }, { "Japan", "JP" },          #D
+        { "Romania", "RO" }, { "Russian Federation", "RU" },                #D
+        { "Spain", "ES" }, { "Switzerland", "CH" },                         #D
+        { "United Kingdom", "UK" }, { "United States", "US" } };            #D
+ 
+    @BeforeEach                                                             #E
+    public void setUp() {
+        initExpectedCountryLists();                                         #F
+ 
+        emf = Persistence.createEntityManagerFactory("manning.hibernate");  #G
+        em = emf.createEntityManager();                                     #G
+ 
+        em.getTransaction().begin();                                        #H
+ 
+        for (int i = 0; i < COUNTRY_INIT_DATA.length; i++) {                #I
+            String[] countryInitData = COUNTRY_INIT_DATA[i];                #I
+            Country country = new Country(countryInitData[0],               #I
+                                  countryInitData[1]);                      #I
+            em.persist(country);                                            #J
+        }
+ 
+        em.getTransaction().commit();                                       #H
+    }
+ 
+    @Test
+    public void testCountryList() {
+        List<Country> countryList = em.createQuery(                         #K
+               "select c from Country c").getResultList();                  #K
+        assertNotNull(countryList);                                         #L
+        assertEquals(COUNTRY_INIT_DATA.length, countryList.size());         #M
+        for (int i = 0; i < expectedCountryList.size(); i++) {              #N
+            assertEquals(expectedCountryList.get(i), countryList.get(i));   #N
+        }
+ 
+    }
+ 
+    @Test
+    public void testCountryListStartsWithA() {
+        List<Country> countryList = em.createQuery(                         #O
+            "select c from Country c where c.name like 'A%'").              #O
+                                              getResultList();              #O
+        assertNotNull(countryList);                                         #P
+        assertEquals(expectedCountryListStartsWithA.size(),                 #Q
+                     countryList.size());                                   #Q
+        for (int i = 0; i < expectedCountryListStartsWithA.size(); i++) {   #R
+            assertEquals(expectedCountryListStartsWithA.get(i),             #R
+                         countryList.get(i));                               #R
+        }
+    }
+ 
+    @AfterEach                                                              #S
+    public void dropDown() {
+        em.close();                                                         #T
+        emf.close();                                                        #T
+    }
+ 
+    private void initExpectedCountryLists() {
+        for (int i = 0; i < COUNTRY_INIT_DATA.length; i++) {                #U
+            String[] countryInitData = COUNTRY_INIT_DATA[i];                #V
+            Country country = new Country(countryInitData[0],               #V
+                                          countryInitData[1]);              #V
+            expectedCountryList.add(country);                               #W
+            if (country.getName().startsWith("A")) {                        #X
+                expectedCountryListStartsWithA.add(country);                #X
+            }
+        }
+    }
+}
+```
+
+## 19.5  Testing a Spring Hibernate application
+
+```xml
+<dependency>                                                             #A
+	<groupId>org.springframework</groupId>                            #A
+	<artifactId>spring-context</artifactId>                           #A
+	<version>5.2.1.RELEASE</version>                                  #A
+</dependency>                                                            #A
+<dependency>                                                             #B
+<groupId>org.springframework</groupId>                            #B
+	<artifactId>spring-orm</artifactId>                               #B
+	<version>5.2.1.RELEASE</version>                                  #B
+</dependency>                                                            #B
+<dependency>                                                             #C
+	<groupId>org.springframework</groupId>                            #C
+	<artifactId>spring-test</artifactId>                              #C
+	<version>5.2.1.RELEASE</version>                                  #C
+</dependency>                                                            #C
+<dependency>                                                             #D
+	<groupId>org.hibernate</groupId>                                  #D
+	<artifactId>hibernate-core</artifactId>                           #D
+  	<version>5.4.9.Final</version>                                    #D
+</dependency>                                                            #D
+```
+
+**Listing 19.20 The persistence.xml file**
+
+```xml
+<persistence-unit name="manning.hibernate">                                 #A
+        <provider>org.hibernate.jpa.HibernatePersistenceProvider</provider> #B
+        <class>com.manning.junitbook.databases.model.Country</class>        #C
+</persistence-unit>
+```
+
+**Listing 19.21 The application-context.xml file**
+
+```xml
+<tx:annotation-driven transaction-manager="txManager"/>                     #A
+<bean id="dataSource" class=                                                #B
+     "org.springframework.jdbc.datasource.DriverManagerDataSource">         #B
+     <property name="driverClassName" value="org.h2.Driver"/>               #C
+     <property name="url" value="jdbc:h2:mem:test;DB_CLOSE_DELAY=-1"/>      #D
+     <property name="username" value="sa"/>                                 #E
+     <property name="password" value=""/>                                   #E
+</bean>
+ 
+<bean id="entityManagerFactory" class=                                      #F
+     "org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean">  #F
+     <property name="persistenceUnitName" value="manning.hibernate" />      #G
+     <property name="dataSource" ref="dataSource"/>                         #H
+     <property name="jpaProperties">
+         <props>
+           <prop key=                                                       #I
+           "hibernate.dialect">org.hibernate.dialect.H2Dialect</prop>       #I
+           <prop key="hibernate.show_sql">true</prop>                       #J
+           <prop key="hibernate.hbm2ddl.auto">create</prop>                 #K
+         </props>
+     </property>
+</bean>
+ 
+<bean id="txManager" class=                                                 #L
+     "org.springframework.orm.jpa.JpaTransactionManager">                   #L
+     <property name="entityManagerFactory" ref="entityManagerFactory" />    #M
+     <property name="dataSource" ref="dataSource" />                        #N
+</bean>
+ 
+<bean class="com.manning.junitbook.databases.CountryService"/>              #O
+```
+
+**Listing 19.22 The CountryService class**
+
+```java
+public class CountryService {
+ 
+    @PersistenceContext                                                     #A
+    private EntityManager em;                                               #A
+ 
+    public static final String[][] COUNTRY_INIT_DATA =                      #B
+      { { "Australia", "AU" }, { "Canada", "CA" }, { "France", "FR" },      #B
+        { "Germany", "DE" }, { "Italy", "IT" }, { "Japan", "JP" },          #B
+        { "Romania", "RO" }, { "Russian Federation", "RU" },                #B
+        { "Spain", "ES" }, { "Switzerland", "CH" },                         #B
+        { "United Kingdom", "UK" }, { "United States", "US" } };            #B
+ 
+    @Transactional                                                          #C
+    public void init() {
+        for (int i = 0; i < COUNTRY_INIT_DATA.length; i++) {                #D
+            String[] countryInitData = COUNTRY_INIT_DATA[i];                #D
+            Country country = new Country(countryInitData[0],               #D
+                                          countryInitData[1]);              #D
+            em.persist(country);                                            #D
+        }
+    }
+ 
+    @Transactional                                                          #C
+    public void clear() {
+        em.createQuery("delete from Country c").executeUpdate();            #E
+    }
+ 
+    public List<Country> getAllCountries() {
+        return em.createQuery("select c from Country c")                    #F
+                   .getResultList();                                        #F  
+    }
+ 
+    public List<Country> getCountriesStartingWithA() {
+        return em.createQuery(                                              #G
+            "select c from Country c where c.name like 'A%'")               #G
+            .getResultList();                                               #G
+    }
+}
+```
+
+**Listing 19.23 The CountriesHibernateTest class**
+
+```java
+@ExtendWith(SpringExtension.class)                                          #A
+@ContextConfiguration("classpath:application-context.xml")                  #B
+public class CountriesHibernateTest {
+ 
+    @Autowired                                                              #C
+    private CountryService countryService;                                  #C
+ 
+    private List<Country> expectedCountryList = new ArrayList<>();          #D
+    private List<Country> expectedCountryListStartsWithA =                  #D
+                              new ArrayList<>();                            #D
+ 
+ 
+    @BeforeEach                                                             #E
+    public void setUp() {
+        countryService.init();                                              #F
+        initExpectedCountryLists();                                         #G
+    }
+ 
+    @Test
+    public void testCountryList() {
+        List<Country> countryList = countryService.getAllCountries();       #H   
+        assertNotNull(countryList);                                         #I
+        assertEquals(COUNTRY_INIT_DATA.length, countryList.size());         #J
+        for (int i = 0; i < expectedCountryList.size(); i++) {              #K
+            assertEquals(expectedCountryList.get(i), countryList.get(i));   #K
+        }
+    }
+ 
+    @Test
+    public void testCountryListStartsWithA() {
+        List<Country> countryList =                                         #L
+               countryService.getCountriesStartingWithA();                  #L
+        assertNotNull(countryList);                                         #M
+        assertEquals(expectedCountryListStartsWithA.size(),                 #N
+                     countryList.size());                                   #N
+        for (int i = 0; i < expectedCountryListStartsWithA.size(); i++) {   #O
+            assertEquals(expectedCountryListStartsWithA.get(i),             #O
+                         countryList.get(i));                               #O
+        }
+    }
+ 
+    @AfterEach                                                              #P
+    public void dropDown() {
+        countryService.clear();                                             #Q
+    }
+ 
+    private void initExpectedCountryLists() {
+        for (int i = 0; i < COUNTRY_INIT_DATA.length; i++) {                #R
+            String[] countryInitData = COUNTRY_INIT_DATA[i];                #S
+            Country country = new Country(countryInitData[0],               #S
+                                          countryInitData[1]);              #S
+            expectedCountryList.add(country);                               #T
+            if (country.getName().startsWith("A")) {                        #U
+                expectedCountryListStartsWithA.add(country);                #U
+            }
+        }
+    }
+}
+```
+
+# 19    Testing database applications
+
+This chapter covers:
+
+·  Examining the challenges of database testing
+
+·  Implementing tests for a JDBC application
+
+·  Implementing tests for a Spring JDBC application
+
+·  Implementing tests for a Hibernate application
+
+·  Implementing tests for a Spring Hibernate application
+
+·  Comparing the different approaches of building and testing database applications
+
+Dependency is the key problem in software development at all scales…. Eliminating duplication in programs eliminates dependency.
+
+—Kent Beck, Test-Driven Development: By Example
+
+The persistence layer (or, roughly speaking, the database access code) is undoubtedly one of the most important parts of any enterprise project. Despite its importance, the persistence layer is hard to unit test, mainly because of the following three issues:
+
+·  Unit tests must exercise code in isolation; the persistence layer requires interaction with an external entity, the database.
+
+·  Unit tests must be easy to write and run; code that accesses the database can be cumbersome.
+
+·  Unit tests must be fast to run; database access is relatively slow.
+
+We call these issues the *Database Unit Testing Impedance Mismatch*, in a reference to the object-relational impedance mismatch (which describes the difficulties of using a relational database to persist data when an application is written using an object-oriented language).
+
+## 19.1  The Database Unit Testing Impedance Mismatch
+
+Let's take a deeper look at the three issues that comprise the Database Unit Testing Impedance Mismatch.
+
+### 19.1.1  Unit tests must exercise code in isolation
+
+From a purist point of view, tests that exercise database access code cannot be considered unit tests, as they depend on an external entity, the almighty database. What should they be called then? Integration Tests? Functional Tests? Non-Unit Unit Tests?
+
+Well, the answer is: there is no secret ingredient! In other words, database tests can fit in many categories, depending on the context.
+
+Pragmatically speaking, though, database access code can be exercised by both unit and integration tests:
+
+·  Unit tests are used to test classes that interact directly with the database (like DAOs). A DAO (*Data Access Object)* is an object that provides an interface to a database and maps application calls to the specific database operations without exposing details of the persistence layer. Such tests guarantee these classes execute the proper operation against the database. Although these tests depend on external entities (like the database and/or persistence frameworks), they exercise classes that are building blocks in a bigger application (and hence are units).
+
+·  Similarly, unit tests can be written to test the upper layers (like Facades), without the need of accessing the database – in these tests, the persistence layer can be emulated by mocks or stubs. As a facade in architecture, the Facade design pattern provides an object that serves as a front-facing interface masking a more complex underlying code.
+
+There is still a practical question: can't the data present in the database get in the way of the tests? Yes, it is possible, so before we run the tests, we must assure the database is in a known state – and we’ll show how to do this in this chapter.
+
+### 19.1.2  Unit tests must be easy to write and run
+
+It does not matter how much a company, project manager, or technical leader praises unit tests – if they are not easy to write and run, developers will resist writing them. Moreover, writing code that accesses the database is not a straightforward task – one would have to write SQL statements, mix many levels of try/catch/finally code, convert SQL types to and from Java, etc.
+
+Therefore, in order for database unit tests to thrive, it is necessary to alleviate the “database burden” on developers. We’ll start our work using pure JDBC (Java Database Connectivity). Then, we’ll introduce Spring as the framework used for our application. Finally, we’ll move to ORM (Object Relational Mapping) and Hibernate.
+
+**JDBC** JDBC (Java Database Connectivity) is a Java API (application programming interface) that defines how a client may access a database. JDBC provides methods to query and update data in a relational database.
+
+**ORM** ORM (Object Relational Mapping) is a programming technique for converting data between relational databases and object-oriented programming languages and vice-versa.
+
+**HIBERNATE** Hibernate is an object-relational mapping framework for Java. It provides the facilities for mapping an object-oriented domain model to relational database tables. Hibernate manages the incompatibilities between the object-oriented model and the relational database model by replacing the direct database access with object manipulation.
+
+### 19.1.3  Unit tests must be fast to run
+
+Let's say you overcame the first two issues and have a nice environment, with hundreds of unit tests exercising the objects that access the database, and where a developer can easily add new ones. All seems nice, but when a developer runs the build (and they should do that many times a day, at least after updating their workspace and before submitting changes to the source control system), it takes ten minutes for the build to complete, nine of them spent in the database tests. What should you do then?
+
+This is the hardest issue, as it cannot be always solved. Typically, the delay is caused by the database access per se, as the database is probably a remote server, accessed by dozens of users. A possible solution then is to move the database closer to the developer, by either using an embedded database (if either the application uses standard SQL that enables a database switch or the application uses an ORM framework) or locally installing lighter versions of the database.
+
+**DEFINITION: EMBEDDED DATABASE** An embedded database is a database that is bundled within an application, instead of being managed by external servers (which is the typical scenario). There is a broad range of embedded databases available for Java applications, most of them based on open-source projects - like H2 ([http://h2database.com](http://h2database.com/)), HSQLDB ([http://hsqldb.org](http://hsqldb.org/)), Apache Derby (http://db.apache.org/derby). Notice that the fundamental characteristic of an embedded database is the fact that it is managed by the application, and not the language it is written in. For instance, both HSQLDB and Derby supports client/server mode (besides the embedded option), while SQLite (which is a C-based product) could also be embedded in a Java application.
+
+In the next sections, we will see how we start with a pure JDBC application and with an embedded database. Then, we move to introduce Spring and Hibernate as ORM (Object Relational Mapping) framework and also take steps to solve the Database Unit Testing Mismatch.
+
+## 19.2  Testing a JDBC application
+
+JDBC (Java Database Connectivity) is a Java API (application programming interface) that defines how a client may access a database. JDBC provides methods to query and update data in a relational database.
+
+It was first released as part of the Java Development Kit (JDK) 1.1 in 1997. Since then, it has been part of the Java Platform, Standard Edition (Java SE). Being one of the early API in use in Java and designed for the largely spread database applications, it may be still encountered in projects, even not mixed with any other technology.
+
+In our demonstration, we’ll start from a pure JDBC application, then introduce Spring and Hibernate, and test all these applications. This will prove how these kinds of database applications can be tested, and also show how the Database Unit Testing Mismatch is reduced.
+
+At Tested Data Systems, the old flights management application was providing the possibility to persist the information into a database. It is George’s job to take this application over, analyze it and then move it to the new present-day technologies.
+
+The JDBC application that George receives and needs to take over contains a `Country` class, describing the countries of the passengers of the flights management application that we have already met across the chapters (listing 19.1).
+
+Listing 19.1 The Country class
+
+```
+public class Country {``  private String name;                          #A``  private String codeName;                        #A`` ``  public Country(String name, String codeName) {             #B``    this.name = name;                          #B``    this.codeName = codeName;                      #B``  }                                    #B`` ``  public String getName() {                        #A``    return name;                            #A``  }                                    #A`` ``  public void setName(String name) {                   #A``    this.name = name;                          #A``  }                                    #A`` ``  public String getCodeName() {                      #A``    return codeName;                          #A``  }                                    #A`` ``  public void setCodeName(String codeName) {               #A``    this.codeName = codeName;                      #A``  }                                    #A`` ``  @Override                                #C``  public String toString() {                       #C``    return "Country{" +                         #C``        "name='" + name + '\'' +                  #C``        ", codeName='" + codeName + '\'' +             #C``        '}';                            #C``  }                                    #C `` ``  @Override                                #D``  public boolean equals(Object o) {                    #D``    if (this == o) return true;                     #D``    if (o == null || getClass() != o.getClass()) return false;     #D``    Country country = (Country) o;                   #D``    return Objects.equals(name, country.name) &&            #D``        Objects.equals(codeName, country.codeName);         #D``  }                                    #D`` ``  @Override                                #D``  public int hashCode() {                         #D``    return Objects.hash(name, codeName);                #D``  }                                    #D``}
+```
+
+In the listing above we do the following:
+
+·  We declare the `name` and `codeName` fields of the `Country` class, together with the corresponding getters and setters (#A).
+
+·  We create a constructor of the `Country` class, to initialize the `name` and `codeName` fields (#B).
+
+·  We override the `toString` method to nicely display a country (#C).
+
+·  We override the `equals` and `hashCode` methods, to take into account the `name` and `codeName` fields (#D).
+
+The application that George is taking over is using the embedded H2 database for testing purposes. The Maven pom.xml file will include the JUnit 5 dependencies and the H2 dependencies (listing 19.2).
+
+Listing 19.2 The Maven pom.xml dependencies
+
+<dependencies>   <dependency>      <groupId>org.junit.jupiter</groupId>      <artifactId>junit-jupiter-api</artifactId>      <version>5.6.0</version>      <scope>test</scope>   </dependency>   <dependency>      <groupId>org.junit.jupiter</groupId>      <artifactId>junit-jupiter-engine</artifactId>      <version>5.6.0</version>      <scope>test</scope>   </dependency>   <dependency>      <groupId>com.h2database</groupId>      <artifactId>h2</artifactId>      <version>1.4.193</version>   </dependency></dependencies>
+
+The application manages the connections to the database and the operations against the database tables through the `ConnectionManager` and `TablesManager` classes.
+
+Listing 19.3 The ConnectionManager class
+
+`public class ConnectionManager {``  ``  private static Connection connection;                  #A``  ``  public static Connection openConnection() {`` ``    try {``      Class.forName("org.h2.Driver");                 #B``      connection = DriverManager.getConnection("jdbc:h2:~/country",  #C``        "sa",                            #C``        ""                             #C``        );                             #C``      return connection;                       #D``    } catch(ClassNotFoundException | SQLException e) {         #E``      throw new RuntimeException(e);                 #E``    }                                  #E``  }`` ``  public static void closeConnection() {``    if (null != connection) {                      #F``      try {``        connection.close();                     #G``      } catch(SQLException e) {                    #H``        throw new RuntimeException(e);                #H``      }                                #H``    }``  }``}`
+
+In the listing above, we do the following:
+
+·  We declare a `Connection` type `connection` field (#A).
+
+·  In the `openConnection` method, we load the H2 driver (#B) and we initialize the previously declared `connection` field to access the H2 `country` database using JDBC, `sa` as a user and no password (#C). If everything goes fine, we return the initialized `connection` (#D).
+
+·  If the H2 driver class hasn’t been found or we encounter an `SQLException`, we catch it and re-throw a `RuntimeException` (#E).
+
+·  In the `closeConnection` method, we first check the `connection` not to be null (#F), then we try to close it (#G). In case an `SQLException` occurs, we catch it and re-throw a `RuntimeException` (#H).
+
+Listing 19.4 The TablesManager class
+
+`public class TablesManager {``  ``  public static void createTable() {``    String sql = "CREATE TABLE COUNTRY( ID IDENTITY,           #A``           NAME VARCHAR(255), CODE_NAME VARCHAR(255) );";     #A``    executeStatement(sql);                        #B``  }`` ``  public static void dropTable() {``    String sql = "DROP TABLE IF EXISTS COUNTRY;";            #C``    executeStatement(sql);                        #D``  }``  ``  private static void executeStatement(String sql) {``   PreparedStatement statement;                     #E``    ``    try {``      Connection connection = openConnection();            #F``      statement = connection.prepareStatement(sql);          #G``      statement.executeUpdate();                   #H``      statement.close();                       #I``    } catch (SQLException e) {``      throw new RuntimeException(e);                 #J``    } finally {``      closeConnection();                       #K``    }``  }`` ``}`
+
+In the listing above, we do the following:
+
+·  In the `createTable` method, we declare an SQL CREATE TABLE statement that creates the COUNTRY table with an ID identity field and the NAME and CODE_NAME fields of type VARCHAR (#A). Then, we execute this statement (#B).
+
+·  In the `dropTable` method, we declare an SQL DROP TABLE statement that drops the COUNTRY table, if it exists (#C). Then, we execute this statement (#D).
+
+·  The `executeStatement` method declares a `PreparedStatement` variable (#E). Then, it opens a connection (#F), prepares the statement (#G), executes it (#H) and closes it (#I). If an `SQLException` is caught, we re-throw a `RuntimeException` (#J). No matter if the statement is successfully executed or not, we close the connection (#K).
+
+The application declares a `CountryDao` class, an implementation of the DAO (Data Access Object) pattern, which provides an abstract interface to the database and executes queries against it.
+
+ 
+
+Listing 19.5 The CountryDao class
+
+`public class CountryDao {``  private static final String GET_ALL_COUNTRIES_SQL =           #A``      "select * from country";                     #A``  private static final String GET_COUNTRIES_BY_NAME_SQL =         #B``      "select * from country where name like ?";            #B`` ``  public List<Country> getCountryList() {``   List<Country> countryList = new ArrayList<>();            #C`` ``   try {``     Connection connection = openConnection();             #D``     PreparedStatement statement =                   #E``           connection.prepareStatement(GET_ALL_COUNTRIES_SQL);  #E``     ResultSet resultSet = statement.executeQuery();          #E`` ``     while (resultSet.next()) {                     #F``      countryList.add(new Country(resultSet.getString(2),       #F``              resultSet.getString(3)));            #F``     }``     statement.close();                         #G``   } catch (SQLException e) {                      #H``     throw new RuntimeException(e);                   #H``   } finally {``     closeConnection();                         #I``   }``   return countryList;                          #J``  }`` ``  public List<Country> getCountryListStartWith(String name) {``   List<Country> countryList = new ArrayList<>();            #K`` ``   try {``     Connection connection = openConnection();             #L``     PreparedStatement statement =                   #M``          connection.prepareStatement(GET_COUNTRIES_BY_NAME_SQL); #M``     statement.setString(1, name + "%");                #M``     ResultSet resultSet = statement.executeQuery();          #M`` ``     while (resultSet.next()) {                     #N``      countryList.add(new Country(resultSet.getString(2),       #N``              resultSet.getString(3)));            #N``     }``     statement.close();                         #O``   } catch (SQLException e) {                      #P``     throw new RuntimeException(e);                   #P``   } finally {``     closeConnection();                         #Q``   }``   return countryList;                          #R``  }``}`
+
+In the listing above, we do the following:
+
+·  We declare two SQL SELECT statements, to get all the countries from the COUNTRY table (#A) and to get the countries whose names match a pattern (#B).
+
+·  In the `getCountryList` method we initialize an empty country list (#C), we open a connection (#D), prepare the statement and execute it (#E).
+
+·  We pass through all the results returned from the database and add them to the countries list (#F). Then, we close the statement (#G). If an `SQLException` is caught, we re-throw a `RuntimeException` (#H). No matter if the statement is successfully executed or not, we close the connection (#I). We return the countries list at the end of the method (#J).
+
+·  In the `getCountryListStartWith` method we initialize an empty country list (#K), we open a connection (#L), prepare the statement and execute it (#M).
+
+·  We pass through all the results returned from the database and add them to the countries list (#N). Then, we close the statement (#O). If an `SQLException` is caught, we re-throw a `RuntimeException` (#P). No matter if the statement is successfully executed or not, we close the connection (#Q). We return the countries list at the end of the method (#R).
+
+Moving to the side of the test, we have here two classes: `CountriesLoader`, which is populating the database and makes sure that it is in a known state and `CountriesDatabaseTest` that is effectively testing the interaction of the application with the database.
+
+Listing 19.6 The CountriesLoader class
+
+`public class CountriesLoader {`` ``  private static final String LOAD_COUNTRIES_SQL =            #A``      "insert into country (name, code_name) values ";`` ``  public static final String[][] COUNTRY_INIT_DATA = {          #B``     { "Australia", "AU"}, { "Canada", "CA" }, { "France", "FR" },   #B``     { "Germany", "DE" }, { "Italy", "IT" }, { "Japan", "JP" },    #B``     { "Romania", "RO" },{ "Russian Federation", "RU" },        #B``     { "Spain", "ES" }, { "Switzerland", "CH" },            #B``     { "United Kingdom", "UK" }, { "United States", "US" } };     #B`` ``  public void loadCountries() {``    for (String[] countryData : COUNTRY_INIT_DATA) {          #C``      String sql = LOAD_COUNTRIES_SQL + "('" + countryData[0] + "',  #D``              '" + countryData[1] + "');";           #D`` ``      try {``        Connection connection = openConnection();          #E``        PreparedStatement statement =                #F``           connection.prepareStatement(sql);           #F``        statement.executeUpdate();                 #F``        statement.close();                     #F``      } catch (SQLException e) {                   #G``        throw new RuntimeException(e);               #G ``      } finally {``        closeConnection();                     #H``      }``    }``  }``}`
+
+In the listing above, we do the following:
+
+·  We declare one SQL INSERT statement, to insert a country into the COUNTRY table (#A). We then declare the initialization data for the countries to be inserted (#B).
+
+·  In the `loadCountries` method, we browse the initialization data for the countries (#C) and build the SQL query that is inserting each particular country (#D).
+
+·  We open a connection (#E), prepare the statement. execute it and close it (#F). If an `SQLException` is caught, we re-throw a `RuntimeException` (#G). No matter if the statement is successfully executed or not, we close the connection (#H).
+
+Listing 19.7 The CountriesDatabaseTest class
+
+`import static com.manning.junitbook.databases.CountriesLoader.COUNTRY_INIT_DATA;     #A``[…]`` ``public class CountriesDatabaseTest {``  private CountryDao countryDao = new CountryDao();            #A``  private CountriesLoader countriesLoader = new CountriesLoader();    #A``  ``  private List<Country> expectedCountryList = new ArrayList<>();     #B``  private List<Country> expectedCountryListStartsWithA =         #C``             new ArrayList<>();                #C`` ``  @BeforeEach                               #D``  public void setUp() {``    TablesManager.createTable();                    #E``    initExpectedCountryLists();                     #F``    countriesLoader.loadCountries();                  #G``  }`` ``  @Test``  public void testCountryList() {``    List<Country> countryList = countryDao.getCountryList();      #H``    assertNotNull(countryList);                     #I``    assertEquals(expectedCountryList.size(), countryList.size());    #J``    for (int i = 0; i < expectedCountryList.size(); i++) {       #K``      assertEquals(expectedCountryList.get(i), countryList.get(i));  #K``    }``  }`` ``  @Test``  public void testCountryListStartsWithA() {``    List<Country> countryList =                     #L``           countryDao.getCountryListStartWith("A");       #L``    assertNotNull(countryList);                     #M``    assertEquals(expectedCountryListStartsWithA.size(),         #N``           countryList.size());                  #N``    for (int i = 0; i < expectedCountryListStartsWithA.size(); i++) {  #O``      assertEquals(expectedCountryListStartsWithA.get(i),       #O``             countryList.get(i));                #O``    }``  }`` ``  @AfterEach                               #P``  public void dropDown() {``    TablesManager.dropTable();                     #Q``  }`` ``  private void initExpectedCountryLists() {``     for (int i = 0; i < COUNTRY_INIT_DATA.length; i++) {        #R``       String[] countryInitData = COUNTRY_INIT_DATA[i];        #S``       Country country = new Country(countryInitData[0],       #S``                  countryInitData[1]);           #S``       expectedCountryList.add(country);               #T``       if (country.getName().startsWith("A")) {            #U``         expectedCountryListStartsWithA.add(country);        #U``       }``     }``   }``}`
+
+In the listing above, we do the following:
+
+·  We statically import the countries data from `CountriesLoader` and we initialize a `CountryDao` and a `CountriesLoader` (#A). We initialize an empty list of expected countries (#B) and an empty list of expected countries that start with ‘A’ (#C). We can do this for any letter, but our test is looking now for the countries with names starting with ‘A’.
+
+·  We mark the `setUp` method with the `@BeforeEach` annotation, to be executed before each test (#D). Inside it, we create the empty COUNTRY table into the database (#E), we initialize the expected countries list (#F) and we load the countries into the database (#G).
+
+·  In the `testCountryList` method, we initialize the countries list from the database by using the `getCountryList` from the `CountryDao` class (#H). Then, we check that the list we have obtained is not null (#I), it has the expected size (#J) and that its content is the expected one (#K).
+
+·  In the `testCountryListStartsWithA` method, we initialize the countries list starting with ‘A’ from the database by using the `getCountryListStartWith` from the `CountryDao` class (#L). Then, we check that the list we have obtained is not null (#M), it has the expected size (#N) and that its content is the expected one (#O).
+
+·  We mark the `dropDown` method with the `@AfterEach` annotation, to be executed after each test (#P). Inside it, we drop the COUNTRY table from the database (#Q).
+
+·  In the `initExpectedCountryLists` method we browse the countries initialization data (#R), create a `Country` object at each step (#S) and add it to the expected countries list (#T). If the name of the country starts with ‘A’, we also add it to the expected countries list whose names start with ‘A’ (#U).
+
+The tests are successfully running, as shown in fig. 19.1.
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/19_img_0001.jpg)
+
+Figure 19.1 Successfully running the tests from the JDBC application that checks the interaction with the COUNTRY table
+
+This is the state of the application that George has to take over, in order to improve the way it is tested. The application is accessing and testing the database through JDBC, which requires a lot of tedious code to do the following:
+
+·  Create and open the connection
+
+·  Specify, prepare and execute the statement
+
+·  Iterate through the results
+
+·  Do the work for each iteration
+
+·  Process the exceptions
+
+·  Close the connection
+
+George will now look for means to reduce the “database burden” from the developers so that they are able to improve the way tests are written and to reduce the Database Unit Testing Mismatch.
+
+## 19.3  Testing a Spring JDBC application
+
+Spring is a lightweight but at the same time flexible and universal framework used for creating Java applications. We have already introduced the testing of Spring applications in our previous chapters. George has decided to introduce Spring in the database application that he has to take over in order to reduce the “database burden” and to handle through the Spring Inversion of Control some of the tasks of the interaction with the database.
+
+The application will keep the `Country` class untouched, and George will make some other changes for the migration to Spring. First, he will introduce the new dependencies into the Maven pom.xml file.
+
+Listing 19.8 The new dependencies introduced into the Maven pom.xml file
+
+<dependency>                                                             #A<groupId>org.springframework</groupId>                            #A<artifactId>spring-context</artifactId>                           #A<version>5.2.1.RELEASE</version>                                  #A</dependency>                                                            #A<dependency>                                                             #B<groupId>org.springframework</groupId>                            #B<artifactId>spring-jdbc</artifactId>                              #B<version>5.2.1.RELEASE</version>                                  #B</dependency>                                                            #B<dependency>                                                             #C<groupId>org.springframework</groupId>                            #C<artifactId>spring-test</artifactId>                              #C<version>5.2.1.RELEASE</version>                                  #C</dependency> 
+
+In the listing above, we have added the following dependencies:
+
+·  `spring-context`, the dependency for the Spring Inversion of Control container (#A).
+
+·  `spring-jdbc`, as the application is still using JDBC to access the database. The control of working with connections, preparing and executing statements, processing exceptions is handled by Spring (#B).
+
+·  `spring-test`, the dependency that provides support for writing tests with the help of Spring and that is necessary to use the `SpringExtension` and the `@ContextConfiguration` annotation. (#C).
+
+In the `test/resources` project folder, George will insert two files, one to create the database schema and one to configure the Spring context of the application.
+
+ 
+
+Listing 19.9 The db-schema.sql file
+
+`create table country( id identity , name varchar (255) , code_name varchar (255) );`
+
+In the listing above, we are creating the COUNTRY table with three fields: ID (identity field), NAME and CODE_NAME (VARCHAR type).
+
+Listing 19.10 The application-context.xml file
+
+`<jdbc:embedded-database id="dataSource" type="H2">             #A``  <jdbc:script location="classpath:db-schema.sql"/>            #A``</jdbc:embedded-database>                          #A`` ``<bean id="countryDao"                            #B``   class="com.manning.junitbook.databases.dao.CountryDao">        #B``    <property name="dataSource" ref="dataSource"/>            #B``</bean>                                   #B`` ``<bean id="countriesLoader"                         #C class="com.manning.junitbook.databases.CountriesLoader">       #C``  <property name="dataSource" ref="dataSource"/>              #C``</bean>                                   #C`
+
+In the listing above, we instruct the Spring container to create three beans:
+
+·  `dataSource`, pointing to a JDBC embedded database of type H2. We initialize the database with the help of the `db-schema.sql` file from listing 19.9, which is on the classpath (#A).
+
+·  `countryDao`, the DAO bean for executing SELECT queries to the database (#B). It has a `dataSource` property pointing out to the previously declared `dataSource` bean.
+
+·  `countriesLoader`, the bean that initializes the content of the database and brings it to a known state (#C). It also has a `dataSource` property pointing out to the previously declared `dataSource` bean.
+
+George will change the `CountriesLoader` class that creates the countries from the database and sets it in a known state.
+
+Listing 19.11 The CountriesLoader class
+
+`public class CountriesLoader extends JdbcDaoSupport             #A``{`` ``  private static final String LOAD_COUNTRIES_SQL =            #B``      "insert into country (name, code_name) values ";`` ``  public static final String[][] COUNTRY_INIT_DATA = {          #C``     { "Australia", "AU"}, { "Canada", "CA" }, { "France", "FR" },   #C``     { "Germany", "DE" }, { "Italy", "IT" }, { "Japan", "JP" },    #C``     { "Romania", "RO" },{ "Russian Federation", "RU" },        #C``     { "Spain", "ES" }, { "Switzerland", "CH" },            #C``  { "United Kingdom", "UK" }, { "United States", "US" } };         #C`` ``  public void loadCountries() {``  for (String[] countryData : COUNTRY_INIT_DATA) {            #D``   String sql = LOAD_COUNTRIES_SQL + "('" + countryData[0] + "',     #E``           '" + countryData[1] + "');";              #E``    getJdbcTemplate().execute(sql);                   #E``  }``  }`` ``}`
+
+In the listing above, we do the following:
+
+·  We are declaring the `CountriesLoader` class as extending `JdbcDaoSupport` (#A).
+
+·  We declare one SQL INSERT statement, to insert a country into the COUNTRY table (#B). We then declare the initialization data for the countries to be inserted (#C).
+
+·  In the `loadCountries` method, we browse the initialization data for the countries (#D), build the SQL query that is inserting each particular country and execute it against the database (#E). With the Spring Inversion of Control approach, there is no need to do the previous tedious jobs: open the connection, prepare the statement. execute it and close it, treat the exceptions and close the connection.
+
+Spring JDBC classes
+
+JdbcDaoSupport is a Spring JDBC class that facilitates configuring and transferring the database parameters. If a class extends JdbcDaoSupport, JdbcDaoSupport hides how a JdbcTemplate is created.
+
+JdbcTemplate is the central class in the package org.springframework.jdbc.core. getJdbcTemplate is a final method from the JdbcDaoSupport class that provides access to an already initialized JdbcTemplate object that executes SQL queries, iterates over results and catches JDBC exceptions.
+
+ 
+
+George will also change the tested code to use Spring and to reduce here as well the “database burden” on the side of the developers. He will first implement the `CountryRowMapper` class that is taking care of the mapping rules between the columns from the COUNTRY database table and the fields of the application `Country` class.
+
+Listing 19.12 The CountryRowMapper class
+
+`public class CountryRowMapper implements RowMapper<Country> {        #A``  public static final String NAME = "name";                #B``  public static final String CODE_NAME = "code_name";           #B`` ``  @Override``  public Country mapRow(ResultSet resultSet, int i) throws SQLException { #C``   Country country = new Country(resultSet.getString(NAME),       #C``      resultSet.getString(CODE_NAME));                 #C``   return country;                            #D``  }``}`
+
+In the listing above, we do the following:
+
+·  We are declaring the `CountryRowMaper` class as implementing `RowMapper` (#A). `RowMapper` is a Spring JDBC interface that is doing mapping of the `ResultSet` obtained by accessing a database to certain objects.
+
+·  We declare the string constants to be used in the class representing the names of the table columns (#B). The class will define once how to map the columns to the object fields and may be reused. There is no more need to set the parameters of the statement each time, as we were doing in the JDBC version.
+
+·  We override the `mapRow` method inherited from the `RowMapper` interface. We are getting the two string parameters from the `ResultSet` coming from the database and build a `Country` object (#C) that we return at the end of the method (#D).
+
+George will change the existing `CountryDao` class to use Spring to interact with the database.
+
+Listing 19.13 The CountryDao class
+
+`public class CountryDao extends JdbcDaoSupport               #A``{``  private static final String GET_ALL_COUNTRIES_SQL =           #B``      "select * from country";                     #B``  private static final String GET_COUNTRIES_BY_NAME_SQL =         #B``      "select * from country where name like :name";          #B`` ``  private static final CountryRowMapper COUNTRY_ROW_MAPPER =        #C``      new CountryRowMapper();                     #C`` ``  public List<Country> getCountryList() {``   List<Country> countryList =                      #D``    getJdbcTemplate().query(GET_ALL_COUNTRIES_SQL, COUNTRY_ROW_MAPPER); #D``   return countryList;                          #D``  }`` ``  public List<Country> getCountryListStartWith(String name) {``    NamedParameterJdbcTemplate namedParameterJdbcTemplate =       #E``      new NamedParameterJdbcTemplate(getDataSource());        #E``    SqlParameterSource sqlParameterSource =               #F``      new MapSqlParameterSource("name", name + "%");         #F``    return namedParameterJdbcTemplate.query(GET_COUNTRIES_BY_NAME_SQL, #G``      sqlParameterSource, COUNTRY_ROW_MAPPER);             #G``  }`` ``}`
+
+In the listing above, we do the following:
+
+·  We are declaring the `CountryDao` class as extending `JdbcDaoSupport` (#A).
+
+·  We declare two SQL SELECT statements, to get all the countries from the COUNTRY table and to get the countries whose names match a pattern (#B). Into the second statement, we have replaced the parameter with a named parameter (:name) and we are going to use it this way into the class.
+
+·  We are initializing a `CountryRowMapper` instance, the class that we have previously created (#C).
+
+·  In the `getCountryList` method, we query the COUNTRY table using the SQL that returns all the countries and the `CountryRowMapper` that will match the columns from the table to the fields from the `Country` object. We are directly returning a list of `Country` objects (#D).
+
+·  In the `getCountryListStartWith` method, we initialize a `NamedParameterJdbcTemplate` variable (#E). `NamedParameterJdbcTemplate` allows the use of named parameters instead of the previously used '?' placeholders. The `getDataSource` method which is the argument of the `NamedParameterJdbcTemplate` constructor is a final method inherited from `JdbcDaoSupport` and it returns the JDBC `DataSource` used by a DAO.
+
+·  We initialize an `SqlParameterSource` variable (#F). `SqlParameterSource` defines the functionality of the objects that can offer parameter values for named SQL parameters and can serve as an argument for `NamedParameterJdbcTemplate` operations.
+
+·  We query the COUNTRY table using the SQL that returns all the countries having names starting with ‘A’ and the `CountryRowMapper` that will match the columns from the table to the fields from the `Country` object (#G).
+
+George will finally change the existing `CountriesDatabaseTest` to take advantage of the Spring JDBC approach.
+
+Listing 19.14 The CountriesDatabaseTest class
+
+`@ExtendWith(SpringExtension.class)                     #A``@ContextConfiguration("classpath:application-context.xml")         #B``public class CountriesDatabaseTest {`` ``  @Autowired                               #C``  private CountryDao countryDao;                     #C`` ``  @Autowired                               #D``  private CountriesLoader countriesLoader;                #D`` ``  private List<Country> expectedCountryList = new ArrayList<Country>();  #E``  private List<Country> expectedCountryListStartsWithA =         #F``     new ArrayList<Country>();                     #F`` ``  @BeforeEach                               #G``  public void setUp() {``    initExpectedCountryLists();                     #H``    countriesLoader.loadCountries();                  #I``  }`` ``  ``  @Test``  @DirtiesContext                             #J``  public void testCountryList() {``    List<Country> countryList = countryDao.getCountryList();      #K``    assertNotNull(countryList);                     #L``    assertEquals(expectedCountryList.size(), countryList.size());    #M``    for (int i = 0; i < expectedCountryList.size(); i++) {       #N``      assertEquals(expectedCountryList.get(i), countryList.get(i));  #N``    }                                  #N``  }`` ``  @Test``  @DirtiesContext                             #J``  public void testCountryListStartsWithA() {``    List<Country> countryList = countryDao.getCountryListStartWith("A");#O``    assertNotNull(countryList);                     #P ``    assertEquals(expectedCountryListStartsWithA.size(),         #Q``           countryList.size());                  #Q``    for (int i = 0; i < expectedCountryListStartsWithA.size(); i++) {  #R``      assertEquals(expectedCountryListStartsWithA.get(i),       #R``             countryList.get(i));                #R``    }``  }`` ``  private void initExpectedCountryLists() {``   for (int i = 0; i < CountriesLoader.COUNTRY_INIT_DATA.length; i++) {``     String[] countryInitData = CountriesLoader.COUNTRY_INIT_DATA[i]; #S``     Country country = new Country(countryInitData[0],         #T``         countryInitData[1]);                   #T ``     expectedCountryList.add(country);                 #U``     if (country.getName().startsWith("A")) {             #V``       expectedCountryListStartsWithA.add(country);         #V``     }                                 #V``   }``  }``}`
+
+In the listing above, we do the following:
+
+·  We are annotating the test class to be extended with `SpringExtension` (#A). `SpringExtension` is used to integrate the Spring TestContext with the JUnit 5 Jupiter Test.
+
+·  We are also annotating the test class to look for the context configuration into the `application-context.xml` file from the classpath (#B).
+
+·  We are auto-wiring a `CountryDao` (#C) and a `CountriesLoader` bean (#D), which are declared into the `application-context.xml` file.
+
+·  We initialize an empty list of expected countries (#E) and an empty list of expected countries that start with ‘A’ (#F).
+
+·  We mark the `setUp` method with the `@BeforeEach` annotation, to be executed before each test (#G). Inside it, we initialize the expected countries list (#H) and we load the countries into the database (#I). The database is initialized by Spring, and we have eliminated its manual initialization.
+
+·  We annotate the test methods with the `@DirtiesContext` annotation (#J). This annotation is used when a test has modified the context (in our case, the state of the embedded database). This will reduce the “database burden” from the developers. Subsequent tests will be supplied with a new unmodified context.
+
+·  In the `testCountryList` method, we initialize the countries list from the database by using the `getCountryList` from the `CountryDao` class (#K). Then, we check that the list we have obtained is not null (#L), it has the expected size (#M) and that its content is the expected one (#N).
+
+·  In the `testCountryListStartsWithA` method, we initialize the countries list starting with ‘A’ from the database by using the `getCountryListStartWith` from the `CountryDao` class (#O). Then, we check that the list we have obtained is not null (#P), it has the expected size (#Q) and that its content is the expected one (#R).
+
+·  In the `initExpectedCountryLists` method we browse the countries initialization data (#S), create a `Country` object at each step (#T) and add it to the expected countries list (#U). If the name of the country starts with ‘A’, we also add it to the expected countries list whose names start with ‘A’ (#V).
+
+The tests are successfully running, as shown in fig. 19.2.
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/19_img_0002.jpg)
+
+Figure 19.2 Successfully running the tests from the Spring JDBC application that checks the interaction with the COUNTRY table
+
+The application is now accessing and testing the database through Spring JDBC, this approach has a few advantages:
+
+·  It no longer requires the previously existing large amount of tedious code.
+
+·  We no longer create and open the connections by ourselves.
+
+·  We no longer prepare and execute the statement, process the exceptions or close the connections.
+
+·  Mainly, we must take care of the application context configuration to be handled by Spring and we also must take care of the row mapper. Otherwise, we have to specify only the statement and iterate through the results.
+
+Spring allows configuration alternatives, as we have already demonstrated in the previous chapters. We have used here the XML-based configuration for the tests, as being easier to change, especially by less technical people. Be aware that the Spring Framework is a large topic and for this chapter, we are mostly discussing the things related to testing database applications with JUnit 5. For a comprehensive book on this topic, also showing in detail the configuration possibilities, please refer to the Manning “Spring in Action” by Craig Walls (https://www.manning.com/books/spring-in-action-fifth-edition).
+
+George will consider further alternatives to test the interaction with the database and to keep a reduced “database burden” for the developers. We’ll see more in the next sections.
+
+## 19.4  Testing a Hibernate application
+
+JPA (Java Persistence API) is the specification describing the management of the relational data, the API that the client will operate with and the metadata for the object-relational mapping.
+
+Hibernate is an object-relational mapping framework for Java, implementing the JPA specifications. It existed before the first publishing of the JPA specifications. Therefore, Hibernate has also retained its old native API, being able to offer some non-standard features. For our demonstration, we’ll use the standard Java Persistence API.
+
+Hibernate provides the facilities for mapping an object-oriented domain model to relational database tables. Hibernate manages the incompatibilities between the object-oriented model and the relational database model by replacing the direct database access with object handling functions.
+
+Working with Hibernate provides a series of advantages for accessing and testing the database:
+
+·  Speeding development. It eliminates repetitive code like mapping query result columns to object fields and vice-versa.
+
+·  Making data access more abstract and portable. The ORM implementation classes know how to write vendor-specific SQL, so we do not have to.
+
+·  Cache management. Entities are cached in memory, thereby reducing the load on the database.
+
+·  Generating boilerplate code for basic CRUD operations (Create, Read, Update, Delete).
+
+George will first introduce the Hibernate dependency into the Maven pom.xml configuration (listing 19.15).
+
+Listing 19.15 The Hibernate dependency introduced into the Maven pom.xml file
+
+`<dependency>``  <groupId>org.hibernate</groupId>``  <artifactId>hibernate-core</artifactId>``  <version>5.4.9.Final</version>``</dependency>`
+
+Then, George will change the Country class to annotate it as an entity and to annotate the fields from it as columns in a table.
+
+Listing 19.16 The annotated Country class
+
+`@Entity                                   #A``@Table(name = "COUNTRY")                          #B``public class Country {``  @Id                                   #C``  @GeneratedValue(strategy = GenerationType.IDENTITY)           #D``  @Column(name = "ID")                          #E``  private int id;`` ``  @Column(name = "NAME")                         #F``  private String name;`` ``  @Column(name = "CODE_NAME")                       #F``  private String codeName;`` ``  […]``}`
+
+In the listing above we do the following:
+
+·  We annotate the `Country` class with `@Entity`, meaning that it has the ability to represent objects in a database (#A). The corresponding table into the database is provided by the `@Table` annotation and is named COUNTRY (#B).
+
+·  The `id` field is marked as the primary key (#C), its value is automatically generated using a database identity column (#D). The corresponding table column is ID (#E).
+
+·  We also mark the corresponding columns of the `name` and `codeName` fields in the class by annotating them with `@Column` (#F).
+
+The `persistence.xml` file is the standard configuration for Hibernate. It is located in the `test/resources/META-INF` folder.
+
+Listing 19.17 The persistence.xml file
+
+<persistence-unit name="manning.hibernate">                                 #A        <provider>org.hibernate.jpa.HibernatePersistenceProvider</provider> #B        <class>com.manning.junitbook.databases.model.Country</class>        #C         <properties>            <property name="javax.persistence.jdbc.driver"                  #D                            value="org.h2.Driver"/>                         #D            <property name="javax.persistence.jdbc.url"                     #E                            value="jdbc:h2:mem:test;DB_CLOSE_DELAY=-1"/>    #E            <property name="javax.persistence.jdbc.user" value="sa"/>       #F            <property name="javax.persistence.jdbc.password" value=""/>     #F            <property name="hibernate.dialect"                              #G                            value="org.hibernate.dialect.H2Dialect"/>       #G            <property name="hibernate.show_sql" value="true"/>              #H            <property name="hibernate.hbm2ddl.auto" value="create"/>        #I        </properties></persistence-unit>
+
+In the listing above we do the following:
+
+·  We specify the persistence unit as `manning.hibernate` (#A). The `persistence.xml` file must define a persistence unit with a unique name in the currently scoped classloader.
+
+·  We specify the provider, meaning the underlying implementation of the JPA (Java Persistence API) EntityManager (#B). An EntityManager manages a set of persistent objects and has an API to insert new objects and read/update/delete the existing ones. In our case, the EntityManager is Hibernate, currently the most popular JPA implementation.
+
+·  We define the entity class that is managed by Hibernate as the `Country` class from our application (#C).
+
+·  We specify the JDBC driver as H2, as this is the database type is use (#D).
+
+·  We specify the URL of the H2 database. In addition, the `DB_CLOSE_DELAY=-1` will keep the database open and the content of the in-memory database as long as the virtual machine is alive (#E).
+
+·  We specify the credentials to access the database – user and password (#F).
+
+·  We set the SQL dialect for the generated query to H2Dialect (#G), we show the generated SQL query on the console (#H).
+
+·  We create the database schema from the scratch every time when we execute the tests (#I).
+
+George will finally rewrite the test that verifies the functionality of the database application, this time using Hibernate.
+
+Listing 19.18 The CountriesHibernateTest file
+
+`public class CountriesHibernateTest {`` ``  private EntityManagerFactory emf;                    #A``  private EntityManager em;                        #B`` ``  private List<Country> expectedCountryList =               #C``             new ArrayList<>();                #C``  private List<Country> expectedCountryListStartsWithA =         #C``             new ArrayList<>();                #C`` ``  public static final String[][] COUNTRY_INIT_DATA = {          #D``    { "Australia", "AU" }, { "Canada", "CA" }, { "France", "FR" },   #D``    { "Germany", "DE" }, { "Italy", "IT" }, { "Japan", "JP" },     #D``    { "Romania", "RO" }, { "Russian Federation", "RU" },        #D``    { "Spain", "ES" }, { "Switzerland", "CH" },             #D``    { "United Kingdom", "UK" }, { "United States", "US" } };      #D`` ``  @BeforeEach                               #E``  public void setUp() {``    initExpectedCountryLists();                     #F`` ``    emf = Persistence.createEntityManagerFactory("manning.hibernate"); #G``    em = emf.createEntityManager();                   #G`` ``    em.getTransaction().begin();                    #H`` ``    for (int i = 0; i < COUNTRY_INIT_DATA.length; i++) {        #I``      String[] countryInitData = COUNTRY_INIT_DATA[i];        #I``      Country country = new Country(countryInitData[0],        #I``                 countryInitData[1]);           #I``      em.persist(country);                      #J``    }`` ``    em.getTransaction().commit();                    #H``  }`` ``  @Test``  public void testCountryList() {``    List<Country> countryList = em.createQuery(             #K``        "select c from Country c").getResultList();         #K``    assertNotNull(countryList);                     #L``    assertEquals(COUNTRY_INIT_DATA.length, countryList.size());     #M``    for (int i = 0; i < expectedCountryList.size(); i++) {       #N``      assertEquals(expectedCountryList.get(i), countryList.get(i));  #N``    }`` ``  }`` ``  @Test``  public void testCountryListStartsWithA() {``    List<Country> countryList = em.createQuery(             #O``      "select c from Country c where c.name like 'A%'").       #O``                       getResultList();       #O``    assertNotNull(countryList);                     #P``    assertEquals(expectedCountryListStartsWithA.size(),         #Q``           countryList.size());                  #Q``    for (int i = 0; i < expectedCountryListStartsWithA.size(); i++) {  #R``      assertEquals(expectedCountryListStartsWithA.get(i),       #R``             countryList.get(i));                #R``    }``  }`` ``  @AfterEach                               #S``  public void dropDown() {``    em.close();                             #T``    emf.close();                            #T``  }`` ``  private void initExpectedCountryLists() {``    for (int i = 0; i < COUNTRY_INIT_DATA.length; i++) {        #U``      String[] countryInitData = COUNTRY_INIT_DATA[i];        #V``      Country country = new Country(countryInitData[0],        #V``                     countryInitData[1]);       #V``      expectedCountryList.add(country);                #W``      if (country.getName().startsWith("A")) {            #X``        expectedCountryListStartsWithA.add(country);        #X``      }``    }``  }``}`
+
+In the listing above we do the following:
+
+·  We initialize an `EntityManagerFactory` (#A) and an `EntityManager` objects (#B). `EntityManagerFactory` provides instances of `EntityManager` for connecting to the same database, while an `EntityManager` is used to access a database in a particular application.
+
+·  We initialize an empty list of expected countries and an empty list of expected countries that start with ‘A’ (#C). We then declare the initialization data for the countries to be inserted (#D).
+
+·  We mark the `setUp` method with the `@BeforeEach` annotation, to be executed before each test (#E). Inside it, we initialize the expected countries list (#F) and we initialize the `EntityManagerFactory` and the `EntityManager` (#G).
+
+·  Within a transaction (#H), we initialize each country, one after the other (#I) and we persist the newly created country to the database (#J).
+
+·  In the `testCountryList` method, we initialize the countries list from the database by using the `EntityManager` and querying the Country entity using a JPQL SELECT (#K). JPQL (Java Persistence Query Language) is an object-oriented query language, independent of the platform. It is a part of the JPA (Java Persistence API) specification. Note that we need to spell “Country”, as this is the exact name of the class, starting in upper case and having the other letters are in lower case. Then, we check that the list we have obtained is not null (#L), it has the expected size (#M) and that its content is the expected one (#N).
+
+·  In the `testCountryListStartsWithA` method, we initialize the countries list starting with ‘A’ from the database by using the `EntityManager` and querying the Country entity using a JPQL SELECT (#O). Then, we check that the list we have obtained is not null (#P), it has the expected size (#Q) and that its content is the expected one (#R).
+
+·  We mark the `dropDown` method with the `@AfterEach` annotation, to be executed after each test (#S). Inside it, we close the `EntityManagerFactory` and the `EntityManager` (#T).
+
+·  In the `initExpectedCountryLists` method we browse the countries initialization data (#U), create a `Country` object at each step (#V) and add it to the expected countries list (#W). If the name of the country starts with ‘A’, we also add it to the expected countries list whose names start with ‘A’ (#X).
+
+The tests are successfully running, as shown in fig. 19.3.
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/19_img_0003.jpg)
+
+Figure 19.3 Successfully running the tests from the Hibernate application that checks the interaction with the COUNTRY table
+
+The application is now accessing and testing the database through Hibernate. This comes with a few advantages:
+
+·  No more SQL code to be written inside the application. The developers are working only with Java code.
+
+·  No more mapping of the query result columns to object fields and vice-versa.
+
+·  Hibernate knows how to transform the operations with the implemented classes into vendor-specific SQL. So, if we change the underlying database, we will not touch the existing code, we’ll only change the Hibernate configuration and the database dialect.
+
+George will make one more step in considering alternatives to test the interaction with the database: combining Spring and Hibernate. We’ll see this approach in the next section.
+
+## 19.5  Testing a Spring Hibernate application
+
+Hibernate is an object-relational mapping framework for Java. It provides the facilities for mapping an object-oriented domain model to relational database tables. Spring can take advantage of the Inversion of Control to simplify the database interaction tasks.
+
+Integrating Hibernate and Spring, George will add the needed dependencies into the Maven pom.xml configuration file.
+
+Listing 19.19 The Spring and Hibernate dependencies in the Maven pom.xml file
+
+<dependency>                                                             #A<groupId>org.springframework</groupId>                            #A<artifactId>spring-context</artifactId>                           #A<version>5.2.1.RELEASE</version>                                  #A</dependency>                                                            #A<dependency>                                                             #B<groupId>org.springframework</groupId>                            #B<artifactId>spring-orm</artifactId>                               #B<version>5.2.1.RELEASE</version>                                  #B</dependency>                                                            #B<dependency>                                                             #C<groupId>org.springframework</groupId>                            #C<artifactId>spring-test</artifactId>                              #C<version>5.2.1.RELEASE</version>                                  #C</dependency>                                                            #C<dependency>                                                             #D<groupId>org.hibernate</groupId>                                  #D<artifactId>hibernate-core</artifactId>                           #D  <version>5.4.9.Final</version>                                    #D</dependency>                                                            #D
+
+In the listing above, we have added the following dependencies:
+
+·  `spring-context`, the dependency for the Spring Inversion of Control container (#A).
+
+·  `spring-orm`, as the application is still using Hibernate as ORM (Object Relational Mapping) framework to access the database. The control of working with connections, preparing and executing statements, processing exceptions is handled by Spring (#B).
+
+·  `spring-test`, the dependency that provides support for writing tests with the help of Spring and that is necessary to use the `SpringExtension` and the `@ContextConfiguration` annotation. (#C).
+
+·  The `hibernate-code` dependency, for the interaction with the database through Hibernate (#D).
+
+George will make some changes to the `persistence.xml` file, the standard configuration for Hibernate. Only some minimal information will remain here, as the database access control will be handled by Spring.
+
+Listing 19.20 The persistence.xml file
+
+`<persistence-unit name="manning.hibernate">                 #A``    <provider>org.hibernate.jpa.HibernatePersistenceProvider</provider> #B``    <class>com.manning.junitbook.databases.model.Country</class>    #C``</persistence-unit>`
+
+In the listing above we do the following:
+
+·  We specify the persistence unit as `manning.hibernate` (#A). The `persistence.xml` file must define a persistence unit with a unique name in the currently scoped classloader.
+
+·  We specify the provider, meaning the underlying implementation of the JPA (Java Persistence API) EntityManager (#B). An EntityManager manages a set of persistent objects and has an API to insert new objects and read/update/delete the existing ones. In our case, the EntityManager is Hibernate.
+
+·  We define the entity class that is managed by Hibernate as the `Country` class from our application (#C).
+
+So, George will move the database access configuration to the application-context.xml file that is configuring the Spring container.
+
+Listing 19.21 The application-context.xml file
+
+<tx:annotation-driven transaction-manager="txManager"/>                     #A<bean id="dataSource" class=                                                #B     "org.springframework.jdbc.datasource.DriverManagerDataSource">         #B     <property name="driverClassName" value="org.h2.Driver"/>               #C     <property name="url" value="jdbc:h2:mem:test;DB_CLOSE_DELAY=-1"/>      #D     <property name="username" value="sa"/>                                 #E     <property name="password" value=""/>                                   #E</bean> <bean id="entityManagerFactory" class=                                      #F     "org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean">  #F     <property name="persistenceUnitName" value="manning.hibernate" />      #G     <property name="dataSource" ref="dataSource"/>                         #H     <property name="jpaProperties">         <props>           <prop key=                                                       #I           "hibernate.dialect">org.hibernate.dialect.H2Dialect</prop>       #I           <prop key="hibernate.show_sql">true</prop>                       #J           <prop key="hibernate.hbm2ddl.auto">create</prop>                 #K         </props>     </property></bean> <bean id="txManager" class=                                                 #L     "org.springframework.orm.jpa.JpaTransactionManager">                   #L     <property name="entityManagerFactory" ref="entityManagerFactory" />    #M     <property name="dataSource" ref="dataSource" />                        #N</bean> <bean class="com.manning.junitbook.databases.CountryService"/>              #O
+
+In the listing above we do the following:
+
+·  `<tx:annotation-driven>` tells the Spring context that we are using annotation-based transaction management configuration (#A).
+
+·  We are configuring the access to the data source (#B), by specifying the driver as H2, as this is the database type is use (#C). We specify the URL of the H2 database. In addition, the `DB_CLOSE_DELAY=-1` will keep the database open and the content of the in-memory database as long as the virtual machine is alive (#D).
+
+·  We specify the credentials to access the database – user and password (#E).
+
+·  We create and `EntityManagerFactory` bean (#F). We set its properties: the persistence unit name (as defined into the persistence.xml file) (#G), the data source (defined above) (#H), the SQL dialect for the generated query to H2Dialect (#I). We show the generated SQL query on the console (#J) and we create the database schema from the scratch every time when we execute the tests (#K).
+
+·  To process the annotation-based transaction configuration, a transaction manager bean needs to be created. We declare it (#L) and set its entity manager factory (#M) and data source (#N) properties.
+
+·  We declare a `CountryService` bean (#O), as we’ll create this class into the code and group here the logic of the interaction with the database.
+
+George creates the `CountryService` class that contains the logic of the interaction with the database.
+
+Listing 19.22 The CountryService class
+
+`public class CountryService {`` ``  @PersistenceContext                           #A``  private EntityManager em;                        #A`` ``  public static final String[][] COUNTRY_INIT_DATA =           #B``   { { "Australia", "AU" }, { "Canada", "CA" }, { "France", "FR" },   #B``    { "Germany", "DE" }, { "Italy", "IT" }, { "Japan", "JP" },     #B``    { "Romania", "RO" }, { "Russian Federation", "RU" },        #B``    { "Spain", "ES" }, { "Switzerland", "CH" },             #B``    { "United Kingdom", "UK" }, { "United States", "US" } };      #B`` ``  @Transactional                             #C``  public void init() {``    for (int i = 0; i < COUNTRY_INIT_DATA.length; i++) {        #D``      String[] countryInitData = COUNTRY_INIT_DATA[i];        #D``      Country country = new Country(countryInitData[0],        #D``                     countryInitData[1]);       #D``      em.persist(country);                      #D``    }``  }`` ``  @Transactional                             #C``  public void clear() {``    em.createQuery("delete from Country c").executeUpdate();      #E``  }`` ``  public List<Country> getAllCountries() {``    return em.createQuery("select c from Country c")          #F``          .getResultList();                    #F ``  }`` ``  public List<Country> getCountriesStartingWithA() {``    return em.createQuery(                       #G``      "select c from Country c where c.name like 'A%'")        #G``      .getResultList();                        #G``  }``}`
+
+In the listing above we do the following:
+
+·  We declare an `EntityManager` bean and we annotate it with `@PersistenceContext` (#A). `The EntityManager` is used to access a database and is created by the container using the information in the persistence.xml. To use it at runtime, we simply need to request it be injected into one of our components, via `@PersistenceContext`.
+
+·  We then declare the initialization data for the countries to be inserted (#B).
+
+·  We annotate the `init` and `clear` methods as `@Transactional` (#C). We do this as these methods are modifying the content of the database, and all this kind of methods need to be executed within a transaction.
+
+·  We browse the initialization data for the countries, create each `Country` object and persist it within the database (#D).
+
+·  The `clear` method will delete all countries from the Country entity using a JPQL DELETE (#E). JPQL (*Java Persistence Query Language)* is a platform-independent object-oriented query language defined as part of the JPA (Java Persistence API) specification. Note that we need to spell “Country”, as this is the exact name of the class, starting in upper case and having the other letters are in lower case.
+
+·  The `getAllCountries` method will select all the countries from the Country entity using a JPQL SELECT (#F).
+
+·  The `getCountriesStartingWithA` method will select all the countries from the Country entity having names starting with ‘A”, using a JPQL SELECT (#G).
+
+George will finally modify the `CountriesHibernateTest` class, testing the logic of the interaction with the database.
+
+Listing 19.23 The CountriesHibernateTest class
+
+`@ExtendWith(SpringExtension.class)                     #A``@ContextConfiguration("classpath:application-context.xml")         #B``public class CountriesHibernateTest {`` ``  @Autowired                               #C``  private CountryService countryService;                 #C`` ``  private List<Country> expectedCountryList = new ArrayList<>();     #D``  private List<Country> expectedCountryListStartsWithA =         #D``               new ArrayList<>();              #D`` `` ``  @BeforeEach                               #E``  public void setUp() {``    countryService.init();                       #F``    initExpectedCountryLists();                     #G``  }`` ``  @Test``  public void testCountryList() {``    List<Country> countryList = countryService.getAllCountries();    #H  ``    assertNotNull(countryList);                     #I``    assertEquals(COUNTRY_INIT_DATA.length, countryList.size());     #J``    for (int i = 0; i < expectedCountryList.size(); i++) {       #K``      assertEquals(expectedCountryList.get(i), countryList.get(i));  #K``    }``  }`` ``  @Test``  public void testCountryListStartsWithA() {``    List<Country> countryList =                     #L``        countryService.getCountriesStartingWithA();         #L``    assertNotNull(countryList);                     #M``    assertEquals(expectedCountryListStartsWithA.size(),         #N``           countryList.size());                  #N``    for (int i = 0; i < expectedCountryListStartsWithA.size(); i++) {  #O``      assertEquals(expectedCountryListStartsWithA.get(i),       #O``             countryList.get(i));                #O``    }``  }`` ``  @AfterEach                               #P``  public void dropDown() {``    countryService.clear();                       #Q``  }`` ``  private void initExpectedCountryLists() {``    for (int i = 0; i < COUNTRY_INIT_DATA.length; i++) {        #R``      String[] countryInitData = COUNTRY_INIT_DATA[i];        #S``      Country country = new Country(countryInitData[0],        #S``                     countryInitData[1]);       #S``      expectedCountryList.add(country);                #T``      if (country.getName().startsWith("A")) {            #U``        expectedCountryListStartsWithA.add(country);        #U``      }``    }``  }``}`
+
+In the listing above we do the following:
+
+·  We are annotating the test class to be extended with `SpringExtension` (#A). `SpringExtension` is used to integrate the Spring TestContext with the JUnit 5 Jupiter Test. This allows us to use other Spring annotations as well (e.g. `@ContextConfiguration`, `@Transactional`), but it also requires the usage of JUnit 5 and its annotations.
+
+·  We are also annotating the test class to look for the context configuration into the `application-context.xml` file from the classpath (#B).
+
+·  We declare and auto-wire a `CountryService` bean. This bean will be created and injected by the Spring container (#C).
+
+·  We initialize an empty list of expected countries and an empty list of expected countries that start with ‘A’ (#D).
+
+·  We mark the `setUp` method with the `@BeforeEach` annotation, to be executed before each test (#E). Inside it, we initialize the database content through the `init` method from the `CountryService` class (#F) and we initialize the expected countries list (#G).
+
+·  In the `testCountryList` method, we initialize the countries list from the database by using the `getAllCountries` method from the `CountryService` class (#H). Then, we check that the list we have obtained is not null (#I), it has the expected size (#J) and that its content is the expected one (#K).
+
+·  In the `testCountryListStartsWithA` method, we initialize the countries list starting with ‘A’ from the database by using the `getCountriesStartingWithA` method from the `CountryService` class (#L). Then, we check that the list we have obtained is not null (#M), it has the expected size (#N) and that its content is the expected one (#O).
+
+·  We mark the `dropDown` method with the `@AfterEach` annotation, to be executed after each test (#P). Inside it, we clear the COUNTRY table content through the clear method from the `CountryService` class (#Q).
+
+·  In the `initExpectedCountryLists` method we browse the countries initialization data (#R), create a `Country` object at each step (#S) and add it to the expected countries list (#T). If the name of the country starts with ‘A’, we also add it to the expected countries list whose names start with ‘A’ (#U).
+
+The tests are successfully running, as shown in fig. 19.4.
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/19_img_0004.jpg)
+
+Figure 19.4 Successfully running the tests from the Spring Hibernate application that checks the interaction with the COUNTRY table
+
+The application is now accessing and testing the database through Spring Hibernate. This comes with a few advantages:
+
+·  No SQL code to be written inside the application. The developers are working only with Java code.
+
+·  No creation/opening/closing of the connections by ourselves.
+
+·  No exception process by ourselves.
+
+·  We have to take care mainly of the application context to be handled by Spring and to include the data source, transaction manager and entity manager factory configuration.
+
+·  Hibernate knows how to transform the operations with the implemented classes into vendor-specific SQL. So, if we change the underlying database, we will not touch the existing code, we’ll only change the Hibernate configuration and the database dialect.
+
+## 19.6  Comparing the approaches of testing database applications
+
+We have followed George as he started with a simple JDBC application and moved it for use with Spring and Hibernate. We have demonstrated how things have changed and how each approach has simplified the way we test and we interact in general with the database. Our purpose was to analyze how each approach works and how the “database burden” can be reduced from the side of the developers.
+
+We will summarize in table 19.1 the characteristics of each approach.
+
+| Application type | Characteristics                                              |
+| ---------------- | ------------------------------------------------------------ |
+| JDBC             | SQL code needs to be written inside the testsNo portability between databasesFull control on what the application is doingDeveloper manual work for interacting with the database, e.g.:Create and open the connectionsSpecify, prepare and execute the statementIterate through the resultsDo the work for each iterationProcess the exceptionsClose the connection |
+| Spring JDBC      | SQL code needs to be written inside the testsNo portability between databasesNeed to take care mainly of the application context configuration to be handled by Spring and of the row mapperControl on the queries that the application is executing against the databaseReduces the manual work for interacting with the database:No creation/opening/closing the connections by ourselvesNo preparation and execution of the statementsNo processing of the exceptions |
+| Hibernate        | No SQL code inside the applicationDevelopers working only with Java codeNo mapping of the query result columns to object fields and vice-versaPortability between databases by changing the Hibernate configuration and the database dialectDatabase configuration handled through Java code |
+| Spring Hibernate | No SQL code inside the applicationDevelopers working only with Java codeNo mapping of the query result columns to object fields and vice-versaPortability between databases by changing the Hibernate configuration and the database dialectDatabase configuration is handled by Spring, based on the information from the application context |
+
+Table 19.1 Comparison of the alternatives of working with a database application and testing it with JDBC, Spring JDBC, Hibernate, Spring Hibernate
+
+We notice that the introduction of at least one framework as Spring or Hibernate into the application greatly simplifies the testing of the database and developing the application itself. As these are the most popular Java frameworks from today and they provide a lot of benefits (including the work and testing of the interaction with a database, as we have demonstrated), you may consider adopting them into your project (if you haven’t done it already).
+
+This chapter has focused on covering the alternatives of testing a database application with JUnit 5, to support you with your possible current project. The tests have covered only the insertions and selections operations, which are already providing comprehensive information about how to do it and how each alternative works in detail. The reader may extend the tests offered here to include the update and delete operations.
+
+The next chapter will start the last part of the book, dedicated to the systematic development of applications with the help of JUnit 5. It will introduce one of the most widely spread development techniques from today: TDD (Test Driven Development).
+
+## 19.7  Summary
+
+This chapter has covered the following:
+
+·  Examining the database unit testing impedance mismatch, including as challenges the fact that: unit tests must exercise code in isolation; unit tests must be easy to write and run; unit tests must be fast to run.
+
+·  Implementing tests for a JDBC application, which requires SQL code to be written inside the tests and a lot of tedious work to be done by the developer: creating/opening/closing the connections to the database; specifying, preparing and executing the statements; handling exceptions.
+
+·  Implementing tests for a Spring JDBC application. This still requires SQL code to be written inside the tests, but it handles the Spring container the tasks of creating/opening/closing the connections to the database; specifying, preparing and executing the statements; handling exceptions.
+
+·  Implementing tests for a Hibernate application. No more SQL code is required, developers work only with the Java code, the application is portable to another database with minimum configuration changes. The database configuration is handled through the Java code.
+
+·  Implementing tests for a Spring Hibernate application. No SQL code is required, developers work only with the Java code, the application is portable to another database with minimum configuration changes. Additionally, the database configuration is handled by Spring, based on the information from the application context.
+
+
+
+
+
+# 20. Test Driven Development with JUnit 5
+
+略
