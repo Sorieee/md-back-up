@@ -4703,7 +4703,7 @@ tools {    go 'go1.10'}
 
 ​	maven-pmd-plugin插件并不会自动使用p3c-pmd，需要在引入dependencies部分手动加入p3c-pmd依赖，然后在rulesets属性中引入p3c的规则。
 
-（2）安装Jenkins PMD插件（https：//pmd.github.io/）。
+（2）安装Jenkins PMD插件（https://pmd.github.io/）。
 
 ​	Jenkins PMD插件的作用是将PMD报告呈现在任务详情页中
 
