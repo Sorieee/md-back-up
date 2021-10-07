@@ -1357,3 +1357,161 @@ Java 8引入了 `<U> CompletableFuture<U> completedFuture(U value)`工厂方法�
 * ``**<U> CompletionStage<U> completedStage(U value)**: `返回一个新的以指定 value 完成的**CompletionStage** ，并且只支持 **CompletionStage** 里的接口。
 * `**<U> CompletionStage<U> failedStage(Throwable ex)**`: 返回一个新的以指定异常完成的`**CompletionStage** `，并且只支持 **CompletionStage** 里的接口。
 
+# JDK10
+
+JDK10 包含 12 个JEP (改善提议）：
+
+- [【286】局部变量类型推断](http://openjdk.java.net/jeps/286) ：对于开发者来说，这是 JDK10 唯一的真正特性。它向 Java 中引入在其他语言中很常见的 *var*  ，比如 JavaScript 。只要编译器可以推断此种类型，你不再需要专门声明一个局部变量的类型。一个简单的例子是：
+
+      ```
+      var x = new ArrayList<String>();
+      ```
+
+  这就消除了我们之前必须执行的` ArrayList<String>` 类型定义的重复。我鼓励你们去读 JEP ，因为上面有一些关于这个句法是否能用的规则。
+
+  有趣的是，需要注意 *var* 不能成为一个关键字，而是一个保留字。这意味着你仍然可以使用 var 作为一个变量，方法或包名，但是现在（尽管我确定你绝不会）你不能再有一个类被调用。
+
+- [[310\]应用类数据共享](http://openjdk.java.net/jeps/310)(CDS) ：CDS 在 JDK5 时被引进以改善 JVM 启动的表现，同时减少当多个虚拟机在同一个物理或虚拟的机器上运行时的资源占用。
+
+  JDK10 将扩展 CDS 到允许内部系统的类加载器、内部平台的类加载器和自定义类加载器来加载获得的类。之前，CDS 的使用仅仅限制在了 bootstrap 的类加载器。
+
+- [[314\]额外的 Unicode 语言标签扩展](http://openjdk.java.net/jeps/314)：这将改善 java.util.Locale 类和相关的 API 以实现额外 BCP 47 语言标签的 Unicode 扩展。尤其是，货币类型，一周的第一天，区域覆盖和时区等标签现在将被支持。
+
+- [[322\]基于时间的版本控制](http://openjdk.java.net/jeps/322)：正如我在之前的博客中所讨论的，我们的 JDK 版本字符串格式几乎与 JDK 版本一样多。有幸的是，这是最后需要使用到的，我们可以坚持用它。这种格式使用起来很像 JDK9 中介绍的提供一个更加语义的形式。有一件困扰我的事是包含了一个 INTERIM 元素，正如 JEP 提议中所说，“永远是0”。好吧，如果永远是0，那它有什么意义呢？他们说这是为未来使用做保留，但我仍不是很赞同。我认为，这有些冗余繁杂。
+
+  这也消除了在 JDK9 中有过的相当奇怪的情形。第一次更新是 JDK 9.0.1 , 非常符合逻辑。第二次更新是 JDK 9.0.4 ，不合逻辑。原因是，在 JDK9 的版本计数模式下，需要留下空白以便应急或不在预期安排的更新使用。但既然没有更新是必须的，为什么不简单称之为 JDK 9.0.2 呢？
+
+- [[319\]根证书](http://openjdk.java.net/jeps/319)：在 JDK 中将提供一套默认的 CA 根证书。关键的安全部件，如 TLS ，在 OpenJDK 构建中将默认有效。这是 Oracle 正在努力确保 OpenJDK 二进制和 Oracle JDK 二进制功能上一样的工作的一部分，是一项有用的补充内容。
+
+-  [[307\] 并行全垃圾回收器 G1](http://openjdk.java.net/jeps/307) : G1 是设计来作为一种低延时的垃圾回收器（但是如果它跟不上旧的堆碎片产生的提升速率的话，将仍然采用完整压缩集合）。在 JDK9 之前，默认的收集器是并行，吞吐，收集器。为了减少在使用默认的收集器的应用性能配置文件的差异，G1 现在有一个并行完整收集机制。
+
+- [[313\]移除 Native-Header 自动生成工具](http://openjdk.java.net/jeps/313)：Java9 开始了一些对 JDK 的家务管理，这项特性是对它的延续。当编译 JNI 代码时，已不再需要单独的工具来生成头文件，因为这可以通过 javac 完成。在未来的某一时刻，JNI 将会被 Panama 项目的结果取代，但是何时发生还不清楚。
+
+- [[304\]垃圾回收器接口](http://openjdk.java.net/jeps/304): 这不是让开发者用来控制垃圾回收的接口；而是一个在 JVM 源代码中的允许另外的垃圾回收器快速方便的集成的接口。
+
+- [[312\]线程-局部变量管控](http://openjdk.java.net/jeps/312)：这是在 JVM 内部相当低级别的更改，现在将允许在不运行全局虚拟机安全点的情况下实现线程回调。这将使得停止单个线程变得可能和便宜，而不是只能启用或停止所有线程。
+
+- [[316\]在备用存储装置上的堆分配](http://openjdk.java.net/jeps/316)：硬件技术在持续进化，现在可以使用与传统 DRAM 具有相同接口和类似性能特点的非易失性 RAM 。这项 JEP 将使得 JVM 能够使用适用于不同类型的存储机制的堆。
+
+- [[317\] 试验性的基于 Java 的 JIT 编译器](http://openjdk.java.net/jeps/317)：最近宣布的 Metropolis 项目，提议用 Java 重写大部分 JVM 。乍一想，觉得很奇怪。如果 JVM 是用 Java 编写的，那么是否需要一个 JVM 来运行 JVM ？ 相应的，这导致了一个很好的镜像类比。 现实情况是，使用 Java 编写 JVM 并不意味着必须将其编译为字节码，你可以使用 AOT 编译，然后在运行时编译代码以提高性能。
+
+  这项 JEP 将 Graal 编译器研究项目引入到 JDK 中。并给将 Metropolis 项目成为现实，使 JVM 性能与当前 C++ 所写版本匹敌（或有幸超越）提供基础。
+
+- [[296\]: 合并 JDK 多个代码仓库到一个单独的储存库中](http://openjdk.java.net/jeps/296)：在 JDK9 中，有 8 个仓库： root、corba、hotspot、jaxp、jaxws、jdk、langtools 和 nashorn 。在 JDK10 中这些将被合并为一个，使得跨相互依赖的变更集的存储库运行 atomic commit （原子提交）成为可能。
+
+### 新 API
+
+有 73 项新增内容添加到了标准类库中。
+
+- **java.awt.Toolkit
+  int getMenuShortcutKeyMaskEx()**: 确定哪个扩展修饰符键是菜单快捷键的适当加速键。
+- **java.awt.geom.Path2D**: 
+  **void trimToSize()**: 将此 Path2D 实例的容量计算到它当前的大小。应用可使用此操作将路径的存储空间最小化。这个方法也被添加到 Path2D.Double 和 Path2D.Float 类。
+- **java.io.ByteArrayOutputStream:
+  String toString(Charset)**: 重载 toString()，通过使用指定的字符集解码字节，将缓冲区的内容转换为字符串。
+- **java****.io.PrintStream:
+  lang.io.PrintWriter:**
+  这两个类都有三个新的构造函数，它们需要额外的 Charset 参数。
+- **java.io.Reader:
+  long transferTo(Writer):** 从这个 Reader 中读取所有字符，并按照所读的顺序将字符写入给定的 Writer 。
+- **java.lang.Runtime.Version:**
+  有四种新方法返回新（JEP 322）版本字符串字段的整数值: feature()、interim()、patch() 和 update() 。
+
+- **java.lang.StackWalker.StackFrame**:
+  **String getDescriptor()**: 按照 JVM 标准返回此堆栈帧所代表的方法的描述符。
+  **String getMethodType()**:返回此堆栈帧所代表的方法类型，描述参数类型和返回值类型。
+- **java.lang.invoke.MethodType:
+  Class<?> lastParameterType():**返回这个方法类型的最后一个参数类型。如果这个方法类型没有参数，则返回空类型作为岗哨值（*Sentinel* *Value*）。
+- **java.lang.management.RuntimeMXBean:
+  long getPid():** R 返回正在运行的 JVM 的进程 ID 。
+- **java.lang.management.ThreadMXBean:
+  ThreadInfo[] dumpAllThreads(boolean, boolean, int):** 返回所有活动线程的线程信息，其中有指定的最大元素数量和同步信息的堆栈跟踪。
+  **ThreadInfo[] getThreadInfo(long[], boolean, boolean, int):** 返回每个线程的线程信息，这些线程的标识位于输入数组中，其中有指定的最大元素数量和同步信息的堆栈跟踪。
+- **java.lang.reflect.MalformedParameterizedTypeException:** 添加了一个新的构造函数，它以字符串的形式作为参数来获取详细信息。
+- **java.net.URLDecoder:
+  java.net.URLEncoder:**
+  这两个类都有新的重载的解码和编码方法，将 charset 作为附加参数。
+
+- **java.nio.channels.Channels:**
+  两个新的静态重载方法，允许使用 Charset 的 newReader（ReadByteChannel，Charset）和newWriter（WriteByteChannel，Charset）。
+- **java.nio.file.FileStore:
+  long getBlockSize():** 在这个文件存储中返回每个块的字节数。
+- **java.time.chrono:** 这个包里有三个类，HijrahEra、MiinguoEra 和 ThaiBuddhistEra ，都有同样的方法。
+  **String getDisplayName(TextStyle, Locale):** 这将返回用于识别 era 的文本名称，适合于向用户展示。
+- **java.time.format.DateTimeFormatter:
+  localizedBy(Locale):** 返回指定格式器的一个副本，其中包含地区、日历、区域、小数和/或时区的本地化值，这将取代该格式器中的值。
+- **java.util**: DoubleSummaryStatistics、IntSummaryStatistics 和 LongSummaryStatistics 都有一个新的构造函数，它包含 4 个数值。它使用指定的计数、最小值、最大值和总和构造一个非空实例。
+- **java.util.List:
+  java.util.Map:
+  java.util.Set:** 这些接口中的每一个都增加了一个新的静态方法，copyOf(Collection）。这些函数按照其迭代顺序返回一个不可修改的列表、映射或包含给定集合的元素的集合。
+- **java.util.Optional:
+  java.util.OptionalDouble:
+  java.util.OptionalInt:
+  java.util.OptionalLong:** 每一个类都有一个新的方法，orElseThrow() ，它本质上和 get() 一样，也就是说，如果 Optional 有值则返回。否则，将抛出 NoSuchElementException 。
+- **java**.**util.Formatter:** 
+  **java.util.Scanner:**
+  这两个类都有三个新的构造函数，除了其他参数之外，它们都带有一个 charset 参数。
+
+- **java.util.Properties**: 这有一个新的构造函数，它接受一个 int 参数。这将创建一个没有默认值的空属性列表，并且指定初始大小以容纳指定的元素数量，而无需动态调整大小。还有一个新的重载的 replace 方法，接受三个 Object 参数并返回一个布尔值。只有在当前映射到指定值时，才会替换指定键的条目。
+- **java**.**SplittableRandom**: 
+  **void nextBytes(byte[]):** 用生成的伪随机字节填充一个用户提供的字节数组。
+- **java.util.concurrent.FutureTask**: 添加了 toString() 方法，该方法返回一个标识 FutureTask 的字符串，以及它的完成状态。在括号中，状态包含如下字符串中的一个，“Completed Normally” 、“Completed Exceptionally”、 “Cancelled” 或者 “Not completed”。
+- **java.util.concurrent.locks.StampedLock**:
+  **boolean isLockStamp(long)**: 返回一个标记戳表示是否持有一个锁。
+  **boolean isOptimisticReadStamp(long)**: 返回一个标记戳代表是否成功的进行了乐观读（optimistic read）。
+  **boolean isReadLockStamp(long):** 返回一个标记戳表示是否持有一个非独占锁（即 read lock ）。
+  **boolean isWriteLockStamp(long)**: 返回一个标记戳表示是否持有一个独占锁（即 write lock ）。
+- **java**.**jar.JarEntry:**
+  **String getRealName()**: 返回这个 JarEntry 的真实名称。如果这个 JarEntry 是一个多版本 jar 文件的入口，它被配置为这样处理，这个方法返回的名字是 JarEntry 所代表的版本条目的入口，而不是 ZipEntry.getName（） 返回的基本条目的路径名。如果 JarEntry 不代表一个多版本 jar 文件的版本化条目或者 jar 文件没有被配置为作为一个多版本 jar 文件进行处理，这个方法将返回与 ZipEntry.getName（） 返回的相同名称。
+- **java.util.jar.JarFile:**
+  **Stream<JarEntry> versionedStream()**: 返回 jar 文件中指定版本的入口对应 Stream 。与 JarEntry 的 getRealName 方法类似，这与多版本 jar 文件有关。
+- **java.util.spi.LocaleNameProvider:
+  getDisplayUnicodeExtensionKey(String, Locale):** 为给定的 Unicode 扩展键返回一个本地化名称。
+  **getDisplayUnicodeExtensionType(String, String, Locale):** 为给定的 Unicode 扩展键返回一个本地化名称。
+- **java.util.stream.Collectors:
+  toUnmodifiableList():
+  toUnmodifiableSet():
+  toUnmodifiableMap(Function, Function):** 
+  **toUnmodifiableMap(Function, Function, BinaryOperator):** 这四个新方法都返回 Collectors ，将输入元素聚集到适当的不可修改的集合中。
+
+- **java.lang.model.SourceVersion**: 现在有了一个字段，它代表了 JDK 10 的版本。
+- **java.lang.model.util.TypeKindVisitor6**:
+  **javax.lang.model.util.TypeKindVisitor9:**
+  （我必须承认，我从来没听说过这些类）
+  **R visitNoTypeAsModule(NoType, P)**: 访问一个 MODULE 的 pseudo-type 。我不确定为什么只有这两个类得到这个方法，因为还有 Visitor7 和 Visitor8 变量。
+- **javax.remote.management.rmi.RMIConnectorServer**:
+  这个类已经添加了两个字段： CREDENTIALS_FILTER_PATTERN 和 SERIAL_FILTER_PATTERN 。
+- **javax**.**ButtonModel**：看，Swing 还在更新！
+  **ButtonGroup getGroup():** 返回按钮所属的组。通常用于单选按钮，它们在组中是互斥的。
+- **javax**.**plaf.basic.BasicMenuUI**:
+  **Dimension getMinimumSize(JComponent):** 返回指定组件适合观感的最小大小。
+
+### JVM 规范改动
+
+这些改动相当小：
+
+- 4.6节：类文件格式（第99页）。在方法访问标志方面有小的改动。
+- 4.7节：模块属性（第169页）。如果模块不是 java.base ，则 JDK 10 不再允许设置 ACC_TRANSITIVE 或 ACC_STATIC_PHASE 。
+- 4.10节：类文件的校验（第252页）。dup2 指令已改变了 typesafe form 1 的定义，颠倒了 canSafleyPushList 一节中类型的顺序（你需要仔细查看才能发现它）。
+- 5.2节：Java 虚拟机启动（第350页）。该描述添加了在创建初始类或接口时可使用用户定义的类加载器（ bootstrap 类加载器除外）。
+
+### 对 Java 语言规范的更改
+
+这里还有一些更改，但主要是为了支持局部变量类型推断。
+
+- 第3.8节：标识符（第23页）。在忽略了可忽略的字符之后，标识符的等价性现在被考虑了。这似乎是合乎逻辑的。
+  （第24页）一个新的 Token，TypeIdentifier，它支持对局部变量类型推断的新用法，而 var 的使用不是关键字，而是一个具有特殊含义的标识符，作为局部变量声明的类型。
+- 第4.10.5节：类型预测（第76页）。这是一个相当复杂的部分，它涉及到捕获变量、嵌套类以及如何使用局部变量类型推断。我建议你阅读规范中的这一部分，而不是试图解释它。
+- 第6.1节：声明（第134页）。一个反映使用 TypeIdentifier 来支持局部变量类型的推断的小改动。
+- 第6.5节：确定名字的含义（第153页，第158页和第159页）。根据类型标识符的使用而更改类类型。
+- 第6.5.4.1:简单的 PackageOrTypeNames（第160页）
+- 第6.5.4.2节：合规的 PackageOrTypeNames（第160页）。这两种方式都与使用 TypeIdentifier 有细微的变化。
+- 第7.5.3:单静态导入声明（第191页）。这改变了导入具有相同名称的静态类型的规则。除非类型是相同的，否则这将成为一个错误，在这种情况下，重复被忽略。
+- 第7.7.1:依赖（第198页）。如果你明确声明一个模块需要 java.base ，那在必要的关键字之后，你就不能再使用修饰符（例如静态）了。
+- 第8部分：正式参数（第244页）。接收者参数可能只出现在一个实例方法的 formalparameters 列表，或者是一个内部类的构造函数中，其中内部类没有在静态上下文中声明。
+- 第9.7.4节：注释可能出现的地方（第335页）。有一个与局部变量类型推断相关的变更。
+- 第14.4部分：局部变量声明语句（第433页）。实现局部变量类型推断所需的大量更改。
+- 第14节：增强的 for 语句（第455页）。这个结构已经更新，包括对局部变量类型推断的支持。
+- 第14.20.3节:try-with-resources（474页）。这个结构已经更新，包括对局部变量类型推断的支持。
+
+最后，第 19 章有多处语法更新，反映了应更多使用 TypeIdentifier 类型标识符，而不仅仅是 Identifier 标识符，以支持局部变量类型推断。 

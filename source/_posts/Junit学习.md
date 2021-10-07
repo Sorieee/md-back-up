@@ -6849,3 +6849,1536 @@ This chapter has covered the following:
 # 20. Test Driven Development with JUnit 5
 
 略
+
+# 21. Behavior Driven Development with JUnit 5
+
+## 21.1  Introducing Behavior Driven Development
+
+> **Behavior Driven Development**
+>
+> ​	Behavior Driven Development is a software development technique that directly addresses the business requirements. It starts from the business requirements and goals and then transforms them into working features.
+>
+> ​	BDD encourages teams to interact and use concrete examples to communicate how the application must behave. It emerged from Test Driven Development.
+>
+> ​	Test Driven Development helps us to build safe software. Behavior Driven Development helps us building software providing business value.
+
+
+
+​	The communication between the people who are involved in the same project may bring up problems and misunderstandings. Usually, the flow works this way:
+
+* The customer communicates to the business analyst his understanding about the functionality of a feature.
+* The business analyst builds the requirements for the developers, describing the way the software must work.
+* The developer creates the code based on the requirements and writes unit tests to implement the new feature.
+* The tester creates the test cases based on the requirements and uses them to verify the way the new feature works.
+
+### 21.1.1  Introducing a new feature
+
+​	The business analyst discusses with the customer to decide the software features that will be able to address the business goals.
+
+### 21.1.2  From requirements analysis to acceptance criteria
+
+​	
+
+In BDD, the definition of acceptance criteria is made using the Given/When/Then keywords. More exactly:
+
+```
+Given <a context>
+
+When <an action occurs>
+
+Then <expect a result>
+
+As a concrete example:
+
+Given the flights operated by the company
+
+When I want to travel from Bucharest to London next Wednesday
+
+Then I should be provided 2 possible flights: 10:35 and 16:2
+```
+
+### 21.1.3  BDD benefits and challenges
+
+​	We’ll point out a few benefits of the BDD approach:
+
+* Address user needs. The users care less about the implementation and they are mainly interested in the application functionality. Working BDD style you get closer to addressing these needs.
+* Clarity. Scenarios will clarify what software should do. Scenarios are described in simple language, easy to understand by technical and non-technical people. Ambiguities can be clarified by analyzing the scenario or by adding another scenario.
+* Supports change. The scenarios will represent a part of the documentation of the software – in fact, living documentation, as it evolves simultaneously with the application. It also helps locate an incoming change. The automated acceptance tests will hinder the introduction of regressions when new changes are introduced.
+* Supports automation. Scenarios can be transformed into automated tests, as the steps of the scenario are already defined.
+* Focuses on adding business value. BDD will prevent introducing features that are not useful to the project. You will also be able to prioritize the functionalities.
+* Reduces costs. Prioritizing the importance of the functionalities and avoiding the unnecessary ones will hinder the waste of resources and concentrate them to do exactly what is needed.
+
+
+
+​	As challenges, BDD requires engagement and strong collaboration. It requires interaction, direct communication, and constant feedback. This may be a challenge for some persons and, in the context of the present-day globalization and distributed teams, may require language skills and fitting time zones.
+
+## 21.2  Working BDD with Cucumber and JUnit 5
+
+![](https://pic.imgdb.cn/item/6157d52e2ab3f51d9195a6d0.jpg)
+
+### 21.2.1  Introducing Cucumber
+
+> Cucumber
+>
+> ​    Cucumber is a Behavior Driven Development testing tool framework. It describes the application scenarios in plain English text, using a language called Gherkin. Cucumber is easy to read and understand by stakeholders and allows automation.
+
+The main capabilities of Cucumber are:
+
+* Scenarios or examples describe the requirements.
+* A scenario is defined through a list of steps to be executed by Cucumber.
+* Cucumber executes the code corresponding to the scenarios, checks that the software follows these requirements and generates a report about the success or failure of each scenario.
+
+The main capabilities of Gherkin are:
+
+* Gherkin defines simple grammar rules that allow Cucumber to understand English plain text.
+* Gherkin documents the behavior of the system. The requirements are always up to date, as they are provided through these scenarios which represent living specifications
+
+A Cucumber acceptance test can look this way:
+
+**Given there is an economy flight**
+
+**When we have a regular passenger**
+
+**Then you can add and remove him from an economy flight**
+
+​	Cucumber will take care to interpret the sentences starting with these keywords and generate methods which it will annotate using exactly these annotations: `@Given`, `@When` and `@Then`.
+
+```xml
+<dependency>
+     <groupId>info.cukes</groupId>
+     <artifactId>cucumber-java</artifactId>
+     <version>1.2.5</version>
+     <scope>test</scope>
+</dependency>
+<dependency>
+     <groupId>info.cukes</groupId>
+     <artifactId>cucumber-junit</artifactId>
+     <version>1.2.5</version>
+     <scope>test</scope>
+</dependency>
+```
+
+### 21.2.2  Moving a TDD feature to Cucumber
+
+​	John will start creating the Cucumber features. He will follow the Maven standard folders structure and introduce the features into the test/resources folder. He will create the test/resources/features folder and, inside it, he will create the passengers_policy.feature file (fig. 21.2).
+
+![](https://pic.imgdb.cn/item/6157d6e62ab3f51d9197d9ea.jpg)
+
+**Listing 21.2 The passenger_policy.feature file**
+
+```
+Feature: Passengers Policy
+  The company follows a policy of adding and removing passengers,
+  depending on the passenger type and on the flight type
+ 
+  Scenario: Economy flight, regular passenger
+    Given there is an economy flight
+    When we have a regular passenger
+    Then you can add and remove him from an economy flight
+    And you cannot add a regular passenger to an economy flight more than once
+ 
+  Scenario: Economy flight, VIP passenger
+    Given there is an economy flight
+    When we have a VIP passenger
+    Then you can add him but cannot remove him from an economy flight
+    And you cannot add a VIP passenger to an economy flight more than once
+ 
+  Scenario: Business flight, regular passenger
+    Given there is a business flight
+    When we have a regular passenger
+    Then you cannot add or remove him from a business flight
+ 
+  Scenario: Business flight, VIP passenger
+    Given there is a business flight
+    When we have a VIP passenger
+    Then you can add him but cannot remove him from a business flight
+    And you cannot add a VIP passenger to a business flight more than once
+ 
+  Scenario: Premium flight, regular passenger
+    Given there is a premium flight
+    When we have a regular passenger
+    Then you cannot add or remove him from a premium flight
+ 
+  Scenario: Premium flight, VIP passenger
+    Given there is a premium flight
+    When we have a VIP passenger
+    Then you can add and remove him from a premium flight
+    And you cannot add a VIP passenger to a premium flight more than once
+```
+
+​	We see the keywords Feature, Scenario, Given, When, Then, And which are highlighted. If we right-click on this feature file, we see that we have the possibility to run it directly (fig. 21.3).
+
+![](https://pic.imgdb.cn/item/6157d7082ab3f51d9198084e.jpg)
+
+​	This is possible only if two things are fulfilled. First, the appropriate plugins must be activated. In order to do this, we must go to File -> Settings->Plugins, and we install from here the Cucumber for Java and Gherkin plugins (fig. 21.4 and 21.5).
+
+![](https://pic.imgdb.cn/item/6157d71c2ab3f51d91982570.jpg)
+
+![](https://pic.imgdb.cn/item/6157d72d2ab3f51d91983b1b.jpg)
+
+​	Then, we must configure the way the feature is run. We need to go to Run -> Edit Configurations, and to set the following (fig. 21.6):
+
+![](https://pic.imgdb.cn/item/6157d7532ab3f51d91986ba0.jpg)
+
+​	Running the feature directly will generate the skeleton of the Java Cucumber tests (fig. 21.7).
+
+![](https://pic.imgdb.cn/item/6157d8282ab3f51d9199881b.jpg)
+
+**Listing 21.3 The initial PassengersPolicy class**
+
+```java
+public class PassengerPolicy {
+   @Given("^there is an economy flight$")                                   #A
+   public void there_is_an_economy_flight() throws Throwable {              #B
+    // Write code here that turns the phrase above into concrete actions    #B
+    throw new PendingException();                                           #B
+   }                                                                        #B
+ 
+   @When("^we have a regular passenger$")                                   #C
+   public void we_have_a_regular_passenger() throws Throwable {             #D
+      // Write code here that turns the phrase above into concrete actions  #D
+      throw new PendingException();                                         #D
+   }                                                                        #D
+ 
+   @Then("^you can add and remove him from an economy flight$")             #E
+   public void you_can_add_and_remove_him_from_an_economy_flight()          #F
+      throws Throwable {                                                    #F
+      // Write code here that turns the phrase above into concrete actions  #F
+      throw new PendingException();                                         #F
+   }                                                                        #F
+ 
+   […]
+ 
+}
+```
+
+**Listing 21.4 Implementing the business logic of the previously defined steps**
+
+```java
+public class PassengerPolicy {
+    private Flight economyFlight;                                           #A
+    private Passenger mike;                                                 #A
+    […]
+ 
+    @Given("^there is an economy flight$")                                  #B
+    public void there_is_an_economy_flight() throws Throwable {             #B
+        economyFlight = new EconomyFlight("1");                             #C
+    }
+ 
+    @When("^we have a regular passenger$")                                  #D
+    public void we_have_a_regular_passenger() throws Throwable {            #D
+        mike  = new Passenger("Mike", false);                               #E
+    }
+ 
+    @Then("^you can add and remove him from an economy flight$")            #F
+    public void you_can_add_and_remove_him_from_an_economy_flight()         #F
+           throws Throwable {
+        assertAll("Verify all conditions for a regular passenger            #G
+                   and an economy flight",                                  #G
+          () -> assertEquals("1", economyFlight.getId()),                   #G
+          () -> assertEquals(true, economyFlight.addPassenger(mike)),       #G
+          () -> assertEquals(1,                                             #G
+                  economyFlight.getPassengersSet().size()),                 #G
+          () -> 
+             assertTrue(economyFlight.getPassengersSet().contains(mike)),   #G
+          () -> assertEquals(true, economyFlight.removePassenger(mike)),    #G
+          () -> assertEquals(0, economyFlight.getPassengersSet().size())    #G
+        );
+    }
+    […]
+ }
+```
+
+**Listing 21.5 The CucumberTest class**
+
+```java
+@RunWith(Cucumber.class)                                                    #A
+@CucumberOptions(                                                           #B
+   plugin = {"pretty"},                                                     #C
+   features = "classpath:features")                                         #D
+public class CucumberTest {
+ 
+   /**
+    * This class should be empty, step definitions should be in separate classes.
+    */
+ 
+}
+```
+
+​	By running the tests, we see that the code coverage is 100% (fig. 21.8), so we have kept the existing test functionalities before moving to Cucumber.
+
+![](https://pic.imgdb.cn/item/6157d8902ab3f51d919a1194.jpg)
+
+**21.2.3  Adding a new feature with the help of Cucumber**
+
+![](https://pic.imgdb.cn/item/6157d8b32ab3f51d919a3c86.jpg)
+
+**Listing 21.6 The bonus_policy.feature file**
+
+```
+Feature: Bonus Policy
+  The company follows a bonus policy, depending on the passenger type and on the mileage
+ 
+  Scenario Outline: Regular passenger bonus policy                                 #A
+    Given we have a regular passenger with a mileage
+    When the regular passenger travels <mileage1> and <mileage2> and <mileage3>    #B
+    Then the bonus points of the regular passenger should be <points>              #B
+ 
+    Examples:                                                                      #C
+      | mileage1 | mileage2 | mileage3| points |                                   #C
+      |     349  |     319  |    623  |     64 |                                   #C
+      |     312  |     356  |    135  |     40 |                                   #C
+      |     223  |     786  |    503  |     75 |                                   #C
+      |     482  |      98  |    591  |     58 |                                   #C
+      |     128  |     176  |    304  |     30 |                                   #C
+ 
+  Scenario Outline: VIP passenger bonus policy                                     #A
+    Given we have a VIP passenger with a mileage
+    When the VIP passenger travels <mileage1> and <mileage2> and <mileage3>        #B
+    Then the bonus points of the VIP passenger should be <points>                  #B
+ 
+    Examples:                                                                      #C
+      | mileage1 | mileage2 | mileage3| points  |                                  #C
+      |     349  |     319  |    623  |     129 |                                  #C
+      |     312  |     356  |    135  |      80 |                                  #C
+      |     223  |     786  |    503  |     151 |                                  #C
+      |     482  |      98  |    591  |     117 |                                  #C
+      |     128  |     176  |    304  |      60 |                                  #
+```
+
+We will configure the way the feature is run. We need to go to Run -> Edit Configurations, and to set the following (fig. 21.10):
+
+![](https://pic.imgdb.cn/item/6157d91e2ab3f51d919ac87e.jpg)
+
+![](https://pic.imgdb.cn/item/6157d91e2ab3f51d919ac87e.jpg)
+
+**Listing 21.7 The initial BonusPolicy class**
+
+```java
+public class BonusPolicy {
+   @Given("^we have a regular passenger with a mileage$")                   #A
+   public void we_have_a_regular_passenger_with_a_mileage()                 #B
+           throws Throwable {                                               #B
+    // Write code here that turns the phrase above into concrete actions    #B
+    throw new PendingException();                                           #B
+   }                                                                        #B
+ 
+   @When("^the regular passenger travels (\\d+) and (\\d+) and (\\d+)$")    #C
+   public void the_regular_passenger_travels_and_and                        #D
+         (int arg1, int arg2, int arg3) throws Throwable {                  #D
+    // Write code here that turns the phrase above into concrete actions    #D
+    throw new PendingException();                                           #D
+   }                                                                        #D
+ 
+   @Then("^the bonus points of the regular passenger should be (\\d+)$")    #E
+   public void the_bonus_points_of_the_regular_passenger_should_be(int arg1)#F
+       throws Throwable {                                                   #F
+    // Write code here that turns the phrase above into concrete actions    #F
+    throw new PendingException();                                           #F
+   }                                                                        #F
+   […]
+ 
+}
+```
+
+**Listing 21.8 The Mileage class, with no implementation of the methods**
+
+```java
+public class Mileage {
+ 
+    public static final int VIP_FACTOR = 10;                                #A
+    public static final int REGULAR_FACTOR = 20;                            #A
+ 
+    private Map<Passenger, Integer> passengersMileageMap = new HashMap<>(); #B
+    private Map<Passenger, Integer> passengersPointsMap = new HashMap<>();  #B
+ 
+    public void addMileage(Passenger passenger, int miles) {                #C
+ 
+    }
+ 
+    public void calculateGivenPoints() {                                    #D
+ 
+    }
+ 
+}
+```
+
+**Listing 21.9 The business logic of the steps from BonusPolicy**
+
+```java
+public class BonusPolicy {
+    private Passenger mike;                                                 #A
+    private Mileage mileage;                                                #A
+    […]
+ 
+    @Given("^we have a regular passenger with a mileage$")                  #B
+    public void we_have_a_regular_passenger_with_a_mileage() 
+                throws Throwable {
+        mike  = new Passenger("Mike", false);                               #C
+        mileage  = new Mileage();                                           #C
+    }
+ 
+    @When("^the regular passenger travels (\\d+) and (\\d+) and (\\d+)$")  #D
+    public void the_regular_passenger_travels_and_and(int mileage1, int 
+                mileage2, int mileage3) throws Throwable {
+        mileage.addMileage(mike, mileage1);                                 #E
+        mileage.addMileage(mike, mileage2);                                 #E
+        mileage.addMileage(mike, mileage3);                                 #E
+    }
+ 
+    @Then("^the bonus points of the regular passenger should be (\\d+)$")  #F
+    public void the_bonus_points_of_the_regular_passenger_should_be
+                 (int points) throws Throwable {
+        mileage.calculateGivenPoints();                                     #G
+        assertEquals(points,                                                #H
+           mileage.getPassengersPointsMap().get(mike).intValue());          #H
+    }
+    […]
+}
+```
+
+​	If we run the bonus points tests now they will fail (fig. 21.12), as the business logic is not yet implemented (the `addMileage` and `calculateGivenPoints` methods are empty, the business logic is implemented after the tests).
+
+![](https://pic.imgdb.cn/item/6157d9c72ab3f51d919bb83f.jpg)
+
+**Listing 21.10 The implementation of business logic from the Mileage class**
+
+```java
+public void addMileage(Passenger passenger, int miles) {
+    if (passengersMileageMap.containsKey(passenger)) {                      #A
+        passengersMileageMap.put(passenger,                                 #B
+           passengersMileageMap.get(passenger) + miles);                    #B
+    } else {
+        passengersMileageMap.put(passenger, miles);                         #C
+    }
+ 
+}
+ 
+public void calculateGivenPoints() {
+    for (Passenger passenger : passengersMileageMap.keySet()) {             #D
+        if (passenger.isVip()) {                                            #E
+            passengersPointsMap.put(passenger,                              #E
+              passengersMileageMap.get(passenger)/ VIP_FACTOR);             #E
+        } else {
+            passengersPointsMap.put(passenger,                              #F
+              passengersMileageMap.get(passenger)/ REGULAR_FACTOR);         #F
+        }
+    }
+}
+```
+
+![](https://pic.imgdb.cn/item/6157d9e82ab3f51d919be2e0.jpg)
+
+## 21.3  Working BDD with JBehave and JUnit 5
+
+> **JBehave**
+>
+> JBehave is a Behavior Driven Development testing tool framework. As implementing the idea of Behavior Driven Development, JBehave allows us to write stories in plain text, to be understood by all persons involved in the project. Through the stories, we'll define scenarios that express the desired behavior.
+
+### 21.3.2  Moving a TDD feature to JBehave
+
+```xml
+<dependency>
+   <groupId>org.jbehave</groupId>
+   <artifactId>jbehave-core</artifactId>
+   <version>4.1</version>
+</dependency>
+```
+
+![](https://pic.imgdb.cn/item/6157da1d2ab3f51d919c2870.jpg)
+
+​	John will start creating the story. He will follow the Maven standard folders structure and introduce the stories into the test/resources folder. He will create a folders structure com/manning/junitbook/airport and insert here the passengers_policy_story.story file. He will also create, into the test folder, the com.manning.junitbook.airport package containing the PassengersPolicy class (fig. 21.15).
+
+![](https://pic.imgdb.cn/item/6157daa42ab3f51d919ce2c3.jpg)
+
+**Listing 21.12 The passengers_policy_story.story file**
+
+```
+Meta: Passengers Policy
+      The company follows a policy of adding and removing passengers, 
+      depending on the passenger type and on the flight type
+ 
+Narrative:
+As a company
+I want to be able to manage passengers and flights
+So that the policies of the company are followed
+ 
+Scenario: Economy flight, regular passenger
+Given there is an economy flight
+When we have a regular passenger
+Then you can add and remove him from an economy flight
+And you cannot add a regular passenger to an economy flight more than once
+ 
+Scenario: Economy flight, VIP passenger
+Given there is an economy flight
+When we have a VIP passenger
+Then you can add him but cannot remove him from an economy flight
+And you cannot add a VIP passenger to an economy flight more than once
+ 
+Scenario: Business flight, regular passenger
+Given there is a business flight
+When we have a regular passenger
+Then you cannot add or remove him from a business flight
+ 
+Scenario: Business flight, VIP passenger
+Given there is a business flight
+When we have a VIP passenger
+Then you can add him but cannot remove him from a business flight
+And you cannot add a VIP passenger to a business flight more than once
+ 
+Scenario: Premium flight, regular passenger
+Given there is a premium flight
+When we have a regular passenger
+Then you cannot add or remove him from a premium flight
+ 
+Scenario: Premium flight, VIP passenger
+Given there is a premium flight
+When we have a VIP passenger
+Then you can add and remove him from a premium flight
+And you cannot add a VIP passenger to a premium flight more than once
+```
+
+​	In order to generate the steps into a Java file, John will place the cursor on any not yet created test step (they are underlined in red) and press Alt+Enter (fig. 21.16).
+
+![](https://pic.imgdb.cn/item/6157dad02ab3f51d919d1c5f.jpg)
+
+![](https://pic.imgdb.cn/item/6157dade2ab3f51d919d2d9d.jpg)
+
+```java
+public class PassengersPolicy {
+    @Given("there is an economy flight")
+    public void givenThereIsAnEconomyFlight() {
+ 
+    }
+ 
+    @When("we have a regular passenger")
+    public void whenWeHaveARegularPassenger() {
+ 
+    }
+ 
+    @Then("you can add and remove him from an economy flight")
+    public void thenYouCanAddAndRemoveHimFromAnEconomyFlight() {
+ 
+    }
+    […]
+}
+```
+
+**Listing 21.14 The implemented tests from PassengersPolicy**
+
+```java
+public class PassengersPolicy {
+    private Flight economyFlight;                                           #A
+    private Passenger mike;                                                 #A
+    […]
+ 
+    @Given("there is an economy flight")                                    #B
+    public void givenThereIsAnEconomyFlight() {
+        economyFlight = new EconomyFlight("1");                             #C
+    }
+ 
+    @When("we have a regular passenger")                                    #D
+    public void whenWeHaveARegularPassenger() {
+        mike  = new Passenger("Mike", false);                               #E
+    }
+ 
+    @Then("you can add and remove him from an economy flight")              #F
+    public void thenYouCanAddAndRemoveHimFromAnEconomyFlight() {
+        assertAll("Verify all conditions for a regular passenger            #G
+                   and an economy flight",                                  #G
+           () -> assertEquals("1", economyFlight.getId()),                  #G
+           () -> assertEquals(true,                                         #G
+                 economyFlight.addPassenger(mike)),                         #G
+           () -> assertEquals(1,                                            #G
+                 economyFlight.getPassengersSet().size()),                  #G
+           () -> assertEquals("Mike", new ArrayList<>(                      #G
+             economyFlight.                                                 #G
+               getPassengersSet()).get(0).getName()),                       #G
+           () -> assertEquals(true,                                         #G
+                       economyFlight.removePassenger(mike)),                #G
+           () -> assertEquals(0,                                            #G
+                       economyFlight.getPassengersSet().size())             #G
+        );
+    }
+[…]
+ 
+}
+```
+
+**Listing 21.15 The PassengersPolicyStory class**
+
+```java
+public class PassengersPolicyStory extends JUnitStory {                     #A
+ 
+    @Override
+    public Configuration configuration() {                                  #B
+        return new MostUsefulConfiguration()                                #C
+                  .useStoryReporterBuilder(                                 #D
+                     new StoryReporterBuilder().                            #D
+                         withFormats(Format.CONSOLE));                      #D
+    }
+ 
+    @Override
+    public InjectableStepsFactory stepsFactory() {                          #E
+        return new InstanceStepsFactory(configuration(),                    #F
+                      new PassengersPolicy());                              #F
+    }
+}
+```
+
+The result of running these tests is shown in fig. 21.18. The tests are successfully running, the code coverage is 100%. However, the reporting capabilities of JBehave do not allow the same nice display as in the case of Cucumber.
+
+![](https://pic.imgdb.cn/item/6157db182ab3f51d919d79ee.jpg)
+
+### 21.3.3  Adding a new feature with the help of JBehave
+
+**Listing 21.16 The bonus_policy_story.story file**
+
+```java
+Meta: Bonus Policy
+      The company follows a bonus policy, depending on the passenger type and on the mileage
+ 
+Narrative:
+As a company
+I want to be able to manage the bonus awarding
+So that the policies of the company are followed
+ 
+Scenario: Regular passenger bonus policy                                   #A
+Given we have a regular passenger with a mileage
+When the regular passenger travels <mileage1> and <mileage2> and <mileage3>#B
+Then the bonus points of the regular passenger should be <points>          #B
+ 
+Examples:
+| mileage1 | mileage2 | mileage3| points |                                 #C
+|     349  |     319  |    623  |     64 |                                 #C
+|     312  |     356  |    135  |     40 |                                 #C
+|     223  |     786  |    503  |     75 |                                 #C
+|     482  |      98  |    591  |     58 |                                 #C
+|     128  |     176  |    304  |     30 |                                 #C
+ 
+Scenario: VIP passenger bonus policy                                       #A
+Given we have a VIP passenger with a mileage
+When the VIP passenger travels <mileage1> and <mileage2> and <mileage3>    #B
+Then the bonus points of the VIP passenger should be <points>              #B
+ 
+Examples:
+| mileage1 | mileage2 | mileage3| points  |                                #C
+|     349  |     319  |    623  |     129 |                                #C
+|     312  |     356  |    135  |      80 |                                #C
+|     223  |     786  |    503  |     151 |                                #C
+|     482  |      98  |    591  |     117 |                                #C
+|     128  |     176  |    304  |      60 |                                #C
+```
+
+![](https://pic.imgdb.cn/item/6157db402ab3f51d919db353.jpg)
+
+![](https://pic.imgdb.cn/item/6157dbe32ab3f51d919e90b0.jpg)
+
+**Listing 21.17 The skeleton of the JBehave BonusPolicy test**
+
+```java
+public class BonusPolicy {
+ 
+    @Given("we have a regular passenger with a mileage")                    #A
+    public void givenWeHaveARegularPassengerWithAMileage() {
+ 
+    }
+ 
+    @When("the regular passenger travels <mileage1> and                     #B
+           <mileage2> and <mileage3>")                                      #B
+    public void whenTheRegularPassengerTravelsMileageAndMileageAndMileage(
+           @Named("mileage1") int mileage1, @Named("mileage2") int mileage2,  
+           @Named("mileage3") int mileage3) {
+ 
+    }
+ 
+    @Then("the bonus points of the regular passenger should be <points>")   #C
+    public void thenTheBonusPointsOfTheRegularPassengerShouldBePoints(
+      @Named("points") int points) {
+ 
+   }
+   […]
+}
+```
+
+**Listing 21.18 The Mileage class, with no implementation of the methods**
+
+```java
+public class Mileage {
+ 
+    public static final int VIP_FACTOR = 10;                                #A
+    public static final int REGULAR_FACTOR = 20;                            #A
+ 
+    private Map<Passenger, Integer> passengersMileageMap = new HashMap<>(); #B
+    private Map<Passenger, Integer> passengersPointsMap = new HashMap<>();  #B
+ 
+    public void addMileage(Passenger passenger, int miles) {                #C
+ 
+    }
+ 
+    public void calculateGivenPoints() {                                    #D
+ 
+    }
+ 
+}
+```
+
+**Listing 21.19 The business logic of the steps from BonusPolicy**
+
+```java
+public class BonusPolicy {
+    private Passenger mike;                                                 #A
+    private Mileage mileage;                                                #A
+    […]
+ 
+    @Given("we have a regular passenger with a mileage")                    #B
+    public void givenWeHaveARegularPassengerWithAMileage() {
+        mike  = new Passenger("Mike", false);                               #C
+        mileage  = new Mileage();                                           #C
+    }
+ 
+    @When("the regular passenger travels <milege1> and <mileage2> and       #D
+                                       <mileage3>")                         #D
+    public void the_regular_passenger_travels_and_and(@Named(“mileage1”)
+                int mileage1, @Named(“mileage2”) int mileage2, 
+                @Named(“mileage3”) int mileage3) {
+        mileage.addMileage(mike, mileage1);                                 #E
+        mileage.addMileage(mike, mileage2);                                 #E
+        mileage.addMileage(mike, mileage3);                                 #E
+    }
+ 
+    @Then("the bonus points of the regular passenger should be <points>")   #F
+    public void the_bonus_points_of_the_regular_passenger_should_be
+                 (@Named(“points”) int points) {
+        mileage.calculateGivenPoints();                                     #G
+        assertEquals(points,                                                #H
+           mileage.getPassengersPointsMap().get(mike).intValue());          #H
+    }
+    […]
+}
+```
+
+**Listing 21.20 The BonusPolicyStory class**
+
+```java
+public class BonusPolicyStory extends JUnitStory {                          #A
+ 
+    @Override
+    public Configuration configuration() {                                  #B
+        return new MostUsefulConfiguration()                                #C
+                  .useStoryReporterBuilder(                                 #D
+                     new StoryReporterBuilder().                            #D
+                         withFormats(Format.CONSOLE));                      #D
+    }
+ 
+    @Override
+    public InjectableStepsFactory stepsFactory() {                          #E
+        return new InstanceStepsFactory(configuration(),                    #F
+                      new BonusPolicy());                                   #F
+    }
+}
+```
+
+​	If we run the bonus points tests now they will fail (fig. 21.22), as the business logic is not yet implemented (we have left the `addMileage` and `calculateGivenPoints` methods empty).
+
+![](https://pic.imgdb.cn/item/6157e1a92ab3f51d91a7959a.jpg)
+
+**Listing 21.21 The implementation of business logic from the Mileage class**
+
+```java
+public void addMileage(Passenger passenger, int miles) {
+    if (passengersMileageMap.containsKey(passenger)) {                      #A
+        passengersMileageMap.put(passenger,                                 #A
+           passengersMileageMap.get(passenger) + miles);                    #A
+    } else {
+        passengersMileageMap.put(passenger, miles);                         #B
+    }
+ 
+}
+ 
+public void calculateGivenPoints() {
+    for (Passenger passenger : passengersMileageMap.keySet()) {             #C
+        if (passenger.isVip()) {                                            #D
+            passengersPointsMap.put(passenger,                              #D
+              passengersMileageMap.get(passenger)/ VIP_FACTOR);             #D
+        } else {
+            passengersPointsMap.put(passenger,                              #E
+              passengersMileageMap.get(passenger)/ REGULAR_FACTOR);         #E
+        }
+    }
+}
+```
+
+![](https://pic.imgdb.cn/item/6157e1e42ab3f51d91a7f425.jpg)
+
+## 21.4  Comparing Cucumber and JBehave
+
+略。
+
+# 21    Behavior Driven Development with JUnit 5
+
+This chapter covers:
+
+·  Introducing Behavior Driven Development
+
+·  Analyzing the benefits and challenges of Behavior Driven Development
+
+·  Moving a TDD application to BDD
+
+·  Developing a BDD application with the help of Cucumber and JUnit 5
+
+·  Developing a BDD application with the help of JBehave and JUnit 5
+
+·  Comparing Cucumber and JBehave
+
+Some people refer to BDD as "TDD done right." You can also think of BDD as "how we build the right thing" and TDD as "how we build the thing right."
+
+\- Millard Ellingsworth
+
+Kent Beck invented Test Driven Development in the early years of Agile. It is an effective technique that uses unit tests to verify the code. Working TDD style, the programmer will have first to write a test that checks the not yet implemented feature. The test is expected to fail. Then, the programmer will write the smallest piece of code that fixes the test. Eventually, the developer will refactor the code to be easier to understand and to maintain.
+
+Despite its clear benefits, this usual loop
+
+**[test, code,** **refactor****, (repeat)]**
+
+can bring developers to lose the overall picture of the business goals of the application. The project will become larger and more complex, the numbers of unit tests will increase and will become harder to understand and to maintain. The tests may also be strongly coupled with the implementation. They focus on the unit (the class or the method) that is tested, while the business goals may not be considered.
+
+Starting from TDD, a new technique has been created: the Behavior Driven Development. It focuses on the features themselves, it makes sure that these ones work as expected.
+
+## 21.1  Introducing Behavior Driven Development
+
+Behavior Driven Development
+
+Behavior Driven Development is a software development technique that directly addresses the business requirements. It starts from the business requirements and goals and then transforms them into working features.
+
+BDD encourages teams to interact and use concrete examples to communicate how the application must behave. It emerged from Test Driven Development.
+
+Test Driven Development helps us to build safe software. Behavior Driven Development helps us building software providing business value.
+
+ 
+
+Dan North originated the Behavior Driven Development in the mid-2000s. It is a software development technique that encourages teams to deliver software that matters, supporting the cooperation between stakeholders.
+
+BDD helps us write software that really matters. We can find out the features that the organization really needs and we then focus on implementing them. We will be able to discover what the user actually needs and not only what he asks about.
+
+BDD is a large topic and this chapter focuses on demonstrating how to use it in conjunction with JUnit 5 and how to effectively build features using this technique. For a comprehensive work on this subject, you may refer to another Manning book, “BDD in Action” by John Ferguson Smart. The second edition of this book is under development at the time of writing this chapter ([***https://www.manning.com/books/bdd-in-action-second-edition\***](https://www.manning.com/books/bdd-in-action-second-edition)).
+
+The communication between the people who are involved in the same project may bring up problems and misunderstandings. Usually, the flow works this way:
+
+·  The customer communicates to the business analyst his understanding about the functionality of a feature.
+
+·  The business analyst builds the requirements for the developers, describing the way the software must work.
+
+·  The developer creates the code based on the requirements and writes unit tests to implement the new feature.
+
+·  The tester creates the test cases based on the requirements and uses them to verify the way the new feature works.
+
+It is possible that the information gets misunderstood, modified or ignored. The new feature may not do exactly what it has been initially expected.
+
+### 21.1.1  Introducing a new feature
+
+The business analyst discusses with the customer to decide the software features that will be able to address the business goals. These features are general requirements, like: "Allow the traveler to choose the shortest way to the destination", "Allow the traveler to choose the cheapest way to the destination".
+
+These features need to be broken into stories. The stories might look like: "Find the route between source and destination with the smallest number of flight changes", "Find the quickest route between source and destination".
+
+Stories will be defined through concrete examples. These examples will become the acceptance criteria for a story.
+
+Acceptance criteria may be expressed BDD style through the keywords "Given", "When", "Then".
+
+As an example, we may present the following acceptance criteria:
+
+Given the flights operated by company X
+
+When I want to find the quickest route from Bucharest to New York on May 15 20...
+
+Then I will be provided the route Bucharest - Frankfurt - New York, with a duration of...
+
+### 21.1.2  From requirements analysis to acceptance criteria
+
+For the company using the flights management application, one business goal that we can formulate is "Increase sales by providing higher quality overall flight services". This is a very general goal, and it can be detailed through requirements:
+
+·  Provide an interactive application to choose flights
+
+·  Provide an interactive application to change flights
+
+·  Provide an interactive application to calculate the shortest route between source and destination
+
+To make the customer happy, the features generated by the requirements analysis need to achieve the customer business goals or deliver business value. The initial ideas need to be described in more detail. One way to describe the previous requirements would be:
+
+**As a passenger**
+
+**I want to know the flights for a given destination within a given period of time**
+
+**So that I can choose the flight(s) that suit(s) my needs**
+
+or
+
+**As a passenger**
+
+**I want to be able to change my initial flight(s) to a different one(s)**
+
+**So that I can follow the changes in my schedule**
+
+A feature like "I can choose the flights that suit my needs" might be too large to be implemented at once - so, it must be divided. You may also want to get some feedback while passing through the milestones of the implementation of a feature.
+
+The previous feature may be broken into smaller stories, such as the following:
+
+·  Find the direct flights that suit my needs (if any).
+
+·  Find the alternatives of flights with stopovers that suit my needs.
+
+·  Find the one-way flights that suit my needs.
+
+·  Find the there and back flights that suit my needs.
+
+Generally, particular examples are used as acceptance criteria. Acceptance criteria will express what will make the stakeholder agree that the application is working the way it was expected.
+
+In BDD, the definition of acceptance criteria is made using the Given/When/Then keywords. More exactly:
+
+**Given <a context>**
+
+**When <an action occurs>**
+
+**Then <expect a result>**
+
+As a concrete example:
+
+**Given the flights operated by the company**
+
+**When I want to travel from Bucharest to London next Wednesday**
+
+**Then I should be provided 2 possible flights: 10:35 and 16:20**
+
+### 21.1.3  BDD benefits and challenges
+
+We’ll point out a few benefits of the BDD approach:
+
+·  **Address user needs.** The users care less about the implementation and they are mainly interested in the application functionality. Working BDD style you get closer to addressing these needs.
+
+·  **Clarity**. Scenarios will clarify what software should do. Scenarios are described in simple language, easy to understand by technical and non-technical people. Ambiguities can be clarified by analyzing the scenario or by adding another scenario.
+
+·  **Supports change.** The scenarios will represent a part of the documentation of the software – in fact, living documentation, as it evolves simultaneously with the application. It also helps locate an incoming change. The automated acceptance tests will hinder the introduction of regressions when new changes are introduced.
+
+·  **Supports automation.** Scenarios can be transformed into automated tests, as the steps of the scenario are already defined.
+
+·  **Focuses on adding business value.** BDD will prevent introducing features that are not useful to the project. You will also be able to prioritize the functionalities.
+
+·  **Reduces costs.** Prioritizing the importance of the functionalities and avoiding the unnecessary ones will hinder the waste of resources and concentrate them to do exactly what is needed.
+
+As challenges, BDD requires engagement and strong collaboration. It requires interaction, direct communication, and constant feedback. This may be a challenge for some persons and, in the context of the present-day globalization and distributed teams, may require language skills and fitting time zones.
+
+## 21.2  Working BDD with Cucumber and JUnit 5
+
+Tested Data Systems Inc. is an outsourcing company creating software projects for different companies. The flights management application we have worked with is one of the projects under development.
+
+Working TDD style, at the end of chapter 20, John, a programmer at Tested Data Systems, has left the development of the flights management application in a stage where it was able to work with three types of flights: economy, business, and premium. Besides this, he implemented the requirement that a passenger can be added only once to a flight. The functionality of the application can be quickly reviewed if we run the tests (fig. 21.1).
+
+John has already introduced, in a discrete way, a first taste of the Behavior Driven Development way of working. We can easily read how the application works by following the tests using the "Given", "When", "Then" keywords. John will take it over from here, moving it to BDD with Cucumber and also introducing new features.
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0001.jpg)
+
+Figure 21.1 Successfully running the tests of the TDD flights management application – the user may follow the execution of the annotated methods and read the scenarios
+
+### 21.2.1  Introducing Cucumber
+
+Cucumber
+
+Cucumber is a Behavior Driven Development testing tool framework. It describes the application scenarios in plain English text, using a language called Gherkin. Cucumber is easy to read and understand by stakeholders and allows automation.
+
+The main capabilities of Cucumber are:
+
+·  Scenarios or examples describe the requirements.
+
+·  A scenario is defined through a list of steps to be executed by Cucumber.
+
+·  Cucumber executes the code corresponding to the scenarios, checks that the software follows these requirements and generates a report about the success or failure of each scenario.
+
+The main capabilities of Gherkin are:
+
+·  Gherkin defines simple grammar rules that allow Cucumber to understand English plain text.
+
+·  Gherkin documents the behavior of the system. The requirements are always up to date, as they are provided through these scenarios which represent living specifications.
+
+Cucumber ensures that technical and non-technical persons can easily read, write and understand the acceptance tests. The acceptance tests became an instrument of communication between the stakeholders of the project.
+
+A Cucumber acceptance test can look this way:
+
+**Given there is an economy flight**
+
+**When we have a regular passenger**
+
+**Then you can add and remove him from an economy flight**
+
+We notice again the Given/When/Then words. We have already explained that they are the keywords for describing a scenario and we have already introduced them in our previous work with JUnit 5. But we have to know from the very beginning that we'll no longer use them just for labeling. Cucumber will take care to interpret the sentences starting with these keywords and generate methods which it will annotate using exactly these annotations: `@Given`, `@When` and `@Then`.
+
+The acceptance tests will be written in Cucumber feature files. A feature file is an entry point to the Cucumber tests. It is a file where we will describe our tests in Gherkin. A feature file can contain one or many scenarios.
+
+John makes plans for starting the work with Cucumber in the project. He will first introduce the Cucumber dependencies into the existing Maven configuration. He will create a first Cucumber feature and will generate the skeleton of the Cucumber tests. Then, he will move the previously existing JUnit 5 tests to fill in this Cucumber generated tests skeleton.
+
+Listing 21.1 The Cucumber dependencies added to the pom.xml file
+
+<dependency>     <groupId>info.cukes</groupId>     <artifactId>cucumber-java</artifactId>     <version>1.2.5</version>     <scope>test</scope></dependency><dependency>     <groupId>info.cukes</groupId>     <artifactId>cucumber-junit</artifactId>     <version>1.2.5</version>     <scope>test</scope></dependency>
+
+In listing 21.1, John has introduced the two needed Maven dependencies: `cucumber-java` and `cucumber-junit`.
+
+### 21.2.2  Moving a TDD feature to Cucumber
+
+John will start creating the Cucumber features. He will follow the Maven standard folders structure and introduce the features into the test/resources folder. He will create the test/resources/features folder and, inside it, he will create the passengers_policy.feature file (fig. 21.2).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0002.png)
+
+Figure 21.2 The new Cucumber passengers_policy.feature file is created into the test/resources/features folder, following the Maven rules
+
+John will follow the Gherkin syntax and introduce the feature named "Passengers Policy", together with a short description of what it intends to do. Then, he will follow the same Gherkin syntax and write the scenarios (listing 21.2).
+
+Listing 21.2 The passenger_policy.feature file
+
+`Feature: Passengers Policy`` The company follows a policy of adding and removing passengers,`` depending on the passenger type and on the flight type`` `` Scenario: Economy flight, regular passenger``  Given there is an economy flight``  When we have a regular passenger``  Then you can add and remove him from an economy flight``  And you cannot add a regular passenger to an economy flight more than once`` `` Scenario: Economy flight, VIP passenger``  Given there is an economy flight``  When we have a VIP passenger``  Then you can add him but cannot remove him from an economy flight``  And you cannot add a VIP passenger to an economy flight more than once`` `` Scenario: Business flight, regular passenger``  Given there is a business flight``  When we have a regular passenger``  Then you cannot add or remove him from a business flight`` `` Scenario: Business flight, VIP passenger``  Given there is a business flight``  When we have a VIP passenger``  Then you can add him but cannot remove him from a business flight``  And you cannot add a VIP passenger to a business flight more than once`` `` Scenario: Premium flight, regular passenger``  Given there is a premium flight``  When we have a regular passenger``  Then you cannot add or remove him from a premium flight`` `` Scenario: Premium flight, VIP passenger``  Given there is a premium flight``  When we have a VIP passenger``  Then you can add and remove him from a premium flight``  And you cannot add a VIP passenger to a premium flight more than once`
+
+We see the keywords Feature, Scenario, Given, When, Then, And which are highlighted. If we right-click on this feature file, we see that we have the possibility to run it directly (fig. 21.3).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0003.jpg)
+
+Figure 21.3 Directly running the passengers_policy.feature file by right-clicking on the feature file
+
+This is possible only if two things are fulfilled. First, the appropriate plugins must be activated. In order to do this, we must go to File -> Settings->Plugins, and we install from here the Cucumber for Java and Gherkin plugins (fig. 21.4 and 21.5).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0004.jpg)
+
+Figure 21.4 Installing the Cucumber for Java plugin from the File -> Settings -> Plugins menu
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0005.jpg)
+
+Figure 21.5 Installing the Gherkin plugin from the File -> Settings -> Plugins menu
+
+Then, we must configure the way the feature is run. We need to go to Run -> Edit Configurations, and to set the following (fig. 21.6):
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0006.jpg)
+
+Figure 21.6 Setting the feature configuration by filling in the Main class, Glue, Feature or folder path, and Working directory
+
+·  Main class: cucumber.api.cli.Main
+
+·  Glue (the package where step definitions are stored): com.manning.junitbook.airport
+
+·  Feature or folder path: the test/resources/features folder we have created
+
+·  Working directory: the project folder
+
+Running the feature directly will generate the skeleton of the Java Cucumber tests (fig. 21.7).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0007.jpg)
+
+Figure 21.7 Getting the skeleton of the passengers policy feature by directly running the feature file – the annotated methods will be executed in order to verify the scenarios
+
+John will now create a new Java class into the test/java folder, into the `com.manning.junitbook.airport` package. This class will be named `PassengersPolicy` and, for the beginning, it will contain the tests skeleton (listing 21.3). The execution of such a test will follow the scenarios described in the passengers_policy.feature file. For example, when executing the step:
+
+**Given** there is an economy flight
+
+the program will execute the method annotated with:
+
+@Given("^there is an economy flight$")
+
+Listing 21.3 The initial PassengersPolicy class
+
+`public class PassengerPolicy {``  @Given("^there is an economy flight$")                  #A``  public void there_is_an_economy_flight() throws Throwable {       #B``  // Write code here that turns the phrase above into concrete actions  #B``  throw new PendingException();                      #B``  }                                    #B`` ``  @When("^we have a regular passenger$")                  #C``  public void we_have_a_regular_passenger() throws Throwable {       #D``   // Write code here that turns the phrase above into concrete actions #D``   throw new PendingException();                     #D``  }                                    #D`` ``  @Then("^you can add and remove him from an economy flight$")       #E``  public void you_can_add_and_remove_him_from_an_economy_flight()     #F``   throws Throwable {                          #F``   // Write code here that turns the phrase above into concrete actions #F``   throw new PendingException();                     #F``  }                                    #F`` ``  […]`` ``}`
+
+In the listing above we are doing the following:
+
+·  The Cucumber plugin has generated a method annotated with `@Given(“^there is an economy flight$”)`, meaning that this method will be executed when the step “`Given there is an economy flight”` from the scenario will be executed (#A).
+
+·  A method stub has been generated by the Cucumber plugin to be implemented with the code addressing the step “`Given there is an economy flight”` from the scenario (#B).
+
+·  The Cucumber plugin has generated a method annotated with `@When(“^we have a regular passenger$”)`, meaning that this method will be executed when the step “`When we have a regular passenger”` from the scenario will be executed (#C).
+
+·  A method stub has been generated by the Cucumber plugin to be implemented with the code addressing the step “`When we have a regular passenger”` from the scenario (#D).
+
+·  The Cucumber plugin has generated a method annotated with `@Then(“^you can add and remove him from an economy flight$”)`, meaning that this method will be executed when the step “`Then you can add and remove him from an economy flight”` from the scenario will be executed (#E).
+
+·  A method stub has been generated by the Cucumber plugin to be implemented with the code addressing the step “`Then you can add and remove him from an economy flight”` from the scenario (#F).
+
+·  The rest of the methods are implemented in a similar way, we have covered the `Given`, `When` and `Then` steps of one scenario.
+
+John follows the business logic of each step that has been defined and transposes it into the tests from listing 21.4 – the steps of the scenarios that need to be verified.
+
+Listing 21.4 Implementing the business logic of the previously defined steps
+
+`public class PassengerPolicy {``  private Flight economyFlight;                      #A``  private Passenger mike;                         #A``  […]`` ``  @Given("^there is an economy flight$")                 #B``  public void there_is_an_economy_flight() throws Throwable {       #B``    economyFlight = new EconomyFlight("1");               #C``  }`` ``  @When("^we have a regular passenger$")                 #D``  public void we_have_a_regular_passenger() throws Throwable {      #D``    mike = new Passenger("Mike", false);                #E``  }`` ``  @Then("^you can add and remove him from an economy flight$")      #F``  public void you_can_add_and_remove_him_from_an_economy_flight()     #F``      throws Throwable {``    assertAll("Verify all conditions for a regular passenger      #G``          and an economy flight",                 #G``     () -> assertEquals("1", economyFlight.getId()),          #G``     () -> assertEquals(true, economyFlight.addPassenger(mike)),    #G``     () -> assertEquals(1,                       #G``         economyFlight.getPassengersSet().size()),         #G``     () -> ``       assertTrue(economyFlight.getPassengersSet().contains(mike)),  #G``     () -> assertEquals(true, economyFlight.removePassenger(mike)),  #G``     () -> assertEquals(0, economyFlight.getPassengersSet().size())  #G``    );``  }``  […]`` }`
+
+In the listing above we are doing the following:
+
+·  We declare the instance variables for the test, among which `economyFlight` and `mike` as a `Passenger` (#A).
+
+·  We write the method corresponding to the “`Given there is an economy flight”` business logic step (#B) by initializing the `economyFlight` (#C).
+
+·  We write the method corresponding to the “`When we have a regular passenger”` business logic step (#D) by initializing the regular passenger `mike` (#E).
+
+·  We write the method corresponding to the “`Then you can add and remove him from an economy flight”` business logic step (#F) by checking all the conditions by using the `assertAll` JUnit 5 method, which can now be read in a flow (#G).
+
+·  The rest of the methods are implemented in a similar way, we have covered the `Given`, `When` and `Then` steps of one scenario.
+
+In order to run our Cucumber tests, we'll need a special class. The name of the class could be anything, we have chosen `CucumberTest` (listing 21.5).
+
+Listing 21.5 The CucumberTest class
+
+`@RunWith(Cucumber.class)                          #A``@CucumberOptions(                              #B``  plugin = {"pretty"},                           #C``  features = "classpath:features")                     #D``public class CucumberTest {`` ``  /**``  * This class should be empty, step definitions should be in separate classes.``  */`` ``}`
+
+In the listing above, we are doing the following:
+
+·  We have annotated this class with `@RunWith(Cucumber.class)` annotation (#A). Executing it as any JUnit test class will run all features found on the classpath in the same package. As there is no Cucumber JUnit 5 extension at the moment of writing this chapter, we use the JUnit 4 runner.
+
+·  The `@CucumberOptions` (#B) annotation provides the plugin option (#C), that is used to specify different formatting options for the output reports. Using "`pretty`", the Gherkin source will be printed with additional colors (fig. 21.8). Other plugin options include `“html”` and `“json”`, but `“pretty”` is appropriate for us now. And the `features` option (#D) helps Cucumber to locate the feature file in the project folder structure. It will look for the features folder on the classpath - and remember that the src/test/resources folder is maintained by Maven on the classpath!
+
+By running the tests, we see that the code coverage is 100% (fig. 21.8), so we have kept the existing test functionalities before moving to Cucumber.
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0008.jpg)
+
+Figure 21.8 Running CucumberTest. The Gherkin source will be pretty-printed, the successful tests are displayed in green, the code coverage is 100%
+
+There is another advantage to the move to BDD. We compare the length of the pre-Cucumber `AirportTest` class, which has 207 lines, with the one of the `PassengersPolicy` class, which has 157 lines. So, the testing code is now at only 75% of the pre-Cucumber size, yet it has the same 100% coverage. Where does this gain come from? Remember that the AirportTest file contained 7 classes, on 3 levels: `AirportTest` at the top level; one `EconomyFlightTest` and one `BusinessFlightTest` at the second level; and, at the third level, two `RegularPassenger` and two `VipPassenger` classes. The code duplication is now really jumping to our attention, but that was the solution having only JUnit 5.
+
+With Cucumber, each step is implemented only once, and if we have the same step in more than one scenario, we’ll avoid the code duplication.
+
+### 21.2.3  Adding a new feature with the help of Cucumber
+
+John receives a new feature to implement, concerning the policy of bonus points that are awarded to the passenger.
+
+The specifications about calculating the bonus points consider the mileage, meaning the distance that is traveled by each passenger. The bonus will be calculated for all flights of the passenger and it depends on a factor: the mileage will be divided by 10 for VIP passengers and by 20 for regular ones (fig 21.9).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0009.png)
+
+Figure 21.9 The business logic of awarding bonus points: the mileage will be divided by 10 for VIP passenger and by 20 for regular ones
+
+John will move to the BDD scenarios, tests and implementation. He will define the scenarios of awarding the bonus points (listing 21.6) and generate the Cucumber tests that describe the scenarios. In the beginning, they are expected to fail. Then, he will effectively add the code that implements the bonus award, run the tests and expect them to be green.
+
+Listing 21.6 The bonus_policy.feature file
+
+`Feature: Bonus Policy`` The company follows a bonus policy, depending on the passenger type and on the mileage`` `` Scenario Outline: Regular passenger bonus policy                 #A``  Given we have a regular passenger with a mileage``  When the regular passenger travels <mileage1> and <mileage2> and <mileage3>  #B``  Then the bonus points of the regular passenger should be <points>       #B`` ``  Examples:                                   #C``   | mileage1 | mileage2 | mileage3| points |                  #C``   |   349 |   319 |  623 |   64 |                  #C``   |   312 |   356 |  135 |   40 |                  #C``   |   223 |   786 |  503 |   75 |                  #C``   |   482 |   98 |  591 |   58 |                  #C``   |   128 |   176 |  304 |   30 |                  #C`` `` Scenario Outline: VIP passenger bonus policy                   #A``  Given we have a VIP passenger with a mileage``  When the VIP passenger travels <mileage1> and <mileage2> and <mileage3>    #B``  Then the bonus points of the VIP passenger should be <points>         #B`` ``  Examples:                                   #C``   | mileage1 | mileage2 | mileage3| points |                 #C``   |   349 |   319 |  623 |   129 |                 #C``   |   312 |   356 |  135 |   80 |                 #C``   |   223 |   786 |  503 |   151 |                 #C``   |   482 |   98 |  591 |   117 |                 #C``   |   128 |   176 |  304 |   60 |                 #C`
+
+In the listing above, we are using the following new things compared to the previous Cucumber feature that we have implemented:
+
+·  We introduce a new capability of Cucumber - Scenario Outline (#A). With Scenario Outline, values do not need to be hard-coded in the step definitions.
+
+·  Values are replaced with parameters as into the step-definition itself - you can see <mileage1>, <mileage2>, <mileage3> and <points> as parameters (#B).
+
+·  The effective values are defined in the Examples table, at the end of the Scenario Outline (#C). The first row in the first table defines the values of 3 mileages (349, 319, 623). Adding them and dividing them by 20 (the regular passenger factor), we get the integer part 64 (the number of bonus points). This successfully replaces the JUnit 5 parameterized tests, having the advantage that the values are kept inside the scenarios, and easy to be understood by everyone.
+
+We will configure the way the feature is run. We need to go to Run -> Edit Configurations, and to set the following (fig. 21.10):
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0010.jpg)
+
+Figure 21.10 Setting the configuration for the new bonus_policy.feature by filling in the Main class, Glue, Feature or folder path, and Working directory
+
+·  Main class: cucumber.api.cli.Main
+
+·  Glue (the package where step definitions are stored): com.manning.junitbook.airport
+
+·  Feature or folder path: test/resources/features/bonus_policy.feature we have created
+
+·  Working directory: the project folder
+
+Running the feature directly will generate the skeleton of the Java Cucumber tests (fig. 21.11).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0011.jpg)
+
+Figure 21.11 Getting the skeleton of the bonus policy feature by directly running the feature file
+
+John will now create a new Java class into the test/java folder, into the `com.manning.junitbook.airport` package. This class will be named `BonusPolicy` and, for the beginning, it will contain the tests skeleton (listing 21.7). The execution of such a test will follow the scenarios described in the bonus_policy.feature file.
+
+Listing 21.7 The initial BonusPolicy class
+
+`public class BonusPolicy {``  @Given("^we have a regular passenger with a mileage$")          #A``  public void we_have_a_regular_passenger_with_a_mileage()         #B``      throws Throwable {                        #B``  // Write code here that turns the phrase above into concrete actions  #B``  throw new PendingException();                      #B``  }                                    #B`` ``  @When("^the regular passenger travels (\\d+) and (\\d+) and (\\d+)$")  #C``  public void the_regular_passenger_travels_and_and            #D``     (int arg1, int arg2, int arg3) throws Throwable {         #D``  // Write code here that turns the phrase above into concrete actions  #D``  throw new PendingException();                      #D``  }                                    #D`` ``  @Then("^the bonus points of the regular passenger should be (\\d+)$")  #E``  public void the_bonus_points_of_the_regular_passenger_should_be(int arg1)#F``    throws Throwable {                          #F``  // Write code here that turns the phrase above into concrete actions  #F``  throw new PendingException();                      #F``  }                                    #F``  […]`` ``}`
+
+In the listing above we are doing the following:
+
+·  The Cucumber plugin has generated a method annotated with `@Given(“^we have a regular passenger with a mileage$”)`, meaning that this method will be executed when the step “`Given we have a regular passenger with a mileage”` from the scenario will be executed (#A).
+
+·  A method stub has been generated by the Cucumber plugin to be implemented with the code addressing the step “`Given we have a regular passenger with a mileage”` from the scenario (#B).
+
+·  The Cucumber plugin has generated a method annotated with `@When(“^the regular passenger travels (\\d+) and (\\d+) and (\\d+)$”)`, meaning that this method will be executed when the step “`When the regular passenger travels <mileage1> and <mileage2> and <mileage3>”` from the scenario will be executed (#C).
+
+·  A method stub has been generated by the Cucumber plugin to be implemented with the code addressing the step “`When the regular passenger travels <mileage1> and <mileage2> and <mileage3>”` from the scenario (#D). This method has three parameters, corresponding to the three different mileages.
+
+·  The Cucumber plugin has generated a method annotated with `@Then(“^the bonus points of the regular passenger should be (\\d+)$”)`, meaning that this method will be executed when the step “`Then the bonus points of the regular passenger should be <points>”` from the scenario will be executed (#E).
+
+·  A method stub has been generated by the Cucumber plugin to be implemented with the code addressing the step “`Then the bonus points of the regular passenger should be <points>”` from the scenario (#F). This method has one parameter, corresponding to the points.
+
+·  The rest of the methods are implemented in a similar way, we have covered the `Given`, `When` and `Then` steps of one scenario.
+
+Now, John will create the Mileage class, declaring the fields and the methods, but not implementing them yet. John needs to use the methods of this class for the tests, make these tests initially fail, then implement the methods and make the tests pass.
+
+Listing 21.8 The Mileage class, with no implementation of the methods
+
+`public class Mileage {`` ``  public static final int VIP_FACTOR = 10;                #A``  public static final int REGULAR_FACTOR = 20;              #A`` ``  private Map<Passenger, Integer> passengersMileageMap = new HashMap<>(); #B``  private Map<Passenger, Integer> passengersPointsMap = new HashMap<>(); #B`` ``  public void addMileage(Passenger passenger, int miles) {        #C`` ``  }`` ``  public void calculateGivenPoints() {                  #D`` ``  }`` ``}`
+
+In the listing above, we are doing the following:
+
+·  We have declared the `VIP_FACTOR` and `REGULAR_FACTOR` constants, corresponding to the factor by which we divide the mileage for each type of passenger in order to get the bonus points (#A).
+
+·  We have declared `passengersMileageMap` and `passengersPointsMap`, two maps having as key the passenger and keeping as value the mileage and the points for that passenger, respectively (#B).
+
+·  We have declared the `addMileage` method, which will populate the `passengersMileageMap` with the mileage for each passenger (#C). The method does not do anything, for now, it will be written later, to fix the tests.
+
+·  We have declared the `calculateGivenPoints` method, which will populate the `passengersPointsMap` with the bonus points for each passenger (#D). The method does not do anything, for now, it will be written later, to fix the tests.
+
+John will now turn his attention to write the unimplemented tests from the BonusPolicy class, to follow the business logic of this feature (listing 21.9).
+
+Listing 21.9 The business logic of the steps from BonusPolicy
+
+`public class BonusPolicy {``  private Passenger mike;                         #A``  private Mileage mileage;                        #A``  […]`` ``  @Given("^we have a regular passenger with a mileage$")         #B``  public void we_have_a_regular_passenger_with_a_mileage() ``        throws Throwable {``    mike = new Passenger("Mike", false);                #C``    mileage = new Mileage();                      #C``  }`` ``  @When("^the regular passenger travels (\\d+) and (\\d+) and (**\\d+)$**") #D``  public void the_regular_passenger_travels_and_and(int mileage1, int ``        mileage2, int mileage3) throws Throwable {``    mileage.addMileage(mike, mileage1);                 #E``    mileage.addMileage(mike, mileage2);                 #E``    mileage.addMileage(mike, mileage3);                 #E``  }`` ``  @Then("^the bonus points of the regular passenger should be (**\\d+)$**") #F``  public void the_bonus_points_of_the_regular_passenger_should_be``         (int points) throws Throwable {``    mileage.calculateGivenPoints();                   #G``    assertEquals(points,                        #H``      mileage.getPassengersPointsMap().get(mike).intValue());     #H``  }``  […]``}`
+
+In the listing above, we are doing the following:
+
+·  We declare the instance variables for the test, among which `mileage` and `mike` as a `Passenger` (#A).
+
+·  We write the method corresponding to the “`Given we have a regular passenger with a mileage”` business logic step (#B) by initializing the passenger and the mileage (#C).
+
+·  We write the method corresponding to the “`When the regular passenger travels <mileage1> and <mileage2> and <mileage3>”` business logic step (#D) by adding mileages to the regular passenger `mike` (#E).
+
+·  We write the method corresponding to the “`Then the bonus points of the regular passenger should be <points>”` business logic step (#F) by calculating the given points (#G) and checking that the calculated value is the expected one (#H).
+
+·  The rest of the methods are implemented in a similar way, we have covered the `Given`, `When` and `Then` steps of one scenario.
+
+If we run the bonus points tests now they will fail (fig. 21.12), as the business logic is not yet implemented (the `addMileage` and `calculateGivenPoints` methods are empty, the business logic is implemented after the tests).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0012.jpg)
+
+Figure 21.12 Running the bonus points tests before the business logic implementation will fail
+
+John will move back to the implementation of the two remaining business logic methods from the `Mileage` class (`addMileage` and `calculateGivenPoints`), as shown in listing 21.10.
+
+Listing 21.10 The implementation of business logic from the Mileage class
+
+`public void addMileage(Passenger passenger, int miles) {``  if (passengersMileageMap.containsKey(passenger)) {           #A``    passengersMileageMap.put(passenger,                 #B``      passengersMileageMap.get(passenger) + miles);          #B``  } else {``    passengersMileageMap.put(passenger, miles);             #C``  }`` ``}`` ``public void calculateGivenPoints() {``  for (Passenger passenger : passengersMileageMap.keySet()) {       #D``    if (passenger.isVip()) {                      #E``      passengersPointsMap.put(passenger,               #E``       passengersMileageMap.get(passenger)/ VIP_FACTOR);       #E``    } else {``      passengersPointsMap.put(passenger,               #F``       passengersMileageMap.get(passenger)/ REGULAR_FACTOR);     #F``    }``  }``}`
+
+In the listing above, we are doing the following:
+
+·  In the `addMileage` method, we check if the `passengersMileageMap` already contains a passenger (#A). If that passenger already exists, we add the mileage to him (#B), otherwise, we create a new entry into the map having that passenger as a key and the miles as the initial value (#C).
+
+·  In the `calculateGivenPoints` method, we browse the passengers set (#D) and, for each passenger, if he is a VIP, we calculate the bonus points by dividing the mileage to the VIP factor (#E). Otherwise, we calculate the bonus points by dividing the mileage to the regular factor (#F).
+
+Running the bonus points tests now will be successful and nicely displayed, as shown in fig. 21.13.
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0013.jpg)
+
+Figure 21.13 Running the bonus points tests after the business logic implementation will succeed
+
+John has successfully implemented the bonus policy feature working BDD style, with JUnit 5 and Cucumber.
+
+## 21.3  Working BDD with JBehave and JUnit 5
+
+### 21.3.1  Introducing JBehave
+
+There are a few alternatives in choosing a BDD framework. Besides the already introduced Cucumber, we'll also take a look at another very popular one, JBehave.
+
+JBehave
+
+JBehave is a Behavior Driven Development testing tool framework. As implementing the idea of Behavior Driven Development, JBehave allows us to write stories in plain text, to be understood by all persons involved in the project. Through the stories, we'll define scenarios that express the desired behavior.
+
+Like other BDD frameworks, JBehave provides its terminology. We mention here:
+
+·  Story - covers one or more scenarios and represents an increment of business functionality that can be automatically executed.
+
+·  Scenario - a real-life situation to interact with the application.
+
+·  Step - this is defined using the classic BDD keywords: Given, When and Then.
+
+### 21.3.2  Moving a TDD feature to JBehave
+
+John would like to implement, with the help of JBehave, the same features, and tests that he has implemented with Cucumber. This will allow the possibility to make some comparisons between the two BDD frameworks and conclude which one to use.
+
+John will first introduce the JBehave dependency into the Maven configuration (listing 21.11). He will first create a JBehave story, generate the tests skeleton and fill it in.
+
+Listing 21.11 The JBehave dependency added to the pom.xml file
+
+`<dependency>``  <groupId>org.jbehave</groupId>``  <artifactId>jbehave-core</artifactId>``  <version>4.1</version>``</dependency>`
+
+Then John will install the plugins for IntelliJ. He goes to File -> Settings -> Plugins -> Browse Repositories, type JBehave, and choose JBehave Step Generator and JBehave Support (fig 21.14).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0014.jpg)
+
+Figure 21.14 Installing the JBehave for Java plugins from the File -> Settings -> Plugins menu
+
+John will start creating the story. He will follow the Maven standard folders structure and introduce the stories into the test/resources folder. He will create a folders structure com/manning/junitbook/airport and insert here the passengers_policy_story.story file. He will also create, into the test folder, the com.manning.junitbook.airport package containing the PassengersPolicy class (fig. 21.15).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0015.jpg)
+
+Figure 21.15 The newly introduced PassengersPolicy class corresponds to the story file to be found in the test/resources/com/manning/junitbook/airport folder
+
+The story will contain meta-information about itself, the narrative (what it intends to do) and the scenarios (listing 21.12).
+
+Listing 21.12 The passengers_policy_story.story file
+
+`Meta: Passengers Policy``   The company follows a policy of adding and removing passengers, ``   depending on the passenger type and on the flight type`` ``Narrative:``As a company``I want to be able to manage passengers and flights``So that the policies of the company are followed`` ``Scenario: Economy flight, regular passenger``Given there is an economy flight``When we have a regular passenger``Then you can add and remove him from an economy flight``And you cannot add a regular passenger to an economy flight more than once`` ``Scenario: Economy flight, VIP passenger``Given there is an economy flight``When we have a VIP passenger``Then you can add him but cannot remove him from an economy flight``And you cannot add a VIP passenger to an economy flight more than once`` ``Scenario: Business flight, regular passenger``Given there is a business flight``When we have a regular passenger``Then you cannot add or remove him from a business flight`` ``Scenario: Business flight, VIP passenger``Given there is a business flight``When we have a VIP passenger``Then you can add him but cannot remove him from a business flight``And you cannot add a VIP passenger to a business flight more than once`` ``Scenario: Premium flight, regular passenger``Given there is a premium flight``When we have a regular passenger``Then you cannot add or remove him from a premium flight`` ``Scenario: Premium flight, VIP passenger``Given there is a premium flight``When we have a VIP passenger``Then you can add and remove him from a premium flight``And you cannot add a VIP passenger to a premium flight more than once`
+
+In order to generate the steps into a Java file, John will place the cursor on any not yet created test step (they are underlined in red) and press Alt+Enter (fig. 21.16).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0016.jpg)
+
+Figure 21.16 Pressing Alt+ Enter and generating the BDD steps into a class
+
+He will generate all steps into the newly created `PassengersPolicy` class (fig. 21.17).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0017.jpg)
+
+Figure 21.17 Choosing PassengersPolicy as the class to generate the steps of the story into
+
+The skeleton will look as in listing 21.13, with the tests needing to be filled in.
+
+Listing 21.13 The skeleton of the JBehave PassengersPolicy test
+
+`public class PassengersPolicy {``  @Given("there is an economy flight")``  public void givenThereIsAnEconomyFlight() {`` ``  }`` ``  @When("we have a regular passenger")``  public void whenWeHaveARegularPassenger() {`` ``  }`` ``  @Then("you can add and remove him from an economy flight")``  public void thenYouCanAddAndRemoveHimFromAnEconomyFlight() {`` ``  }``  […]``}`
+
+John will now implement the tests according to the business logic, as in listing 21.14. He will write the code corresponding to each step defined through a method.
+
+Listing 21.14 The implemented tests from PassengersPolicy
+
+`public class PassengersPolicy {``  private Flight economyFlight;                      #A``  private Passenger mike;                         #A``  […]`` ``  @Given("there is an economy flight")                  #B``  public void givenThereIsAnEconomyFlight() {``    economyFlight = new EconomyFlight("1");               #C``  }`` ``  @When("we have a regular passenger")                  #D``  public void whenWeHaveARegularPassenger() {``    mike = new Passenger("Mike", false);                #E``  }`` ``  @Then("you can add and remove him from an economy flight")       #F``  public void thenYouCanAddAndRemoveHimFromAnEconomyFlight() {``    assertAll("Verify all conditions for a regular passenger      #G``          and an economy flight",                 #G``      () -> assertEquals("1", economyFlight.getId()),         #G``      () -> assertEquals(true,                     #G``         economyFlight.addPassenger(mike)),             #G``      () -> assertEquals(1,                      #G``         economyFlight.getPassengersSet().size()),         #G``      () -> assertEquals("Mike", new ArrayList<>(           #G``       economyFlight.                         #G``        getPassengersSet()).get(0).getName()),            #G``      () -> assertEquals(true,                     #G``            economyFlight.removePassenger(mike)),        #G``      () -> assertEquals(0,                      #G``            economyFlight.getPassengersSet().size())       #G``    );``  }``[…]`` ``}`
+
+In the listing above, we are doing the following:
+
+·  We declare the instance variables for the test, among which `economyFlight` and `mike` as a `Passenger` (#A).
+
+·  We write the method corresponding to the “`Given there is an economy flight”` business logic step (#B) by initializing the `economyFlight` (#C).
+
+·  We write the method corresponding to the “`When we have a regular passenger”` business logic step (#D) by initializing the regular passenger `mike` (#E).
+
+·  We write the method corresponding to the “`Then you can add and remove him from an economy flight”` business logic step (#F) by checking all the conditions by using the `assertAll` JUnit 5 method, which can now be read in a flow (#G).
+
+·  The rest of the methods are implemented in a similar way, we have covered the `Given`, `When` and `Then` steps of one scenario.
+
+In order to be able to run these tests, John will need a new special class that will represent the test configuration. He will name this class `PassengersPolicyStory` (listing 21.15).
+
+Listing 21.15 The PassengersPolicyStory class
+
+`public class PassengersPolicyStory extends JUnitStory {           #A`` ``  @Override``  public Configuration configuration() {                 #B``    return new MostUsefulConfiguration()                #C``         .useStoryReporterBuilder(                 #D``           new StoryReporterBuilder().              #D``             withFormats(Format.CONSOLE));           #D``  }`` ``  @Override``  public InjectableStepsFactory stepsFactory() {             #E``    return new InstanceStepsFactory(configuration(),          #F``           new PassengersPolicy());               #F``  }``}`
+
+In the listing above, we are doing the following:
+
+·  We are declaring the `PassengersPolicyStory` class that is extending `JUnitStory` (#A). A JBehave story class must extend this `JUnitStory.`
+
+·  We override the `configuration` method (#B) and we tell that the configuration of the report is the one that works for the most situations that users are likely to encounter (#C), plus that the report will be displayed on the console (#D).
+
+·  We override the `stepsFactory` method (#E) and we tell that the steps definition is to be found in the `PassengersPolicy` class (#F).
+
+The result of running these tests is shown in fig. 21.18. The tests are successfully running, the code coverage is 100%. However, the reporting capabilities of JBehave do not allow the same nice display as in the case of Cucumber.
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0018.jpg)
+
+Figure 21.18 The JBehave passengers policy tests run successfully, the code coverage is 100%
+
+We compare the length of the pre-BDD `AirportTest` class, which has 207 lines, with the one of this JBehave `PassengersPolicy` class, which has 157 lines (just like for the Cucumber version). The testing code is now at only 75% of the pre-BDD size, while we have shown that it has the same 100% coverage. Where does this gain come from? Remember that the AirportTest file contained 7 classes, on 3 levels: `AirportTest` at the top level; one `EconomyFlightTest` and one `BusinessFlightTest` at the second level; and, at the third level, two `RegularPassenger` and two `VipPassenger` classes. The code duplication is now really jumping to our attention, but that was the solution having only JUnit 5.
+
+### 21.3.3  Adding a new feature with the help of JBehave
+
+John would like to implement, with the help of JBehave, the same new feature concerning the policy of bonus points that are awarded to the passenger.
+
+The specifications about calculating the bonus points consider the mileage, meaning the distance that is traveled by each passenger. The bonus will be calculated for all flights of the passenger and it depends on a factor: the mileage will be divided by 10 for VIP passenger and by 20 for regular ones.
+
+John will define the scenarios of awarding the bonus points into the bonus_policy_story.story file (listing 21.16) and generate the JBehave tests that describe the scenarios. In the beginning, they are expected to fail.
+
+Listing 21.16 The bonus_policy_story.story file
+
+`Meta: Bonus Policy``   The company follows a bonus policy, depending on the passenger type and on the mileage`` ``Narrative:``As a company``I want to be able to manage the bonus awarding``So that the policies of the company are followed`` ``Scenario: Regular passenger bonus policy                  #A``Given we have a regular passenger with a mileage``When the regular passenger travels <mileage1> and <mileage2> and <mileage3>#B``Then the bonus points of the regular passenger should be <points>     #B`` ``Examples:``| mileage1 | mileage2 | mileage3| points |                 #C``|   349 |   319 |  623 |   64 |                 #C``|   312 |   356 |  135 |   40 |                 #C``|   223 |   786 |  503 |   75 |                 #C``|   482 |   98 |  591 |   58 |                 #C``|   128 |   176 |  304 |   30 |                 #C`` ``Scenario: VIP passenger bonus policy                    #A``Given we have a VIP passenger with a mileage``When the VIP passenger travels <mileage1> and <mileage2> and <mileage3>  #B``Then the bonus points of the VIP passenger should be <points>       #B`` ``Examples:``| mileage1 | mileage2 | mileage3| points |                #C``|   349 |   319 |  623 |   129 |                #C``|   312 |   356 |  135 |   80 |                #C``|   223 |   786 |  503 |   151 |                #C``|   482 |   98 |  591 |   117 |                #C``|   128 |   176 |  304 |   60 |                #C`
+
+In the listing above, we are doing the following:
+
+·  We introduce new scenarios for the bonus policy, using the Given, When and Then keywords (#A).
+
+·  Values are replaced with parameters as into the step-definition itself - you can see <mileage1>, <mileage2>, <mileage3> and <points> as parameters (#B).
+
+·  The effective values are defined in the Examples table, at the end of each Scenario (#C). The first row in the first table defines the values of 3 mileages (349, 319, 623). Adding them and dividing them by 20 (the regular passenger factor), we get the integer part 64 (the number of bonus points). This successfully replaces the JUnit 5 parameterized tests, having the advantage that the values are kept inside the scenarios, and easy to be understood by everyone.
+
+John will create, into the test folder, the `BonusPolicy` class into the com.manning.junitbook.airport package (fig. 21.19).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0019.jpg)
+
+Figure 21.19 The newly introduced BonusPolicy class corresponds to the story file to be found in the test/resources/com/manning/junitbook/airport folder
+
+In order to generate the steps into a Java file, John will place the cursor on any not yet created step and press Alt+Enter (fig. 21.20).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0020.jpg)
+
+Figure 21.20 Pressing Alt+ Enter and generating the BDD steps into a class
+
+He will generate all steps into the newly created `BonusPolicy` class (fig. 21.21).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0021.jpg)
+
+Figure 21.21 Choosing BonusPolicy as the class to generate the steps of the story into
+
+The `BonusPolicy` class is shown in listing 21.17 with the tests skeleton filled in.
+
+Listing 21.17 The skeleton of the JBehave BonusPolicy test
+
+`public class BonusPolicy {`` ``  @Given("we have a regular passenger with a mileage")          #A``  public void givenWeHaveARegularPassengerWithAMileage() {`` ``  }`` ``  @When("the regular passenger travels <mileage1> and           #B``      <mileage2> and <mileage3>")                   #B``  public void whenTheRegularPassengerTravelsMileageAndMileageAndMileage(``      @Named("mileage1") int mileage1, @Named("mileage2") int mileage2, ``      @Named("mileage3") int mileage3) {`` ``  }`` ``  @Then("the bonus points of the regular passenger should be <points>")  #C``  public void thenTheBonusPointsOfTheRegularPassengerShouldBePoints(``   @Named("points") int points) {`` ``  }``  […]``}`
+
+In the listing above we are doing the following:
+
+·  The JBehave plugin has generated a method annotated with `@Given(“we have a regular passenger with a mileage”)`, meaning that this method will be executed when the step “`Given we have a regular passenger with a mileage”` from the scenario will be executed (#A).
+
+·  The JBehave plugin has generated a method annotated with `@When(“the regular passenger travels <mileage1> and <mileage2> and <mileage3>”)`, meaning that this method will be executed when the step “`When the regular passenger travels <mileage1> and <mileage2> and <mileage3>”` from the scenario will be executed (#B).
+
+·  The JBehave plugin has generated a method annotated with `@Then(“the bonus points of the regular passenger should be <points>”)`, meaning that this method will be executed when the step “`Then the bonus points of the regular passenger should be <points>”` from the scenario will be executed (#C).
+
+·  The rest of the methods generated by the JBehave plugin are similar, we have covered the `Given`, `When` and `Then` steps of one scenario.
+
+Now, John will create the Mileage class, declaring the fields and the methods, but not implementing them yet (listing 21.18). John needs to use the methods of this class for the tests, make these tests initially fail, then implement the methods and make the tests pass.
+
+Listing 21.18 The Mileage class, with no implementation of the methods
+
+`public class Mileage {`` ``  public static final int VIP_FACTOR = 10;                #A``  public static final int REGULAR_FACTOR = 20;              #A`` ``  private Map<Passenger, Integer> passengersMileageMap = new HashMap<>(); #B``  private Map<Passenger, Integer> passengersPointsMap = new HashMap<>(); #B`` ``  public void addMileage(Passenger passenger, int miles) {        #C`` ``  }`` ``  public void calculateGivenPoints() {                  #D`` ``  }`` ``}`
+
+In the listing above, we are doing the following:
+
+·  We have declared the `VIP_FACTOR` and `REGULAR_FACTOR` constants, corresponding to the factor by which we divide the mileage for each type of passenger in order to get the bonus points (#A).
+
+·  We have declared `passengersMileageMap` and `passengersPointsMap`, two maps having as key the passenger and keeping as value the mileage and the points for that passenger, respectively (#B).
+
+·  We have declared the `addMileage` method, which will populate the `passengersMileageMap` with the mileage for each passenger (#C). The method does not do anything, for now, it will be written later, to fix the tests.
+
+·  We have declared the `calculateGivenPoints` method, which will populate the `passengersPointsMap` with the bonus points for each passenger (#D). The method does not do anything, for now, it will be written later, to fix the tests.
+
+John will now turn his attention to write the unimplemented tests from the BonusPolicy class, to follow the business logic of this feature (listing 21.19).
+
+Listing 21.19 The business logic of the steps from BonusPolicy
+
+`public class BonusPolicy {``  private Passenger mike;                         #A``  private Mileage mileage;                        #A``  […]`` ``  @Given("we have a regular passenger with a mileage")          #B``  public void givenWeHaveARegularPassengerWithAMileage() {``    mike = new Passenger("Mike", false);                #C``    mileage = new Mileage();                      #C``  }`` ``  @When("the regular passenger travels <milege1> and <mileage2> and    #D``                    <mileage3>")             #D``  public void the_regular_passenger_travels_and_and(@Named(“mileage1”)``        int mileage1, @Named(“mileage2”) int mileage2, ``        @Named(“mileage3”) int mileage3) {``    mileage.addMileage(mike, mileage1);                 #E``    mileage.addMileage(mike, mileage2);                 #E``    mileage.addMileage(mike, mileage3);                 #E``  }`` ``  @Then("the bonus points of the regular passenger should be <points>")  #F``  public void the_bonus_points_of_the_regular_passenger_should_be``         (@Named(“points”) int points) {``    mileage.calculateGivenPoints();                   #G``    assertEquals(points,                        #H``      mileage.getPassengersPointsMap().get(mike).intValue());     #H``  }``  […]``}`
+
+In the listing above, we are doing the following:
+
+·  We declare the instance variables for the test, among which `mileage` and `mike` as a `Passenger` (#A).
+
+·  We write the method corresponding to the “`Given we have a regular passenger with a mileage”` business logic step (#B) by initializing the passenger and the mileage (#C).
+
+·  We write the method corresponding to the “`When the regular passenger travels <mileage1> and <mileage2> and <mileage3>”` business logic step (#D) by adding mileages to the regular passenger `mike` (#E).
+
+·  We write the method corresponding to the “`Then the bonus points of the regular passenger should be <points>”` business logic step (#F) by calculating the given points (#G) and checking that the calculated value is the expected one (#H).
+
+·  The rest of the methods are implemented in a similar way, we have covered the `Given`, `When` and `Then` steps of one scenario.
+
+In order to be able to run these tests, John will need a new special class that will represent the test configuration. He will name this class `BonusPolicyStory` (listing 21.20).
+
+Listing 21.20 The BonusPolicyStory class
+
+`public class BonusPolicyStory extends JUnitStory {             #A`` ``  @Override``  public Configuration configuration() {                 #B``    return new MostUsefulConfiguration()                #C``         .useStoryReporterBuilder(                 #D``           new StoryReporterBuilder().              #D``             withFormats(Format.CONSOLE));           #D``  }`` ``  @Override``  public InjectableStepsFactory stepsFactory() {             #E``    return new InstanceStepsFactory(configuration(),          #F``           new BonusPolicy());                  #F``  }``}`
+
+In the listing above, we are doing the following:
+
+·  We are declaring the `BonusPolicyStory` class that is extending `JUnitStory` (#A). A JBehave story class must extend this `JUnitStory.`
+
+·  We override the `configuration` method (#B) and we tell that the configuration of the report is the one that works for the most situations that users are likely to encounter (#C), plus that the report will be displayed on the console (#D).
+
+·  We override the `stepsFactory` method (#E) and we tell that the steps definition is to be found into the `BonusPolicy` class (#F).
+
+If we run the bonus points tests now they will fail (fig. 21.22), as the business logic is not yet implemented (we have left the `addMileage` and `calculateGivenPoints` methods empty).
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0022.jpg)
+
+Figure 21.22 Running the JBehave bonus points tests before the business logic implementation will fail
+
+John will move back to the implementation of the two remaining business logic methods from the `Mileage` class (`addMileage` and `calculateGivenPoints`), as shown in listing 21.21.
+
+Listing 21.21 The implementation of business logic from the Mileage class
+
+`public void addMileage(Passenger passenger, int miles) {``  if (passengersMileageMap.containsKey(passenger)) {           #A``    passengersMileageMap.put(passenger,                 #A``      passengersMileageMap.get(passenger) + miles);          #A``  } else {``    passengersMileageMap.put(passenger, miles);             #B``  }`` ``}`` ``public void calculateGivenPoints() {``  for (Passenger passenger : passengersMileageMap.keySet()) {       #C``    if (passenger.isVip()) {                      #D``      passengersPointsMap.put(passenger,               #D``       passengersMileageMap.get(passenger)/ VIP_FACTOR);       #D``    } else {``      passengersPointsMap.put(passenger,               #E``       passengersMileageMap.get(passenger)/ REGULAR_FACTOR);     #E``    }``  }``}`
+
+In the listing above, we are doing the following:
+
+·  In the `addMileage` method, we check if the `passengersMileageMap` already contains a passenger (#A). If that passenger already exists, we add the mileage to him (#B), otherwise, we create a new entry into the map having that passenger as a key and the miles as the initial value (#C).
+
+·  In the `calculateGivenPoints` method, we browse the passengers set (#C) and, for each passenger, if he is a VIP, we calculate the bonus points by dividing the mileage to the VIP factor (#D). Otherwise, we calculate the bonus points by dividing the mileage to the regular factor (#E).
+
+Running the bonus points tests now will be successful, as shown in fig. 21.23.
+
+![img](http://localhost:8000/39e2591b-e785-4a53-9b15-9c0cdeb566c1/OEBPS/Images/21_img_0023.jpg)
+
+Figure 21.23 Running the JBehave bonus points tests after the business logic implementation will succeed
+
+John has successfully implemented the bonus policy feature working BDD style, with JUnit 5 and JBehave.
+
+## 21.4  Comparing Cucumber and JBehave
+
+Cucumber and JBehave have similar approaches, supporting the Behaviour Driven Development ideas. Cucumber and JBehave are different frameworks but built on the same well defined BDD principles that we have emphasized.
+
+They are based around features (Cucumber) or stories (JBehave). A feature is a collection of stories, expressed from the point of view of a specific project stakeholder.
+
+You may notice the same BDD keywords Given, When, Then, but also some variations in names like "Scenario Outline" for Cucumber, or simply Scenario with Examples for JBehave.
+
+The IntelliJ IDE support for both Cucumber and JBehave is provided through plugins that help from the steps generation in Java code up to checking the code coverage. The Cucumber plugin has been able to produce a nicer output, allowing us to follow the full testing hierarchy at a glance, and displaying everything with significant colors. More, it allowed us to directly run a test from the feature text file, which is easier to follow, especially by non-technical persons.
+
+JBehave has reached its maturity phase some time ago, while the Cucumber codebase is still updated very frequently. At the time of writing this chapter, the Cucumber Github code displays tens of commits from within the previous 7 days. The JBehave Github code displays one single commit within the last 7 days.
+
+Cucumber has also a more active community at the time of writing this chapter, the articles on blogs and forums are more recent and frequent. Consequently, this makes troubleshooting easier for developers.
+
+In terms of code size compared to the pre-BDD situation, both Cucumber and JBehave have shown similar performances, reducing the size of the initial code in the same proportion.
+
+Choosing one of these frameworks may be a matter of habit or preference - personal preference or project preference. We have intended to put them face to face in a very practical and comparable way so that you can eventually make your own choice.
+
+The next chapter will be dedicated to building a test pyramid strategy, from the low level to the high level, and applying it in working with JUnit 5.
+
+## 21.5  Summary
+
+This chapter has covered the following:
+
+·  Introducing Behavior Driven Development, a software development technique that encourages teams to deliver software that matters, supporting the cooperation between stakeholders.
+
+·  Analyzing the benefits of Behavior Driven Development: addressing user needs, clarity, change support, automation support, focus on adding business value, costs reduction.
+
+·  Analyzing the challenges of Behavior Driven Development: it requires engagement and strong collaboration, interaction, direct communication, and constant feedback.
+
+·  Moving a TDD application to BDD, by moving the passengers policy business logic to be implemented with the help of both Cucumber and JBehave.
+
+·  Developing the business logic for the bonus policy with the help of Cucumber, by creating a separate feature, generating the skeleton of the testing code, writing the tests and implementing the code.
+
+·  Developing the business logic for the bonus policy with the help of JBehave, by creating a separate story, generating the skeleton of the testing code, writing the tests and implementing the code.
+
+·  Comparing Cucumber and JBehave in terms of approaching the BDD principles, ease of use, code size needed to implement some functionality.
+
+
+
+
+
+# 22. Implementing a test pyramid strategy with JUnit 5
+
+## 22.1  Software testing levels
+
+**Describing the levels of software testing, we'll enumerate the following (from the lowest to the highest):**
+
+* Unit testing - methods or classes (meaning individual units) are tested to determine whether they are working correctly
+* Integration testing – the individual software components are combined and tested together.
+* System testing - testing is performed on a complete, full system, in order to evaluate the system compliance with the specification.
+* Acceptance testing – an application is verified to satisfy the expectations of the end-user.
+
+If we ask ourselves what to test, we identify the following:
+
+* Business logic - how, the program transposes the business rules from the real-world
+* Bad input values – e.g, we cannot assign a negative number of seats to a flight.
+* Boundary conditions - extremes of some input domain, e.g. maximum, minimum. We may test on flights having 0 passengers or the maximum allowed passengers.
+* Unexpected conditions –conditions that are not part of the normal operation of a program. A flight cannot change its origin once it has taken off.
+* Invariants - expressions whose values do not change during program execution, e.g., the identifier of a person cannot change during the execution of the program.
+* Regressions - bugs introduced in an existing system after upgrades- or patches.
+
+![](https://pic.imgdb.cn/item/6157e3d72ab3f51d91aafe98.jpg)
+
+* The unit testing is at its foundation. It focuses on each piece of software by testing it in isolating, to determine if it is according to expectations.
+* Integration testing takes its input from already verified units, groups them in larger aggregates and executes integration tests on them.
+* System testing requires no knowledge of the design or of the code but focuses on the functionality of the whole system.
+* Acceptance testing use scenarios and test cases to check if the application satisfies the expectations of the end-user.
+
+## 22.2  Unit testing – our basic components work in isolation
+
+略
+
+## 22.3  Integration testing – units combined as a group
+
+略
+
+## 22.4  System testing – looking at the complete software
+
+![](https://pic.imgdb.cn/item/6157e4b92ab3f51d91ac66ab.jpg)
+
+## 22.5  Acceptance testing – compliance with the business requirements
+
+略
+

@@ -1801,3 +1801,798 @@ Nginx特性如下：
 * 目前，Docker对容器的安全管理做得不够完善，在应用到生产环境之前可以使用第三方工具来加强容器的安全管理，如使用apparmor对容器的能力进行限制，使用更加严格的iptable规则，禁止root用户登录，限制普通用户权限以及做好系统日志的记录；
 * 公司内部私有仓库的管理、镜像的管理问题是否解决。目前官方提供的私有仓库管理工具功能并不十分完善，若在生产环境中使用还需要更多的完善措施。
 
+# 17. 核心实现技术
+
+## 17.1 基本架构
+
+​	Docker目前采用了标准的C/S架构，包括客户端、服务端两大核心组件，同时通过镜像仓库来存储镜像。客户端和服务端既可以运行在一个机器上，也可通过socket或者RESTful API来进行通信，如图17-1所示。
+
+![](https://pic.imgdb.cn/item/615af5662ab3f51d91fd7db8.jpg)
+
+图17-1 Docker基本架构
+
+**1．服务端**
+
+​	Docker服务端一般在宿主主机后台运行，dockerd作为服务端接受来自客户的请求，并通过containerd具体处理与容器相关的请求，包括创建、运行、删除容器等。服务端主要包括四个组件：
+
+* dockerd：为客户端提供RESTful API，响应来自客户端的请求，采用模块化的架构，通过专门的Engine模块来分发管理各个来自客户端的任务。可以单独升级；
+
+* docker-proxy：是dockerd的子进程，当需要进行容器端口映射时，docker-proxy完成网络映射配置；
+* containerd：是dockerd的子进程，提供gRPC接口响应来自dockerd的请求，对下管理runC镜像和容器环境。可以单独升级；
+* containerd-shim：是containerd的子进程，为runC容器提供支持，同时作为容器内进程的根进程。
+
+
+
+​	runC是从Docker公司开源的libcontainer项目演化而来的，目前作为一种具体的开放容器标准实现加入Open Containers Initiative（OCI）。runC已经支持了Linux系统中容器相关技术栈，同时正在实现对其他操作系统的兼容。用户也可以通过使用docker-runc命令来直接使用OCI规范的容器。dockerd默认监听本地的unix:///var/run/docker.sock套接字，只允许本地的root用户或docker用户组成员访问。可以通过-H选项来修改监听的方式。例如，让dockerd监听本地的TCP连接1234端口，代码如下：
+
+![](https://pic.imgdb.cn/item/615af64c2ab3f51d91feced5.jpg)
+
+​	此外，Docker还支持通过TLS认证方式来验证访问。docker-proxy只有当启动容器并且使用端口映射时候才会执行，负责配置容器的端口映射规则：
+
+![](https://pic.imgdb.cn/item/615af7772ab3f51d91007e58.jpg)
+
+**2．客户端**
+
+​	Docker客户端为用户提供一系列可执行命令，使用这些命令可实现与Docker服务端交互。
+
+​	用户使用的Docker可执行命令即为客户端程序。与Docker服务端保持运行方式不同，客户端发送命令后，等待服务端返回；一旦收到返回后，客户端立刻执行结束并退出。用户执行新的命令，需要再次调用客户端命令。
+
+​	客户端默认通过本地的unix:///var/run/docker.sock套接字向服务端发送命令。如果服务端没有监听在默认的地址，则需要客户端在执行命令的时候显式地指定服务端地址。例如，假定服务端监听在本地的TCP连接1234端口为tcp://127.0.0.1:1234，只有通过-H参数指定了正确的地址信息才能连接到服务端：
+
+![](https://pic.imgdb.cn/item/615b13932ab3f51d912efe7f.jpg)
+
+**3．镜像仓库**
+
+​	镜像是使用容器的基础，Docker使用镜像仓库（Registry）在大规模场景下存储和分发Docker镜像。镜像仓库提供了对不同存储后端的支持，存放镜像文件，并且支持RESTful API，接收来自dockerd的命令，包括拉取、上传镜像等。
+
+​	用户从镜像仓库拉取的镜像文件会存储在本地使用；用户同时也可以上传镜像到仓库，方便其他人获取。使用镜像仓库可以极大地简化镜像管理和分发的流程。镜像仓库目前作为Docker分发项目，已经开源在Github（https://github.com/docker/distribution），目前支持API版本为2.0。
+
+## 17.2 命名空间
+
+​	命名空间（namespace）是Linux内核的一个强大特性，为容器虚拟化的实现带来极大便利。利用这一特性，每个容器都可以拥有自己单独的命名空间，运行在其中的应用都像是在独立的操作系统环境中一样。命名空间机制保证了容器之间彼此互不影响。
+
+​	在操作系统中，包括内核、文件系统、网络、进程号（ProcessID, PID）、用户号（User ID, UID）、进程间通信（InterProcess Communication, IPC）等资源，所有的资源都是应用进程直接共享的。要想实现虚拟化，除了要实现对内存、CPU、网络IO、硬盘IO、存储空间等的限制外，还要实现文件系统、网络、PID、UID、IPC等的相互隔离。前者相对容易实现一些，后者则需要宿主主机系统的深入支持。
+
+​	随着Linux系统对于命名空间功能的逐步完善，现在已经可以实现这些需求，让进程在彼此隔离的命名空间中运行。虽然这些进程仍在共用同一个内核和某些运行时环境（runtime，例如一些系统命令和系统库），但是彼此是不可见的，并且认为自己是独占系统的。
+
+​	Docker容器每次启动时候，通过调用funcsetNamespaces(daemon *Daemon, s *specs. Spec, c*container.Container) error方法来完成对各个命名空间的配置。
+
+**1．进程命名空间**
+
+​	Linux通过进程命名空间管理进程号，对于同一进程（同一个task_struct），在不同的命名空间中，看到的进程号不相同。每个进程命名空间有一套自己的进程号管理方法。进程命名空间是一个父子关系的结构，子空间中的进程对于父空间是可见的。新fork出的一个进程，在父命名空间和子命名空间将分别对应不同的进程号。例如，查看Docker服务主进程（dockerd）的进程号是3393，它作为父进程启动了docker-containerd进程，进程号为3398，代码如下所示：
+
+![](https://pic.imgdb.cn/item/615b14952ab3f51d9130ba78.jpg)
+
+​	新建一个Ubuntu容器，执行sleep命令。此时，docker-containerd进程作为父进程，会为每个容器启动一个docker-containerd-shim进程，作为该容器内所有进程的根进程：
+
+![](https://pic.imgdb.cn/item/615b1e832ab3f51d91417945.jpg)
+
+​	从宿主机上查看新建容器的进程的父进程，正是docker-containerd-shim进程：
+
+![](https://pic.imgdb.cn/item/615b1f2c2ab3f51d91428828.jpg)
+
+​	而在容器内的进程空间中，则把docker-containerd-shim进程作为0号根进程（类似宿主系统中0号根进程idle）, while进程的进程号则变为1（类似宿主系统中1号初始化进程/sbin/init）。容器内只能看到docker-containerd-shim进程往下的子进程空间，而无法获知宿主机上的进程信息：
+
+![](https://pic.imgdb.cn/item/615b1f892ab3f51d914329eb.jpg)
+
+![](https://pic.imgdb.cn/item/615b1f942ab3f51d91433c6a.jpg)
+
+​	一般情况下，启动多个容器时，宿主机与容器内进程空间的关系如图17-2所示。
+
+![](https://pic.imgdb.cn/item/615b1fa52ab3f51d914359c4.jpg)
+
+图17-2 宿主机与容器内进程空间的关系
+
+**2. IPC命名空间**
+
+​	容器中的进程交互还是采用了Linux常见的进程间交互方法（Interprocess Communication, IPC），包括信号量、消息队列和共享内存等方式。PID命名空间和IPC命名空间可以组合起来一起使用，同一个IPC命名空间内的进程可以彼此可见，允许进行交互；不同空间的进程则无法交互。
+
+**3．网络命名空间**
+
+​	有了进程命名空间后，不同命名空间中的进程号可以相互隔离，但是网络端口还是共享本地系统的端口。
+
+​	通过网络命名空间，可以实现网络隔离。一个网络命名空间为进程提供了一个完全独立的网络协议栈的视图。包括网络设备接口、IPv4和IPv6协议栈、IP路由表、防火墙规则、sockets等，这样每个容器的网络就能隔离开来。
+
+​	Docker采用虚拟网络设备（Virtual Network Device, VND）的方式，将不同命名空间的网络设备连接到一起。默认情况下，Docker在宿主机上创建多个虚机网桥（如默认的网桥docker0），容器中的虚拟网卡通过网桥进行连接，如图17-3所示。
+
+![](https://pic.imgdb.cn/item/615b1fdf2ab3f51d9143b7ae.jpg)
+
+​	使用docker network ls命令可以查看到当前系统中的网桥：
+
+![](https://pic.imgdb.cn/item/615b1ff22ab3f51d9143d633.jpg)
+
+​	使用brctl工具（需要安装bridge-utils工具包），还可以看到连接到网桥上的虚拟网口的信息。每个容器默认分配一个网桥上的虚拟网口，并将docker0的IP地址设置为默认的网关，容器发起的网络流量通过宿主机的iptables规则进行转发：
+
+![](https://pic.imgdb.cn/item/615b1ffe2ab3f51d9143eb34.jpg)
+
+**4．挂载命名空间**
+
+​	
+
+​	类似于chroot，挂载（Mount, MNT）命名空间可以将一个进程的根文件系统限制到一个特定的目录下。挂载命名空间允许不同命名空间的进程看到的本地文件位于宿主机中不同路径下，每个命名空间中的进程所看到的文件目录彼此是隔离的。例如，不同命名空间中的进程，都认为自己独占了一个完整的根文件系统（rootfs），但实际上，不同命名空间中的文件彼此隔离，不会造成相互影响，同时也无法影响宿主机文件系统中的其他路径。
+
+**5. UTS命名空间**
+
+​	UTS（UNIX Time-sharing System）命名空间允许每个容器拥有独立的主机名和域名，从而可以虚拟出一个有独立主机名和网络空间的环境，就跟网络上一台独立的主机一样。
+
+​	如果没有手动指定主机名称，Docker容器的主机名就是返回的容器ID的前6字节前缀，否则为指定的用户名：
+
+![](https://pic.imgdb.cn/item/615b20542ab3f51d914477f6.jpg)
+
+**6．用户命名空间**
+
+​	每个容器可以有不同的用户和组id，也就是说，可以在容器内使用特定的内部用户执行程序，而非本地系统上存在的用户。
+
+​	每个容器内部都可以有最高权限的root帐号，但跟宿主主机不在一个命名空间。通过使用隔离的用户命名空间，可以提高安全性，避免容器内的进程获取到额外的权限；同时通过使用不同用户也可以进一步在容器内控制权限。
+
+​	例如，下面的命令在容器内创建了test用户，只有普通权限，无法访问更高权限的资源：
+
+![](https://pic.imgdb.cn/item/615b20882ab3f51d9144cfc0.jpg)
+
+## 17.3 控制组
+
+​	控制组（CGroups）是Linux内核的一个特性，主要用来对共享资源进行隔离、限制、审计等。只有将分配到容器的资源进行控制，才能避免多个容器同时运行时对宿主机系统的资源竞争。每个控制组是一组对资源的限制，支持层级化结构。
+
+​	控制组技术最早是由Google的程序员在2006年提出的，Linux内核自2.6.24开始原生支持，可以提供对容器的内存、CPU、磁盘IO等资源进行限制和计费管理。最初的设计目标是为不同的应用情况提供统一的接口，从控制单一进程（比如nice工具）到系统级虚拟化（包括OpenVZ, Linux-VServer, LXC等）。
+
+​	具体来看，控制组提供如下功能：
+
+* 资源限制（resource limiting）：可将组设置一定的内存限制。比如：内存子系统可以为进程组设定一个内存使用上限，一旦进程组使用的内存达到限额再申请内存，就会出发Out of Memory警告。
+* 优先级（prioritization）：通过优先级让一些组优先得到更多的CPU等资源。
+* 资源审计（accounting）：用来统计系统实际上把多少资源用到适合的目的上，可以使用cpuacct子系统记录某个进程组使用的CPU时间。
+* 隔离（isolation）：为组隔离命名空间，这样使得一个组不会看到另一个组的进程、网络连接和文件系统。
+* 控制（control）：执行挂起、恢复和重启动等操作。
+
+
+
+​	Docker容器每次启动时候，通过调用func setCapabilities(s ＊specs.Spec, c ＊container.Container) error方法来完成对各个命名空间的配置。安装Docker后，用户可以在/sys/fs/cgroup/memory/docker/目录下看到对Docker组应用的各种限制项，包括全局限制和位于子目录中对于某个容器的单独限制：
+
+![](https://pic.imgdb.cn/item/615bb9f12ab3f51d91cd6afe.jpg)
+
+![](https://pic.imgdb.cn/item/615bba052ab3f51d91cd7efc.jpg)
+
+​	用户可以通过修改这些文件值来控制组，从而限制Docker应用资源。例如，通过下面的命令可限制Docker组中的所有进程使用的物理内存总量不超过100 MB：
+
+![](https://pic.imgdb.cn/item/615bbb062ab3f51d91ce814c.jpg)
+
+​	同时，可以在创建或启动容器时为每个容器指定资源的限制，例如使用-c|--cpu-shares[=0]参数可调整容器使用CPU的权重；使用-m|--memory[=MEMORY]参数可调整容器最多使用内存的大小。
+
+## 17.4 联合文件系统
+
+​	联合文件系统（UnionFS）是一种轻量级的高性能分层文件系统，它支持将文件系统中的修改信息作为一次提交，并层层叠加，同时可以将不同目录挂载到同一个虚拟文件系统下，应用看到的是挂载的最终结果。联合文件系统是实现Docker镜像的技术基础。
+
+​	Docker镜像可以通过分层来进行继承。例如，用户基于基础镜像（用来生成其他镜像的基础，往往没有父镜像）来制作各种不同的应用镜像。这些镜像共享同一个基础镜像层，提高了存储效率。此外，当用户改变了一个Docker镜像（比如升级程序到新的版本），则会创建一个新的层（layer）。因此，用户不用替换整个原镜像或者重新建立，只需要添加新层即可。用户分发镜像的时候，也只需要分发被改动的新层内容（增量部分）。这让Docker的镜像管理变得十分轻量和快速。
+
+**1. Docker存储原理**
+
+​	Docker目前通过插件化方式支持多种文件系统后端。Debian/Ubuntu上成熟的AUFS（Another Union FileSystem，或v2版本往后的Advanced multi layeredUnification File System），就是一种联合文件系统实现。AUFS支持为每一个成员目录（类似Git的分支）设定只读（readonly）、读写（readwrite）或写出（whiteout-able）权限，同时AUFS里有一个类似分层的概念，对只读权限的分支可以逻辑上进行增量地修改（不影响只读部分的）。
+
+​	Docker镜像自身就是由多个文件层组成，每一层有基于内容的唯一的编号（层ID）。可以通过docker history查看一个镜像由哪些层组成。例如查看ubuntu:16.04镜像由6层组成，每层执行了不同的命令，如下所示：
+
+![](https://pic.imgdb.cn/item/615bbc712ab3f51d91d00491.jpg)
+
+​	对于Docker镜像来说，这些层的内容都是不可修改的、只读的。而当Docker利用镜像启动一个容器时，将在镜像文件系统的最顶端再挂载一个新的可读写的层给容器。容器中的内容更新将会发生在可读写层。当所操作对象位于较深的某层时，需要先复制到最上层的可读写层。当数据对象较大时，往往意味着较差的IO性能。因此，对于IO敏感型应用，一般推荐将容器修改的数据通过volume方式挂载，而不是直接修改镜像内数据。
+
+​	另外，对于频繁启停Docker容器的场景下，文件系统的IO性能也将十分关键。
+
+**2. Docker存储结构**
+
+​	所有的镜像和容器都存储都在Docker指定的存储目录下，以Ubuntu宿主系统为例，默认路径是/var/lib/docker。在这个目录下面，存储由Docker镜像和容器运行相关的文件和目录，可能包括builder、containerd、containers、image、network、aufs/overlay2、plugins、runtimes、swarm、tmp、trust、volumes等。
+
+​	其中，如果使用AUFS存储后端，则最关键的就是aufs目录，保存Docker镜像和容器相关数据和信息。包括layers、diff和mnt三个子目录。1.9版本和之前的版本中，命名跟镜像层的ID是匹配的；而自1.10开始，层数据相关的文件和目录名与层ID不再匹配。
+
+​	layers子目录包含层属性文件，用来保存各个镜像层的元数据：某镜像的某层下面包括哪些层。例如：某镜像由5层组成，则文件内容应该如下：
+
+![](https://pic.imgdb.cn/item/615bbcd52ab3f51d91d07193.jpg)
+
+​		mnt子目录下面的子目录是各个容器最终的挂载点，所有相关的AUFS层在这里挂载到一起，形成最终效果。一个运行中容器的根文件系统就挂载在这下面的子目录上。同样，1.10版本之前的Docker中，子目录名和容器ID是一致的。其中，还包括容器的元数据、配置文件和运行日志等。
+
+**3．多种文件系统比较**
+
+​	Docker目前支持的联合文件系统种类包括AUFS、btrfs、Device Mapper、overlay、over-lay2、vfs、zfs等。多种文件系统目前的支持情况总结如下：
+
+*  AUFS：最早支持的文件系统，对Debian/Ubuntu支持好，虽然没有合并到Linux内核中，但成熟度很高；
+* btrfs：参考zfs等特性设计的文件系统，由Linux社区开发，试图未来取代Device Mapper，成熟度有待提高；
+* Device Mapper:RedHat公司和Docker团队一起开发用于支持RHEL的文件系统，内核支持，性能略慢，成熟度高；
+* overlay：类似于AUFS的层次化文件系统，性能更好，从Linux 3.18开始已经合并到内核，但成熟度有待提高；
+* overlay 2:Docker 1.12后推出，原生支持128层，效率比OverlayFS高，较新版本的Docker支持，要求内核大于4.0；
+* vfs：基于普通文件系统（ext、nfs等）的中间层抽象，性能差，比较占用空间，成熟度也一般。
+* zfs：最初设计为Solaris 10上的写时文件系统，拥有不少好的特性，但对Linux支持还不够成熟。
+
+
+
+​	目前，AUFS应用最为广泛，支持也相对成熟，推荐生产环境考虑。对于比较新的内核，可以尝试overlay2，作为Docker最新推荐使用的文件系统，将具有更多的特性和潜力。
+
+## 17.5 Linux网络虚拟化
+
+​	Docker的本地网络实现其实就是利用了Linux上的网络命名空间和虚拟网络设备（特别是veth pair）。熟悉这两部分的基本概念有助于理解Docker网络的实现过程。
+
+**1．基本原理**
+
+​	直观上看，要实现网络通信，机器需要至少一个网络接口（物理接口或虚拟接口）与外界相通，并可以收发数据包；此外，如果不同子网之间要进行通信，还需要额外的路由机制。
+
+​	Docker中的网络接口默认都是虚拟接口。虚拟接口的最大优势就是转发效率极高。这是因为Linux通过在内核中进行数据复制来实现虚拟接口之间的数据转发，即发送接口的发送缓存中的数据包将被直接复制到接收接口的接收缓存中，而无须通过外部物理网络设备进行交换。对于本地系统和容器内系统来看，虚拟接口跟一个正常的以太网卡相比并无区别，只是它的速度要快得多。
+
+​	Docker容器网络就很好地利用了Linux虚拟网络技术，它在本地主机和容器内分别创建一个虚拟接口veth，并连通（这样的一对虚拟接口叫做veth pair），如图17-4所示。
+
+![](https://pic.imgdb.cn/item/615bbe7f2ab3f51d91d23337.jpg)
+
+**2．网络创建过程**
+
+​	一般情况下，Docker创建一个容器的时候，会具体执行如下操作：
+
+1）创建一对虚拟接口，分别放到本地主机和新容器的命名空间中；
+
+2）本地主机一端的虚拟接口连接到默认的docker0网桥或指定网桥上，并具有一个以veth开头的唯一名字，如veth1234；
+
+3）器一端的虚拟接口将放到新创建的容器中，并修改名字作为eth0。这个接口只在容器的命名空间可见；
+
+4）从网桥可用地址段中获取一个空闲地址分配给容器的eth0（例如172.17.0.2/16），并配置默认路由网关为docker0网卡的内部接口docker0的IP地址（例如172.17.42.1/16）。
+
+​	完成这些之后，容器就可以使用它所能看到的eth0虚拟网卡来连接其他容器和访问外部网络。
+
+​	用户也可以通过docker network命令来手动管理网络，这将在后续章节中介绍。
+
+​	在使用docker [container] run命令启动容器的时候，可以通过--net参数来指定容器的网络配置。有5个可选值bridge、none、container、host和用户定义的网络：
+
+*  --net=bridge：默认值，在Docker网桥docker0上为容器创建新的网络栈；
+* --net=none：让Docker将新容器放到隔离的网络栈中，但是不进行网络配置。之后，用户可以自行配置；
+*  --net=container:NAME_or_ID：让Docker将新建容器的进程放到一个已存在容器的网络栈中，新容器进程有自己的文件系统、进程列表和资源限制，但会和已存在的容器共享IP地址和端口等网络资源，两者进程可以直接通过lo环回接口通信；
+*  --net=host：告诉Docker不要将容器网络放到隔离的命名空间中，即不要容器化容器内的网络。此时容器使用本地主机的网络，它拥有完全的本地主机接口访问权限。容器进程跟主机其他root进程一样可以打开低范围的端口，可以访问本地网络服务（比如D-bus），还可以让容器做一些影响整个主机系统的事情，比如重启主机。因此使用这个选项的时候要非常小心。如果进一步使用--privileged=true参数，容器甚至会被允许直接配置主机的网络栈；
+* --net=user_defined_network：用户自行用network相关命令创建一个网络，之后将容器连接到指定的已创建网络上去。
+
+**3．手动配置网络**
+
+​	用户使用--net=none后，Docker将不对容器网络进行配置。下面，介绍手动完成配置网络的整个过程。通过这个过程，可以了解到Docker配置网络的更多细节。
+
+​	首先，启动一个ubuntu:16.04容器，指定--net=none参数：
+
+![](https://pic.imgdb.cn/item/615bbf1d2ab3f51d91d2dedd.jpg)
+
+![](https://pic.imgdb.cn/item/615bbf2c2ab3f51d91d2f161.jpg)
+
+​	当容器终止后，Docker会清空容器，容器内的网络接口会随网络命名空间一起被清除，A接口也被自动从docker0卸载并清除。此外，在删除/var/run/netns/下的内容之前，用户可以使用ip netns exec命令在指定网络命名空间中进行配置，从而更新容器内的网络配置。
+
+# 18. 配置私有仓库
+
+## 18.1 安装Docker Registry
+
+​	新版本的Registry基于Golang进行了重构，提供更好的性能和扩展性，并且支持Docker 1.6+的API，非常适合用来构建私有的镜像注册服务器。官方仓库中也提供了Registry的镜像，因此用户可以通过容器运行和源码安装两种方式来使用Registry。
+
+**1．基于容器安装运行**
+
+​	基于容器的运行方式十分简单，只需要一条命令：
+
+![](https://pic.imgdb.cn/item/615bbfef2ab3f51d91d3ccc7.jpg)
+
+​	启动后，服务监听在本地的5000端口，可以通过访问http://localhost:5000/v2/测试启动成功。
+
+​	Registry比较关键的参数是配置文件和仓库存储路径。默认的配置文件为/etc/docker/registry/config.yml，因此，通过如下命令，可以指定使用本地主机上的配置文件（如/home/user/registry-conf）：
+
+![](https://pic.imgdb.cn/item/615bc0032ab3f51d91d3e4f4.jpg)
+
+​	默认的存储位置为/var/lib/registry，可以通过-v参数来映射本地的路径到容器内。
+
+​	例如，下面将镜像存储到本地/opt/data/registry目录：
+
+![](https://pic.imgdb.cn/item/615bc0142ab3f51d91d3f9a0.jpg)
+
+**2．本地安装运行**
+
+​	有时候需要本地运行仓库服务，可以通过源码方式进行安装。
+
+​	首先安装Golang环境支持，以Ubuntu为例，可以执行如下命令：
+
+![](https://pic.imgdb.cn/item/615bc0292ab3f51d91d410aa.jpg)
+
+​	确认Golang环境安装成功，并配置$GOPATH环境变量，例如/go。
+
+​	创建$GOPATH/src/github.com/docker/目录，并获取源码：
+
+![](https://pic.imgdb.cn/item/615bc0452ab3f51d91d42dd0.jpg)
+
+​	将自带的模板配置文件复制到/etc/docker/registry/路径下，创建存储目录/var/lib/registry：
+
+![](https://pic.imgdb.cn/item/615bc05f2ab3f51d91d44b64.jpg)
+
+​	编译成功后，可以通过下面的命令来启动：
+
+![](https://pic.imgdb.cn/item/615bc0712ab3f51d91d45ce2.jpg)
+
+## 18.2 配置TLS证书
+
+​	当本地主机运行Registry服务后，所有能访问到该主机的Docker Host都可以把它作为私有仓库使用，只需要在镜像名称前面添加上具体的服务器地址即可。
+
+​	例如将本地的ubuntu:latest镜像上传到私有仓库myrepo.com：
+
+![](https://pic.imgdb.cn/item/615bc0902ab3f51d91d47dbb.jpg)
+
+​	私有仓库需要启用TLS认证，否则会报错。在第一部分中，我们介绍了通过添加DOCKER_OPTS="--insecure-registrymyrepo.com:5000来避免这个问题。在这里将介绍如何获取和生成TLS证书。
+
+**1．自行生成证书**
+
+​	![](https://pic.imgdb.cn/item/615bc0a42ab3f51d91d49401.jpg)
+
+**2．从代理商申请证书**
+
+​	如果Registry服务需要对外公开，需要申请大家都认可的证书。知名的代理商包括SSLs.com、GoDaddy.com、LetsEncrypt.org、GlobalSign.com等，用户可以自行选择权威的证书提供商。
+
+**3．启用证书**
+
+​	当拥有秘钥文件和证书文件后，可以配置Registry启用证书支持，主要通过使用REGI-STRY_HTTP_TLS_CERTIFICATE和REGISTRY_HTTP_TLS_KEY参数：
+
+![](https://pic.imgdb.cn/item/615bc0bf2ab3f51d91d4b0cd.jpg)
+
+## 18.3 管理访问权限
+
+​	![](https://pic.imgdb.cn/item/615bc0d82ab3f51d91d4cb61.jpg)
+
+**1. Docker Registry v2的认证模式**
+
+​	Docker Registry v2的认证模式和v1有了较大的变化，降低了系统的复杂度、减少了服务之间的交互次数，其基本工作模式如图18-1所示。
+
+具体交互过程包括如下步骤：
+
+1）Docker Daemon或者其他客户端尝试访问Registry服务器，比如pull、push或者访问manifiest文件；
+
+2）在Registry服务器开启了认证服务模式时，就会直接返回401 Unauthorized错误，并通知调用方如何获得授权；
+
+3）调用方按照要求，向Authorization Service发送请求，并携带Authorization Service需要的信息，比如用户名、密码；
+
+4）如果授权成功，则可以拿到合法的Bearer token，来标识该请求方可以获得的权限；
+
+5）请求方将拿到Bearer token加到请求的Authorizationheader中，再次尝试步骤1中的请求；
+
+6）Registry服务通过验证Bearer token以及JWT格式的授权数据，来决定用户是否有权限进行请求的操作。
+
+当启用认证服务时，需要注意以下两个地方：
+
+*  对于Authentication Service, Docker官方目前并没有放出对应的实现方案，需要自行实现对应的服务接口；
+* Registry服务和Authentication服务之间通过证书进行Bearer token的生成和认证，所以要保证两个服务之间证书的匹配。
+
+
+
+​	除了使用第三方实现的认证服务（如docker_auth、SUSEPortus等）外，还可以通过Nginx代理方式来配置基于用户名和密码的认证。
+
+**2．配置Nginx代理**
+
+​	使用Nginx来代理registry服务的原理十分简单，在上一节中，我们让Registry服务监听在127.0.0.1:5000，这意味着只允许本机才能通过5000端口访问到，其他主机是无法访问到的。为了让其他主机访问到，可以通过Nginx监听在对外地址的15000端口，当外部访问请求到达15000端口时，内部再将请求转发到本地的5000端口。具体操作如下。
+
+​	首先，安装Nginx：
+
+![](https://pic.imgdb.cn/item/615bc1432ab3f51d91d53904.jpg)
+
+![](https://pic.imgdb.cn/item/615bc1582ab3f51d91d55056.jpg)
+
+![](https://pic.imgdb.cn/item/615bc16d2ab3f51d91d56808.jpg)
+
+![](https://pic.imgdb.cn/item/615bc17c2ab3f51d91d576f1.jpg)
+
+​	建立配置文件软连接，放到/etc/nginx/sites-enabled/下面，让Nginx启用它，最后重启Nginx服务：
+
+![](https://pic.imgdb.cn/item/615bc18a2ab3f51d91d585f7.jpg)
+
+![](https://pic.imgdb.cn/item/615bc1952ab3f51d91d590ce.jpg)
+
+**3．添加用户认证**
+
+​	公共仓库DockerHub是通过注册索引（index）服务来实现的。由于index服务并没有完善的开源实现，在这里介绍基于Nginx代理的用户访问管理方案。Nginx支持基于用户名和密码的访问管理。
+
+​	首先，在配置文件的location / 字段中添加两行：
+
+![](https://pic.imgdb.cn/item/615bc1ab2ab3f51d91d5a836.jpg)
+
+​	其中，auth_basic行说明启用认证服务，不通过的请求将无法转发。auth_basic_user_file docker-registry-htpasswd；行指定了验证的用户名和密码存储文件为本地（/etc/nginx/下）的docker-registry-htpasswd文件。
+
+​	docker-registry-htpasswd文件中存储用户名和密码的格式为每行放一个用户名、密码对。例如：
+
+![](https://pic.imgdb.cn/item/615bc1c32ab3f51d91d5c060.jpg)
+
+​	创建用户user1，并添加密码。
+
+​	例如，如下的操作会创建/etc/nginx/docker-registry-htpasswd文件来保存用户名和加密后的密码信息，并创建user1和对应密码：
+
+![](https://pic.imgdb.cn/item/615bc1d72ab3f51d91d5d3d8.jpg)
+
+​	添加更多用户，可以重复上面的命令（密码文件存在后，不需要再使用-c选项来新创建）。
+
+​	最后，重新启动Nginx服务：
+
+![](https://pic.imgdb.cn/item/615bc1e72ab3f51d91d5e46f.jpg)
+
+​	通过命令行访问，需要在地址前面带上用户名和密码才能正常返回：
+
+![](https://pic.imgdb.cn/item/615bc1f72ab3f51d91d5f5b0.jpg)
+
+**4．用Compose启动Registry**
+
+​	一般情况下，用户使用Registry需要的配置包括存储路径、TLS证书和用户认证。这里提供一个基于Docker Compose的快速启动Registry的模板：
+
+![](https://pic.imgdb.cn/item/615bc20c2ab3f51d91d60dae.jpg)
+
+## 18.4 配置Registry
+
+​	Docker Registry利用提供了一些样例配置，用户可以直接使用它们进行开发或生产部署。
+
+**1．示例配置**
+
+![](https://pic.imgdb.cn/item/615bc2a92ab3f51d91d6b865.jpg)
+
+![](https://pic.imgdb.cn/item/615bc2ba2ab3f51d91d6ca13.jpg)
+
+![](https://pic.imgdb.cn/item/615bc2c62ab3f51d91d6d5fe.jpg)
+
+![](https://pic.imgdb.cn/item/615bc2cf2ab3f51d91d6e08f.jpg)
+
+**2．选项**
+
+​	这些选项以yaml文件格式提供，用户可以直接进行修改，也可以添加自定义的模板段。默认情况下变量可以从环境变量中读取，例如log.level:debug可以配置为：
+
+![](https://pic.imgdb.cn/item/615bc2e12ab3f51d91d6f2c4.jpg)
+
+​	比较重要的选项包括版本信息、log选项、hooks选项、存储选项、认证选项、HTTP选项、通知选项、redis选项、健康监控选项、代理选项和验证选项等。下面分别介绍。
+
+![](https://pic.imgdb.cn/item/615bc2ef2ab3f51d91d70283.jpg)
+
+其中：
+
+* level：字符串类型，标注输出调试信息的级别，包括debug、info、warn、error；
+* fomatter：字符串类型，日志输出的格式，包括text、json、logstash等；
+* fields：增加到日志输出消息中的键值对，可以用于过滤日志。
+
+**（3）hooks选项**
+
+​	配置当仓库发生异常时，通过邮件发送日志时的参数，代码如下：
+
+![](https://pic.imgdb.cn/item/615bc31e2ab3f51d91d73b3f.jpg)
+
+**（4）存储选项**
+
+​	storage选项将配置存储的引擎，默认支持包括本地文件系统、Google云存储、AWS S3云存储和OpenStack Swift分布式存储等，代码如下：
+
+![](https://pic.imgdb.cn/item/615bc3352ab3f51d91d75575.jpg)
+
+![](https://pic.imgdb.cn/item/615bc3462ab3f51d91d7672f.jpg)
+
+![](https://pic.imgdb.cn/item/615bc3542ab3f51d91d7775b.jpg)
+
+![](https://pic.imgdb.cn/item/615bc35f2ab3f51d91d7844d.jpg)
+
+比较重要的选项如下：
+
+* maintenance：配置维护相关的功能，包括对孤立旧文件的清理、开启只读模式等；
+* delete：是否允许删除镜像功能，默认关闭；
+* cache：开启对镜像层元数据的缓存功能，默认开启；
+
+**（5）认证选项**
+
+![](https://pic.imgdb.cn/item/615bc3822ab3f51d91d7abb1.jpg)
+
+**其中：**
+
+* silly：仅供测试使用，只要请求头带有认证域即可，不做内容检查；
+* token：基于token的用户认证，适用于生产环境，需要额外的token服务来支持；
+* htpasswd：基于Apache htpasswd密码文件的权限检查。
+
+
+
+**（6）HTTP选项**
+
+![](https://pic.imgdb.cn/item/615bc3a52ab3f51d91d7d2d7.jpg)
+
+![](https://pic.imgdb.cn/item/615bc3af2ab3f51d91d7de74.jpg)
+
+**其中：**
+
+* addr：必选，服务监听地址；
+* secret：必选，与安全相关的随机字符串，用户可以自己定义；
+* tls：证书相关的文件路径信息；
+* http2：是否开启http2支持，默认关闭。
+
+**（7）通知选项**
+
+![](https://pic.imgdb.cn/item/615bc3d82ab3f51d91d80b89.jpg)
+
+**（8）redis选项**
+
+​	Registry可以用Redis来缓存文件块，这里可以配置相关选项：
+
+![](https://pic.imgdb.cn/item/615bc3ea2ab3f51d91d81f8e.jpg)
+
+**（9）健康监控选项**
+
+​	与健康监控相关，主要是对配置服务进行检测判断系统状态，代码如下：
+
+![](https://pic.imgdb.cn/item/615bc4042ab3f51d91d84892.jpg)
+
+![](https://pic.imgdb.cn/item/615bc4152ab3f51d91d85ac1.jpg)
+
+默认并未启用。
+
+（10）代理选项
+
+​	配置Registry作为一个pull代理，从远端（目前仅支持官方仓库）下拉Docker镜像，代码如下：
+
+![](https://pic.imgdb.cn/item/615bc42b2ab3f51d91d8731d.jpg)
+
+**（11）验证选项**
+
+![](https://pic.imgdb.cn/item/615bc4392ab3f51d91d882d9.jpg)
+
+## 18.5 批量管理镜像
+
+​	在之前章节中，笔者介绍了如何对单个镜像进行上传、下载的操作。有时候，本地镜像很多，逐个打标记进行操作将十分浪费时间。这里将以批量上传镜像为例，介绍如何利用脚本实现对镜像的批量化处理。
+
+**1．批量上传指定镜像**
+
+​	可以使用下面的push_images.sh脚本，批量上传本地的镜像到注册服务器中，默认是本地注册服务器127.0.0.1:5000，用户可以通过修改registry=127.0.0.1:5000这行来指定目标注册服务器：
+
+![](https://pic.imgdb.cn/item/615bc45c2ab3f51d91d8a95c.jpg)
+
+![](https://pic.imgdb.cn/item/615bc4672ab3f51d91d8b826.jpg)
+
+![](https://pic.imgdb.cn/item/615bc4742ab3f51d91d8c822.jpg)
+
+​	建议把脚本存放到本地可执行路径下，例如放在/usr/local/bin/下面。然后添加可执行权限，就可以使用该脚本了：
+
+![](https://pic.imgdb.cn/item/615bc4832ab3f51d91d8d9ac.jpg)
+
+![](https://pic.imgdb.cn/item/615bc4972ab3f51d91d8f172.jpg)
+
+​	上传后，查看本地镜像，会发现上传中创建的临时标签也同时被清理了。
+
+**2．上传本地所有镜像**
+
+​	在push_images工具的基础上，还可以进一步地创建push_all工具，来上传本地所有镜像：
+
+![](https://pic.imgdb.cn/item/615bc4b72ab3f51d91d91b44.jpg)
+
+​	另外，推荐读者把它放在/usr/local/bin/下面，并添加可执行权限。这样就可以通过push_all命令来同步本地所有镜像到本地私有仓库了。
+
+​	同样的，读者可以试着修改脚本，实现批量化下载镜像、删除镜像、更新镜像标签等更多的操作。
+
+## 18.6 使用通知系统
+
+​	Docker Registry v2还内置提供了Notification功能，提供了非常方便、快捷地集成接口，避免了v1中需要用户自己实现的麻烦。
+
+​	Notification功能其实就是Registry在有事件发生的时候，向用户自己定义的地址发送webhook通知。目前的事件包括镜像manifest的push、pull，镜像层的push、pull。这些动作会被序列化成webhook事件的payload，为集成服务提供事件详情，并通过Registry v2的内置广播系统发送到用户定义的服务接口，Registry v2将这些用户服务接口称为Endpoints。
+
+​	Registry服务器的事件会通过HTTP协议发送到用户定义的所有Endpoints上，而且每个Registry实例的每个Endpoint都有自己独立的队列、重试选项以及HTTP的目的地址。当一个动作发生时，会被转换成对应的事件并放置到一个内存队列中。镜像服务器会依次处理队列中的事件，并向用户定义的Endpoint发送请求。事件发送处理是串行的，但是Registry服务器并不会保证其到达顺序。
+
+**1．相关配置**
+
+![](https://pic.imgdb.cn/item/615bc4ef2ab3f51d91d9584b.jpg)
+
+​	上面的配置会在pull或者push发生时向http://cd-service-host/api/v1/cd-service发送事件，并在HTTP请求的header中传入认证信息，可以是Basic、token、Bearer等模式，主要用于接收事件方进行身份认证。更新配置后，需要重启Registry服务器，如果配置正确，会在日志中看到对应的提示信息，比如：
+
+![](https://pic.imgdb.cn/item/615bc4ff2ab3f51d91d96df3.jpg)
+
+​	此时，用户再通过docker客户端进行push、pull，或者查询一些manifiest信息时，就会有相应的事件发送到定义的Endpoint上。
+
+​	接下来看一下事件的格式及其主要属性：
+
+![](https://pic.imgdb.cn/item/615bc5172ab3f51d91d9884f.jpg)
+
+![](https://pic.imgdb.cn/item/615bc52a2ab3f51d91d9a109.jpg)
+
+![](https://pic.imgdb.cn/item/615bc5372ab3f51d91d9b1b4.jpg)
+
+​	每个事件的payload，都是一个定义好的JSON格式的数据。通知系统的主要属性主要包括action、target.mediaType、target.repository、target.url、request. method、request.useragent、actor.name等，参见表18-1。
+
+![](https://pic.imgdb.cn/item/615bc5492ab3f51d91d9c669.jpg)
+
+**2．通知系统的使用场景**
+
+​	理解了如何配置Docker Registry v2的Notification、Endpoint以及接收的Event数据格式，我们就可以很方便地实现一些个性化的需求。这里简单列举两个场景：一个是如何统计镜像的上传、下载次数，方便了解镜像的使用情况；另一个是对服务的持续部署，方便管理镜像，参见图18-2。
+
+![](https://pic.imgdb.cn/item/615bc55d2ab3f51d91d9db2f.jpg)
+
+**（1）镜像上传、下载计数**
+
+​	很常见的一个场景是根据镜像下载次数，向用户推荐使用最多的镜像，或者统计镜像更新的频率，以便了解用户对镜像的维护程度。
+
+​	用户可以利用Notification功能定义自己的计数服务，并在Docker Registry上配置对应的Endpoint。在有pull、push动作发生时，对对应镜像的下载或者上传次数进行累加，达到计数效果。然后添加一个查询接口，供用户查看用户镜像的上传、下载次数，或者提供排行榜等扩展服务。
+
+**（2）实现应用的自动部署**
+
+​	在这个场景下，可以在新的镜像push到DockerRegistry服务器时候，自动创建或者更新对应的服务，这样可以快速查看新镜像的运行效果或者进行集成测试。用户还可以根据事件中的相应属性，比如用户信息、镜像名称等，调用对应的服务部署接口进行自动化部署操作。
+
+​	另外，镜像的命名规则是namespace/repository:tag，但在上面的事件payload示例中，并没有看到tag的属性。如果需要tag信息，需要使用Docker Registry v2.4.0及以上的版本，在这个版本中对应的manifest事件中将会携带tag的属性，来标识该动作涉及的镜像版本信息。
+
+# 19. 安全防护与配置
+
+​	Docker的安全性在生产环境中是十分关键的衡量因素。Docker容器的安全性，在很大程度上依赖于Linux系统自身。目前，在评估Docker的安全性时，主要考虑下面几个方面：
+
+* Linux内核的命名空间机制提供的容器隔离安全；
+*  Linux控制组机制对容器资源的控制能力安全；
+* Linux内核的能力机制所带来的操作权限安全；
+* Docker程序（特别是服务端）本身的抗攻击性；
+* 其他安全增强机制（包括AppArmor、SELinux等）对容器安全性的影响；
+* 通过第三方工具（如Docker Bench工具）对Docker环境的安全性进行评估。
+
+## 19.1 命名空间隔离的安全
+
+​	Docker容器和LXC容器在实现上很相似，所提供的安全特性也基本一致。当用docker [container]run命令启动一个容器时，Docker将在后台为容器创建一个独立的命名空间。命名空间提供了最基础也是最直接的隔离，在容器中运行的进程不会被运行在本地主机上的进程和其他容器通过正常渠道发现和影响。
+
+​	从网络架构的角度来看，所有的容器实际上是通过本地主机的网桥接口（docker0）进行相互通信，就像物理机器通过物理交换机通信一样。
+
+​	那么，Linux内核中实现命名空间（特别是网络命名空间）的机制是否足够成熟呢？Linux内核从2.6.15版本（2008年7月发布）开始引入命名空间，至今经历了数年的演化和改进，并应用于诸多大型生产系统中。实际上，命名空间的想法和设计提出的时间要更早，最初是OpenVZ项目的重要特性。OpenVZ项目早在2005年就已经正式发布，其设计和实现更加成熟。
+
+​	当然，与虚拟机方式相比，通过命名空间来实现的隔离并不是那么绝对。运行在容器中的应用可以直接访问系统内核和部分系统文件。因此，用户必须保证容器中应用是安全可信的（这跟保证运行在系统中的软件是可信的一个道理），否则本地系统将可能受到威胁，即必须保证镜像的来源和自身可靠。
+
+​	Docker自1.3.0版本起对镜像管理引入了签名系统，加强了对镜像安全性的防护，用户可以通过签名来验证镜像的完整性和正确性。
+
+## 19.2 控制组资源控制的安全
+
+​	控制组是Linux容器机制中的另外一个关键组件，它负责实现资源的审计和限制。
+
+​	控制组提供了很多有用的特性。它可以确保各个容器公平地分享主机的内存、CPU、磁盘IO等资源；当然，更重要的是，通过控制组可以限制容器对资源的占用，确保了当某个容器对资源消耗过大时，不会影响到本地主机系统和其他容器。
+
+​	尽管控制组不负责隔离容器之间相互访问、处理数据和进程，但是它在防止恶意攻击特别是拒绝服务攻击（DDoS）方面是十分有效的。
+
+​	对于支持多用户的服务平台（比如公有的各种PaaS、容器云）上，控制组尤其重要。例如，当个别应用容器出现异常的时候，可以保证本地系统和其他容器正常运行而不受影响，从而避免引发“雪崩”灾难。
+
+## 19.3 内核能力机制
+
+​	能力机制（capability）是Linux内核一个强大的特性，可以提供细粒度的权限访问控制。传统的Unix系统对进程权限只有根权限（用户id为0，即为root用户）和非根权限（用户非root用户）两种粗粒度的区别。
+
+​	Linux内核自2.2版本起支持能力机制，将权限划分为更加细粒度的操作能力，既可以作用在进程上，也可以作用在文件上。例如，一个Web服务进程只需要绑定一个低于1024端口的权限，并不需要完整的root权限，那么给它授权net_bind_service能力即可。此外，还可以赋予很多其他类似能力来避免进程获取root权限。
+
+​	默认情况下，Docker启动的容器有严格限制，只允许使用内核的一部分能力，包括chown、dac_override、fowner、kill、setgid、setuid、setpcap、net_bind_service、net_raw、sys_chroot、mknod、setfcap、audit_write，等等。
+
+​	使用能力机制对加强Docker容器的安全性有很多好处。通常，在服务器上会运行一堆特权进程，包括ssh、cron、syslogd、硬件管理工具模块（例如负载模块）、网络配置工具等。容器与这些进程是不同的，因为几乎所有的特权进程都由容器以外的支持系统来进行管理。例如：
+
+* ssh访问由宿主主机上的ssh服务来管理；
+* cron通常应该作为用户进程执行，权限交给使用它服务的应用来处理；
+* 日志系统可由Docker或第三方服务管理；
+* 硬件管理无关紧要，容器中也就无须执行udevd以及类似服务；
+* 网络管理也都在主机上设置，除非特殊需求，容器不需要对网络进行配置。
+
+
+
+​	从上面的例子可以看出，大部分情况下，容器并不需要“真正的”root权限，容器只需要少数的能力即可。为了加强安全，容器可以禁用一些没必要的权限，包括：
+
+* 完全禁止任何文件挂载操作；
+* 禁止直接访问本地主机的套接字；
+*  禁止访问一些文件系统的操作，比如创建新的设备、修改文件属性等；
+*  禁止模块加载。
+
+
+
+​	这样，就算攻击者在容器中取得了root权限，也不能获得本地主机的较高权限，能进行的破坏也有限。
+
+​	不恰当地给容器分配了内核能力，会导致容器内应用获取破坏本地系统的权限。例如，早期的Docker版本曾经不恰当地继承CAP_DAC_READ_SEARCH能力，导致容器内进程可以通过系统调用访问到本地系统的任意文件目录。
+
+​	默认情况下，Docker采用白名单机制，禁用了必需的一些能力之外的其他权限，目前支持CAP_CHOWN、CAP_DAC_OVERRIDE、CAP_FSETID、CAP_FOWNER、CAP_MKNOD、CAP_NET_RAW、CAP_SETGID、CAP_SETUID、CAP_SETFCAP、CAP_SETPCAP、CAP_NET_BIND_SERVICE、CAP_SYS_CHROOT、CAP_KILL、CAP_AUDIT_WRITE等。
+
+​	当然，用户也可以根据自身需求为Docker容器启用额外的权限。
+
+## 19.4 Docker服务端的防护
+
+​	使用Docker容器的核心是Docker服务端。Docker服务的运行目前还需要root权限的支持，因此服务端的安全性十分关键。
+
+​	首先，必须确保只有可信的用户才能访问到Docker服务。Docker允许用户在主机和容器间共享文件夹，同时不需要限制容器的访问权限，这就容易让容器突破资源限制。例如，恶意用户启动容器的时候将主机的根目录/映射到容器的/host目录中，那么容器理论上就可以对主机的文件系统进行任意修改了。事实上，几乎所有虚拟化系统都允许类似的资源共享，而没法阻止恶意用户共享主机根文件系统到虚拟机系统。
+
+​	这将会造成很严重的安全后果。因此，当提供容器创建服务时（例如通过一个Web服务器），要更加注意进行参数的安全检查，防止恶意用户用特定参数来创建一些破坏性的容器。
+
+​	为了加强对服务端的保护，Docker的REST API（客户端用来与服务端通信的接口）在0.5.2之后使用本地的Unix套接字机制替代了原先绑定在127.0.0.1上的TCP套接字，因为后者容易遭受跨站脚本攻击。现在用户使用Unix权限检查来加强套接字的访问安全。
+
+​	用户仍可以利用HTTP提供REST API访问。建议使用安全机制，确保只有可信的网络或VPN网络，或证书保护机制（例如受保护的stunnel和ssl认证）下的访问可以进行。此外，还可以使用TLS证书来加强保护，可以进一步参考dockerd的tls相关参数。
+
+​	最近改进的Linux命名空间机制将可以实现使用非root用户来运行全功能的容器。这将从根本上解决了容器和主机之间共享文件系统而引起的安全问题。
+
+​	目前，Docker自身改进安全防护的目标是实现以下两个重要安全特性：
+
+* 将容器的root用户映射到本地主机上的非root用户，减轻容器和主机之间因权限提升而引起的安全问题；
+* 允许Docker服务端在非root权限下运行，利用安全可靠的子进程来代理执行需要特权权限的操作。这些子进程将只允许在限定范围内进行操作，例如仅仅负责虚拟网络设定或文件系统管理、配置操作等。
+
+## 19.5 更多安全特性的使用
+
+​	除了默认启用的能力机制之外，还可以利用一些现有的安全软件或机制来增强Docker的安全性，例如GRSEC、AppArmor、SELinux等：
+
+* 在内核中启用GRSEC和PAX，这将增加更多的编译和运行时的安全检查；并且通过地址随机化机制来避免恶意探测等。启用该特性不需要Docker进行任何配置；
+* 使用一些增强安全特性的容器模板，比如带AppArmor的模板和RedHat带SELinux策略的模板。这些模板提供了额外的安全特性；
+* 用户可以自定义更加严格的访问控制机制来定制安全策略。
+
+
+
+​	此外，在将文件系统挂载到容器内部时候，可以通过配置只读（read-only）模式来避免容器内的应用通过文件系统破坏外部环境，特别是一些系统运行状态相关的目录，包括但不限于/proc/sys、/proc/irq、/proc/bus等。这样，容器内应用进程可以获取所需要的系统信息，但无法对它们进行修改。
+
+​	同时，对于应用容器场景下，Docker内启动应用的用户都应为非特权用户（可以进一步禁用用户权限，如访问Shell），避免出现故障时对容器内其他资源造成损害。
+
+## 19.6 使用第三方检测工具
+
+​	前面笔者介绍了大量增强Docker安全性的手段。要逐一去检查会比较繁琐，好在已经有了一些进行自动化检查的开源工具，比较出名的有DockerBench和clair。
+
+### 19.6.1 Docker Bench
+
+​	Docker Bench是一个开源项目，代码托管在https://github.com/docker/docker-bench-secu-rity。该项目按照互联网安全中心（Centerfor Internet Security, CIS）对于Docker1.13.0+的安全规范进行一系列环境检查，可发现当前Docker部署在配置、安全等方面的潜在问题。CIS Docker规范在主机配置、Docker引擎、配置文件权限、镜像管理、容器运行时环境、安全项等六大方面都进行了相关的约束和规定，推荐大家在生产环境中使用Docker时，采用该规范作为部署的安全标准。
+
+​	Docker Bench自身也提供了Docker镜像，采用如下命令，可以快速对本地环境进行安全检查：
+
+![](https://pic.imgdb.cn/item/615c51252ab3f51d91a3ed02.jpg)
+
+![](https://pic.imgdb.cn/item/615c51452ab3f51d91a41ebf.jpg)
+
+![](https://pic.imgdb.cn/item/615c51592ab3f51d91a442a4.jpg)
+
+​	输出结果中，带有不同的级别，说明问题的严重程度，最后会给出整体检查结果和评分。一般要尽量避免出现WARN或以上的问题。
+
+​	用户也可以通过获取最新开源代码方式启动检测：
+
+![](https://pic.imgdb.cn/item/615c51782ab3f51d91a47722.jpg)
+
+### 19.6.2 clair
+
+​	除了Docker Bench外，还有CoreOS团队推出的clair，它基于Go语言实现，支持对容器（支持appc和Docker）的文件层进行静态扫描发现潜在漏洞。项目地址为https://github.com/coreos/clair。读者可以使用Docker或Docker-compose方式快速进行体验。
+
+​	使用Docker方式启动clair，如下所示：
+
+![](https://pic.imgdb.cn/item/615c526c2ab3f51d91a5eb4b.jpg)
+
+![](https://pic.imgdb.cn/item/615c527e2ab3f51d91a605c3.jpg)
+
+在使用Docker的过程中，尤其需要注意如下几方面：
+
+* 首先要牢记容器自身所提供的隔离性只是相对的，并没有虚拟机那样完善。因此，必须对容器内应用进行严格的安全审查。同时从容器层面来看，容器即应用，原先保障应用安全的各种手段，都可以合理地借鉴利用；
+* 采用专用的服务器来运行Docker服务端和相关的管理服务（比如ssh监控和进程监控、管理工具nrpe、collectd等），并对该服务器启用最高级别的安全机制。而把其他业务服务都放到容器中去运行，确保即便个别容器出现问题，也不会影响到其他容器资源；
+* 将运行Docker容器的机器划分为不同的组，互相信任的机器放到同一个组内；组之间进行资源隔离；同时进行定期的安全检查；
+* 大规模运营场景下，需要考虑在容器网络上进行必备的安全防护，避免诸如DDoS、ARP攻击、规则表攻击等网络安全威胁，这也是生产环境需要关注的重要问题。
+
+# 20. 高级网络功能
+
+## 20.1 启动与配置参数
+
+**1．网络启动过程**
+
+​	Docker服务启动时会首先在主机上自动创建一个docker0虚拟网桥，实际上是一个Linux网桥。网桥可以理解为一个软件交换机，负责挂载其上的接口之间进行包转发。
+
+​	同时，Docker随机分配一个本地未占用的私有网段（在RFC1918中定义）中的一个地址给docker0接口。比如典型的172.17.0.0/16网段，掩码为255.255.0.0。此后启动的容器内的网口也会自动分配一个该网段的地址。
+
+​	当创建一个Docker容器的时候，同时会创建了一对veth pair互联接口。当向任一个接口发送包时，另外一个接口自动收到相同的包。互联接口的一端位于容器内，即eth0；另一端在本地并被挂载到docker0网桥，名称以veth开头（例如vethAQI2QT）。通过这种方式，主机可以与容器通信，容器之间也可以相互通信。如此一来，Docker就创建了在主机和所有容器之间一个虚拟共享网络，如图20-1所示。
+
+**2．网络相关参数**
+
+​	下面是与Docker网络相关的命令参数。其中部分命令选项只有在Docker服务启动的时候才能配置，修改后重启生效，包括：
+
+* -b BRIDGE or --bridge=BRIDGE：指定容器挂载的网桥；
+* --bip=CIDR：定制docker0的掩码；
+* -H SOCKET... or --host=SOCKET...:Docker服务端接收命令的通道；
+
+![](https://pic.imgdb.cn/item/615c6dde2ab3f51d91d581a5.jpg)
+
+* --icc=true|false：是否支持容器之间进行通信；
+* --ip-forward=true|false：启用net.ipv4.ip_forward，即打开转发功能；
+* --iptables=true|false：禁止Docker添加iptables规则；
+* --mtu=BYTES：容器网络中的MTU。
+
+
+
+​	下面的命令选项既可以在启动服务时指定，也可以Docker容器启动（使用docker [con-tainer] run命令）时候指定。在Docker服务启动的时候指定则会成为默认值，后续执行该命令时可以覆盖设置的默认值：
+
+* --dns=IP_ADDRESS：使用指定的DNS服务器；
+* --dns-opt=""：指定DNS选项；
+* --dns-search=DOMAIN：指定DNS搜索域。
+
+
+
+​	还有些选项只能在docker [container] run命令执行时使用，因为它针对容器的配置：
+
+* -h HOSTNAME or --hostname=HOSTNAME：配置容器主机名；
+* -ip=""：指定容器内接口的IP地址；
+*  --link=CONTAINER_NAME:ALIAS：添加到另一个容器的连接；
+* --net=bridge|none|container:NAME_or_ID|host|user_defined_network：配置容器的桥接模式；
+* --network-alias：容器在网络中的别名；
+* -p SPEC or --publish=SPEC：映射容器端口到宿主主机；
+* -P or --publish-all=true|false：映射容器所有端口到宿主主机。
+
+其中，--net选项支持以下五种模式：
+
+* --net=bridge：默认配置。为容器创建独立的网络命名空间，分配网卡、IP地址等网络配置，并通过veth接口对将容器挂载到一个虚拟网桥（默认为docker0）上；
+* --net=none：为容器创建独立的网络命名空间，但不进行网络配置，即容器内没有创建网卡、IP地址等；
+* --net=container:NAME_or_ID：新创建的容器共享指定的已存在容器的网络命名空间，两个容器内的网络配置共享，但其他资源（如进程空间、文件系统等）还是相互隔离的；
+* --net=host：不为容器创建独立的网络命名空间，容器内看到的网络配置（网卡信息、路由表、Iptables规则等）均与主机上的保持一致。注意其他资源还是与主机隔离的；
+* --net=user_defined_network：用户自行用network相关命令创建一个网络，同一个网络内的容器彼此可见，可以采用更多类型的网络插件。
+
+## 20.2 配置容器DNS和主机名
+

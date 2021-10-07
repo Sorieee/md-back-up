@@ -1,279 +1,2324 @@
-# Shell脚本编程概述
+https://www.runoob.com/linux/linux-shell-variable.html
 
-## 第一个Shell脚本例子
+# Shell 变量
 
-​	对于一般的Shell脚本而言，解释器是bash，也可以是sh，即用下面的两种方式作为脚本的第1行都是正确的：
+定义变量时，变量名不加美元符号（$，PHP语言中变量需要），如：
+
+```
+your_name="runoob.com"
+```
+
+注意，变量名和等号之间不能有空格，这可能和你熟悉的所有编程语言都不一样。同时，变量名的命名须遵循如下规则：
+
+- 命名只能使用英文字母，数字和下划线，首个字符不能以数字开头。
+- 中间不能有空格，可以使用下划线 **_**。
+- 不能使用标点符号。
+- 不能使用bash里的关键字（可用help命令查看保留关键字）。
+
+有效的 Shell 变量名示例如下：
+
+```
+RUNOOB
+LD_LIBRARY_PATH
+_var
+var2
+```
+
+无效的变量命名：
+
+```
+?var=123
+user*name=runoob
+```
+
+除了显式地直接赋值，还可以用语句给变量赋值，如：
+
+```
+for file in `ls /etc`
+或
+for file in $(ls /etc)
+```
+
+以上语句将 /etc 下目录的文件名循环出来。
+
+------
+
+### 使用变量
+
+使用一个定义过的变量，只要在变量名前面加美元符号即可，如：
+
+```
+your_name="qinjx"
+echo $your_name
+echo ${your_name}
+```
+
+变量名外面的花括号是可选的，加不加都行，加花括号是为了帮助解释器识别变量的边界，比如下面这种情况：
+
+```
+for skill in Ada Coffe Action Java; do
+    echo "I am good at ${skill}Script"
+done
+```
+
+如果不给skill变量加花括号，写成echo "I am good at $skillScript"，解释器就会把$skillScript当成一个变量（其值为空），代码执行结果就不是我们期望的样子了。
+
+推荐给所有变量加上花括号，这是个好的编程习惯。
+
+已定义的变量，可以被重新定义，如：
+
+```
+your_name="tom"
+echo $your_name
+your_name="alibaba"
+echo $your_name
+```
+
+这样写是合法的，但注意，第二次赋值的时候不能写$your_name="alibaba"，使用变量的时候才加美元符（$）。
+
+### 只读变量
+
+使用 readonly 命令可以将变量定义为只读变量，只读变量的值不能被改变。
+
+下面的例子尝试更改只读变量，结果报错：
 
 ```
 #!/bin/bash
+myUrl="https://www.google.com"
+readonly myUrl
+myUrl="https://www.runoob.com"
+```
+
+运行脚本，结果如下：
+
+```
+/bin/sh: NAME: This variable is read only.
+```
+
+### 删除变量
+
+使用 unset 命令可以删除变量。语法：
+
+```
+unset variable_name
+```
+
+变量被删除后不能再次使用。unset 命令不能删除只读变量。
+
+**实例**
+
+```
 #!/bin/sh
+myUrl="https://www.runoob.com"
+unset myUrl
+echo $myUrl
 ```
 
-​	每条命令后面有一段以“#”符号起始的中文，“#”符号是注释符，它后面直到本行结束的所有内容是注释，脚本执行时是不执行注释的，“#”符号类似于C++和Java语言中的“//”符号，脚本注释可以是整行，也可以在某行的后面
+以上实例执行将没有任何输出。
 
-​	命令（command）是Shell脚本的最基本元素，命令通常由命令名称、选项和参数三部分组成，三部分之间用空格键或Tab键分隔。
+### 变量类型
 
-​	Linux系统有成千上万条命令，我们很难全部掌握这些命令，而且即便是经常使用的命令，我们往往也会忘记这些命令的选项和用法，此时可利用Linux系统提供的命令的手册页（manual page），我们可以用如下格式的命令打开某命令的手册页：
+运行shell时，会同时存在三种变量：
 
-```
-man [命令名称]
-```
+- **1) 局部变量** 局部变量在脚本或命令中定义，仅在当前shell实例中有效，其他shell启动的程序不能访问局部变量。
+- **2) 环境变量** 所有的程序，包括shell启动的程序，都能访问环境变量，有些程序需要环境变量来保证其正常运行。必要的时候shell脚本也可以定义环境变量。
+- **3) shell变量** shell变量是由shell程序设置的特殊变量。shell变量中有一部分是环境变量，有一部分是局部变量，这些变量保证了shell的正常运行
 
-分号（;）可以用来隔开同一行内的多条命令，Shell会依次执行用分号隔开的多条命令。
+------
 
-### 执行Shell脚本
+## Shell 字符串
 
-​	一般来说，当我们用文本编辑器创建一个Shell脚本文件时，该文件是没有可执行权限的，即x权限。因此，我们需要先赋给Shell脚本可执行权限，再去执行它。
+字符串是shell编程中最常用最有用的数据类型（除了数字和字符串，也没啥其它类型好用了），字符串可以用单引号，也可以用双引号，也可以不用引号。
 
-```
-chmod +x xxx.sh
-```
-
-# Linux文件系统和文本编辑器
-
-## 用户和用户组管理
-
-### 用户管理常用命令
-
-​	值得注意的是，用户的角色是通过UID来识别的，用户的UID是全局唯一的。Linux用户可以分为三类。
-
-*  root用户（也称为超级用户）：系统唯一，是真实的。该用户既可以登录系统，可以操作系统任何文件和命令，拥有最高权限。
-* 虚拟用户：这类用户也被称为伪用户或假用户，与真实用户区分开来，这类用户不具有登录系统的能力，但却是系统运行不可缺少的用户，比如bin、daemon、adm、ftp、mail等；这类用户是系统自身拥有的，而非后来添加的，当然，我们也可以添加虚拟用户。
-
-
-
-​	Linux用户管理的常用命令主要有：用户账号添加命令useradd或adduser、修改用户命令usermod、删除用户命令userdel及用户口令管理命令passwd等，下面将详细介绍这些命令。
-
-**用户账号添加命令——useradd或adduser**
-
-​	useradd和adduser是完全等价的两条命令，都是用于创建新的用户账号。我们以useradd为代表介绍它们的用法，命令格式如下：
+### 单引号
 
 ```
-useradd [option] [username]
+str='this is a string'
 ```
 
-​	其中，[option]为useradd命令选项，[username]是要创建的用户名。执行该命令后，将在系统中做以下一些事情：
+单引号字符串的限制：
 
-* 在/etc/passwd文件中增添了一行记录。
-* 在/home目录下创建新用户的主目录，并将/etc/skel目录中的文件复制到该目录中。
+- 单引号里的任何字符都会原样输出，单引号字符串中的变量是无效的；
+- 单引号字串中不能出现单独一个的单引号（对单引号使用转义符后也不行），但可成对出现，作为字符串拼接使用。
 
-
-
-​	使用了该命令后，新建的用户暂时无法登录，因为还没有为该用户设置口令，需要再用passwd命令为其设置口令后，才能登录。用户的UID和GID是useradd自动选取的，它是将/etc/passwd文件中的UID加1，将etc/group文件中的GID加1。
-
-​	使用useradd或adduser命令增加新用户时，系统将为用户创建一个与用户名相同的组，称为私有组，这一方法是为了能让新用户与其他用户隔离，确保安全性的措施。如果要改变私有组的名字，可以使用-g选项来完成。
-
-​	通过“tail -l /etc/shadow”命令查看文件/etc/shadow，可以获得用户wang的密码，由于还没有为wang用户创建密码，可以看到wang后为“!!”，表示用户密码不可用，最后通过ls命令查看/home目录，可以看到为wang用户创建的主目录已经存在。
-
-**修改用户账号——usermod**
-
-​	usermod命令可用来修改用户账号的各种属性，包括用户主目录、私有组、登录Shell等内容，usermod的命令格式如下：
+### 双引号
 
 ```
-usermod [option] [username]
+your_name="runoob"
+str="Hello, I know you are \"$your_name\"! \n"
+echo -e $str
 ```
 
-​	需要注意的是，最好不要使用usermod命令修改用户密码，因为如果用usermod命令，则显示在文件“/etc/shadow”中的密码是明密码，应该用passwd命令修改密码。
+输出结果为：
 
-​	还需注意，usermod不允许改变已登录用户的用户账号名称，当用户修改UID时，也必须确认这个用户没有在电脑上执行任何程序。
+```
+Hello, I know you are "runoob"! 
+```
 
-**删除用户账号命令——userdel**
+双引号的优点：
 
-userdel命令非常简单，只有一个可选项-r，如果在userdel后加上-r选项，则在删除用户的同时也一并删除存储在/home目录下的该用户目录和文件。
+- 双引号里可以有变量
+- 双引号里可以出现转义字符
 
-![](https://pic.imgdb.cn/item/60ce97fe844ef46bb2d8aa36.jpg)
+### 拼接字符串
 
-**用户口令管理命令——passwd**
+```
+your_name="runoob"
+# 使用双引号拼接
+greeting="hello, "$your_name" !"
+greeting_1="hello, ${your_name} !"
+echo $greeting  $greeting_1
+# 使用单引号拼接
+greeting_2='hello, '$your_name' !'
+greeting_3='hello, ${your_name} !'
+echo $greeting_2  $greeting_3
+```
 
-​	当用户作为普通用户修改自己的密码时，首先会提示用户的原密码，然后会要求用户重新输入两次来验证用户新口令，如果口令一致，则新口令设置成功。而超级用户root为用户设定密码时，则不需要原密码。
+输出结果为：
+
+```
+hello, runoob ! hello, runoob !
+hello, runoob ! hello, ${your_name} !
+```
+
+### 获取字符串长度
+
+```
+string="abcd"
+echo ${#string} #输出 4
+```
+
+### 提取子字符串
+
+以下实例从字符串第 **2** 个字符开始截取 **4** 个字符：
+
+```
+string="runoob is a great site"
+echo ${string:1:4} # 输出 unoo
+```
+
+**注意**：第一个字符的索引值为 **0**。
+
+### 查找子字符串
+
+查找字符 **i** 或 **o** 的位置(哪个字母先出现就计算哪个)：
+
+```
+string="runoob is a great site"
+echo `expr index "$string" io`  # 输出 4
+```
+
+**注意：** 以上脚本中 **`** 是反引号，而不是单引号 **'**，不要看错了哦。
+
+------
+
+## Shell 数组
+
+bash支持一维数组（不支持多维数组），并且没有限定数组的大小。
+
+类似于 C 语言，数组元素的下标由 0 开始编号。获取数组中的元素要利用下标，下标可以是整数或算术表达式，其值应大于或等于 0。
+
+### 定义数组
+
+在 Shell 中，用括号来表示数组，数组元素用"空格"符号分割开。定义数组的一般形式为：
+
+```
+数组名=(值1 值2 ... 值n)
+```
+
+例如：
+
+```
+array_name=(value0 value1 value2 value3)
+```
+
+或者
+
+```
+array_name=(
+value0
+value1
+value2
+value3
+)
+```
+
+还可以单独定义数组的各个分量：
+
+```
+array_name[0]=value0
+array_name[1]=value1
+array_name[n]=valuen
+```
+
+可以不使用连续的下标，而且下标的范围没有限制。
+
+### 读取数组
+
+读取数组元素值的一般格式是：
+
+```
+${数组名[下标]}
+```
+
+例如：
+
+```
+valuen=${array_name[n]}
+```
+
+使用 **@** 符号可以获取数组中的所有元素，例如：
+
+```
+echo ${array_name[@]}
+```
+
+### 获取数组的长度
+
+获取数组长度的方法与获取字符串长度的方法相同，例如：
+
+```
+# 取得数组元素的个数
+length=${#array_name[@]}
+# 或者
+length=${#array_name[*]}
+# 取得数组单个元素的长度
+lengthn=${#array_name[n]}
+```
+
+------
+
+## Shell 注释
+
+以 **#** 开头的行就是注释，会被解释器忽略。
+
+通过每一行加一个 **#** 号设置多行注释，像这样：
+
+```
+#--------------------------------------------
+# 这是一个注释
+# author：菜鸟教程
+# site：www.runoob.com
+# slogan：学的不仅是技术，更是梦想！
+#--------------------------------------------
+##### 用户配置区 开始 #####
+#
+#
+# 这里可以添加脚本描述信息
+# 
+#
+##### 用户配置区 结束  #####
+```
+
+如果在开发过程中，遇到大段的代码需要临时注释起来，过一会儿又取消注释，怎么办呢？
+
+每一行加个#符号太费力了，可以把这一段要注释的代码用一对花括号括起来，定义成一个函数，没有地方调用这个函数，这块代码就不会执行，达到了和注释一样的效果。
+
+### 多行注释
+
+多行注释还可以使用以下格式：
+
+```
+:<<EOF
+注释内容...
+注释内容...
+注释内容...
+EOF
+```
+
+EOF 也可以使用其他符号:
+
+```
+:<<'
+注释内容...
+注释内容...
+注释内容...
+'
+
+:<<!
+注释内容...
+注释内容...
+注释内容...
+!
+```
+
+# Shell 传递参数
+
+我们可以在执行 Shell 脚本时，向脚本传递参数，脚本内获取参数的格式为：**$n**。**n** 代表一个数字，1 为执行脚本的第一个参数，2 为执行脚本的第二个参数，以此类推……
+
+### 实例
+
+以下实例我们向脚本传递三个参数，并分别输出，其中 **$0** 为执行的文件名（包含文件路径）：
+
+```
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+echo "Shell 传递参数实例！";
+echo "执行的文件名：$0";
+echo "第一个参数为：$1";
+echo "第二个参数为：$2";
+echo "第三个参数为：$3";
+```
+
+为脚本设置可执行权限，并执行脚本，输出结果如下所示：
+
+```
+$ chmod +x test.sh 
+$ ./test.sh 1 2 3
+Shell 传递参数实例！
+执行的文件名：./test.sh
+第一个参数为：1
+第二个参数为：2
+第三个参数为：3
+```
+
+另外，还有几个特殊字符用来处理参数：
+
+| 参数处理 | 说明                                                         |
+| :------- | :----------------------------------------------------------- |
+| $#       | 传递到脚本的参数个数                                         |
+| $*       | 以一个单字符串显示所有向脚本传递的参数。 如"$*"用「"」括起来的情况、以"$1 $2 … $n"的形式输出所有参数。 |
+| $$       | 脚本运行的当前进程ID号                                       |
+| $!       | 后台运行的最后一个进程的ID号                                 |
+| $@       | 与$*相同，但是使用时加引号，并在引号中返回每个参数。 如"$@"用「"」括起来的情况、以"$1" "$2" … "$n" 的形式输出所有参数。 |
+| $-       | 显示Shell使用的当前选项，与[set命令](https://www.runoob.com/linux/linux-comm-set.html)功能相同。 |
+| $?       | 显示最后命令的退出状态。0表示没有错误，其他任何值表明有错误。 |
+
+```
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+echo "Shell 传递参数实例！";
+echo "第一个参数为：$1";
+
+echo "参数个数为：$#";
+echo "传递的参数作为一个字符串显示：$*";
+```
+
+执行脚本，输出结果如下所示：
+
+```
+$ chmod +x test.sh 
+$ ./test.sh 1 2 3
+Shell 传递参数实例！
+第一个参数为：1
+参数个数为：3
+传递的参数作为一个字符串显示：1 2 3
+```
+
+$* 与 $@ 区别：
+
+- 相同点：都是引用所有参数。
+- 不同点：只有在双引号中体现出来。假设在脚本运行时写了三个参数 1、2、3，，则 " * " 等价于 "1 2 3"（传递了一个参数），而 "@" 等价于 "1" "2" "3"（传递了三个参数）。
 
 ```sh
-passwd [option] [username]
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+echo "-- \$* 演示 ---"
+for i in "$*"; do
+    echo $i
+done
+
+echo "-- \$@ 演示 ---"
+for i in "$@"; do
+    echo $i
+done
+```
+
+执行脚本，输出结果如下所示：
+
+```sh
+$ chmod +x test.sh 
+$ ./test.sh 1 2 3
+-- $* 演示 ---
+1 2 3
+-- $@ 演示 ---
+1
+2
+3
 ```
 
 
 
-![](https://pic.imgdb.cn/item/60ce9a56844ef46bb2ea1612.jpg)
+# Shell数组
 
-### 用户组管理常用命令
+数组中可以存放多个值。Bash Shell 只支持一维数组（不支持多维数组），初始化时不需要定义数组大小（与 PHP 类似）。
 
-**用户组添加命令——groupadd**
+与大部分编程语言类似，数组元素的下标由 0 开始。
 
-groupadd可指定用户组名称来建立新的用户组，需要时可从系统中取得新用户组值。其语法格式为：
-
-```
-groupadd [option] [groupname]
-```
-
-​	其中，[option]为groupadd命令选项，[groupname]是将要创建的用户组名，表2-4 为groupadd命令的选项及其意义。
-
-![](https://pic.imgdb.cn/item/60ce9bb7844ef46bb2f4c2e8.jpg)
-
-groupadd命令其实用起来非常简单，下面的例2-6 添加了一个GID为666 的用户组wangyq，可以在文件/etc/group的目录中查看到GID为666的用户组wangyq。
+Shell 数组用括号来表示，元素用"空格"符号分割开，语法格式如下：
 
 ```
-groupadd -g 666 sorie
+array_name=(value1 value2 ... valuen)
 ```
 
-如果调用groupadd命令时不设置GID号，如下面命令：
+### 实例
 
 ```
-groupadd grp1
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+my_array=(A B "C" D)
 ```
 
-则在系统中增加一个新组group1，新组的组标识GID是在当前最大组标识的基础上加1。
-
-**用户组修改命令——groupmod**
-
-groupmod可指定用户组名称来修改新的用户组号或用户组名称，其语法格式为：
+我们也可以使用下标来定义数组:
 
 ```
-groupmod [option] [groupname]
+array_name[0]=value0
+array_name[1]=value1
+array_name[2]=value2
 ```
 
-其中，[option]为groupmod命令选项，[groupname]为用户组名，表2-5为groupmod命令选项及其意义。
+### 读取数组
 
-![](https://pic.imgdb.cn/item/60cea387844ef46bb2309e6d.jpg)
-
-**用户组删除命令——groupdel**
-
-​	groupdel可指定用户组名称来删除已有的用户组，其语法格式为
+读取数组元素值的一般格式是：
 
 ```
-groupdel [groupname]
+${array_name[index]}
 ```
 
-​	该命令非常简单，但需注意的是，如果该用户组中包含某些用户，则必须先删除这些用户，然后才能删除该用户组。
-
-## 文件和目录操作
-
-### 文件操作常用命令
-
-**ls**
-
-![](https://pic.imgdb.cn/item/60cea401844ef46bb234168a.jpg)
-
-**文件复制命令——cp**
-
-![](https://pic.imgdb.cn/item/60cea427844ef46bb2352c8a.jpg)
-
-**文件移动命令——mv**
-
-![](https://pic.imgdb.cn/item/60cea44e844ef46bb2364cdc.jpg)
-
-**删除文件命令——rm**
-
-![](https://pic.imgdb.cn/item/60cea462844ef46bb236e76c.jpg)
-
-### 目录操作常用命令
-
-**创建目录命令——mkdir**
-
-![](https://pic.imgdb.cn/item/60cea4de844ef46bb23a8aae.jpg)
-
-**删除目录命令——rmdir**
-
-​	rmdir命令可以删除一个或多个目录，在删除目录时，目录必须为空。rm命令可以同时删除多个目录，在删除某一目录时，必须拥有该目录的父目录的写和执行的权限。
-
-![](https://pic.imgdb.cn/item/60cea50b844ef46bb23be2e8.jpg)
-
-**目录切换命令——cd**
-
-略
-
-### 文件和目录权限管理
-
-​	Linux系统中的每个文件和目录都有访问许可权限，用它来确定用户能以何种方式对文件和目录进行访问和操作。文件或目录的访问权限分为只读、只写和可执行三种。以文件为例，只读权限表示只允许读其内容，而禁止对其做任何的更改操作；可执行权限表示允许将该文件作为一个程序执行。文件被创建时，文件所有者自动拥有对该文件的读、写和可执行权限，以便于对文件的阅读和修改。用户也可根据需要把访问权限设置为任何组合。
-
-​	有三种不同类型的用户可对文件或目录进行访问：文件所有者、同组用户、其他用户。文件所有者一般是文件的创建者，他可以允许同组用户访问文件，还可以将文件的访问权限赋予系统中的其他用户，从而使系统中每一位用户都能访问该所有者拥有的文件或目录。
-
-​	每一文件或目录的访问权限都有三组，每组用三位表示，分别为文件属主的读、写和执行权限，与属主同组的用户的读、写和执行权限，以及系统中其他用户的读、写和执行权限。
-
-**更改文件（目录）权限命令——chmod**
+### 实例
 
 ```
-chmod [userType] [singal] [type] [filename]
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+my_array=(A B "C" D)
+
+echo "第一个元素为: ${my_array[0]}"
+echo "第二个元素为: ${my_array[1]}"
+echo "第三个元素为: ${my_array[2]}"
+echo "第四个元素为: ${my_array[3]}"
 ```
 
-![](https://pic.imgdb.cn/item/60cecbb3844ef46bb2590a0f.jpg)
-
-注意：chmod命令的不同参数之间需要用逗号隔开。
-
-​	那么什么是chmod的数字设定法呢？首先需要了解用数字表示属性的含义：0表示没有权限，1表示可执行权限，2表示可写权限，4表示可读权限，然后将其相加。所以，数字属性的格式应为3个从0到7的八进制数，其顺序是u，g，o。比如例2-22中的
-
-![](https://pic.imgdb.cn/item/60cece11844ef46bb26d24a4.jpg)
-
-**更改文件（目录）属主命令——chown**
-
-​	利用chown命令可以改变文件或目录的属主。一般来说，这个指令只由系统管理者（root）使用，一般使用者没有权限改变别人的文件或目录属主，也没有权限将自己的文件属主更改为别人的，只有系统管理者（root）才有这样的权限。chown命令的一般形式为：
-
-![](https://pic.imgdb.cn/item/60cecf7f844ef46bb2792d44.jpg)
-
-**特殊权限命令——SUID与SGID**
-
-​	除了上面提到的基本权限操作外，还有所谓的特殊权限存在。由于特殊权限会拥有一些“特权”，因而，用户若无特殊需要，不应该去打开这些权限，避免安全方面出现严重漏洞，甚至摧毁系统。但有时却需要没有被授权的用户完成某项任务，例如passwd程序，它允许用户改变口令，这就要求改变/etc/passwd文件的口令域。然而系统管理员决不允许普通用户拥有直接改变这个文件的权利，为了解决这个问题，SUID/SGID便应运而生，下面介绍了这两个特殊权限的说明。
-
-* SUID：当一个设置了SUID位的可执行文件被执行时，该文件以所有者的身份运行，也就是说，无论谁来执行这个文件，它都拥有文件所有者的特权，可以任意使用该文件拥有者能使用的全部系统资源。如果所有者是root，那么执行人就有超级用户的特权了。
-* SGID：当一个设置了SGID位的可执行文件被执行时，该文件将具有所属组的特权，任意存取整个组所能使用的系统资源；若一个目录设置了SGID，则所有被复制到这个目录下的文件，其所属的组都会被重设为和这个目录一样，除非在复制文件时加上-p选项，才能保留原来所属的群组设置。还可以使用符号方式来设置SUID/GUID。
-
-### 查找文件命令——find
-
-find命令是Linux系统查找文件的命令，find命令能帮助用户在使用、管理Linux的日常事务时方便地查找出用户所需要的文件。find命令的基本格式是：
+执行脚本，输出结果如下所示：
 
 ```
-find [path] [选项] [操作]
+$ chmod +x test.sh 
+$ ./test.sh
+第一个元素为: A
+第二个元素为: B
+第三个元素为: C
+第四个元素为: D
 ```
 
-​	在上述find命令中，路径是find命令所查找的目录路径，例如，用“.”来表示当前目录，用“/”来表示系统根目录。选项用于指定查找条件，如：可以指定按照文件属主、更改时间、文件类型等条件来查找。
+### 获取数组中的所有元素
 
-![](https://pic.imgdb.cn/item/60ced151844ef46bb289b403.jpg)
+使用@ 或 * 可以获取数组中的所有元素，例如：
 
-![](https://pic.imgdb.cn/item/60ced161844ef46bb28a3cec.jpg)
+```
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
 
-![](https://pic.imgdb.cn/item/60ced1e8844ef46bb28ea6b8.jpg)
+my_array[0]=A
+my_array[1]=B
+my_array[2]=C
+my_array[3]=D
 
-​	find命令exec操作将对匹配的文件执行该参数所给出的Shell命令，下面的例2-27演示了exec操作的用法。
+echo "数组的元素为: ${my_array[*]}"
+echo "数组的元素为: ${my_array[@]}"
+```
 
-![](https://pic.imgdb.cn/item/60ced212844ef46bb290060f.jpg)
+执行脚本，输出结果如下所示：
 
-​	ok操作和exec的作用相同，只不过以一种更安全的模式来执行该参数所给出的Shell命令，在执行每一个命令之前，都会给出提示，让用户来确定是否执行。在执行一些危险操作时，建议使用ok操作，比如：下面的例2-28试图删除/var/log目录下更改时间距今3天内的所有文件，由于删除文件的操作是不可以恢复的，因此，find命令使用ok操作在删除文件之前给出提示，等待用户确定后再执行删除操作。
+```
+$ chmod +x test.sh 
+$ ./test.sh
+数组的元素为: A B C D
+数组的元素为: A B C D
+```
 
-![](https://pic.imgdb.cn/item/60ced237844ef46bb29142ce.jpg)
+### 获取数组的长度
 
-## 文本编辑器
+获取数组长度的方法与获取字符串长度的方法相同，例如：
 
-​	略
 
-## 上机建议
 
-2.使用文件操作命令创建一个文件，然后使用文件复制、移动和删除等命令对该文件进行操作。
+```
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
 
-3.创建一个目录，然后在该目录下再创建一个文件，并对该文件进行删除操作。
+my_array[0]=A
+my_array[1]=B
+my_array[2]=C
+my_array[3]=D
 
-4.新建一个用户组group1，并新建一个系统组group2。
+echo "数组元素个数为: ${#my_array[*]}"
+echo "数组元素个数为: ${#my_array[@]}"
+```
 
-（1）更改组group2的GID为103，更改组名为grouptest。
+执行脚本，输出结果如下所示：
 
-（2）删除组grouptest。
+```
+$ chmod +x test.sh 
+$ ./test.sh
+数组元素个数为: 4
+数组元素个数为: 4
+```
 
-5.新建用户user1，指定UID为777，目录为/home/user1，初始组为group1，有效组为root，指定shell为/bin/bash。
+ 
 
-（1）新建一个系统用户user2。
+# Shell 基本运算符
 
-（2）查看用户user1的组群，切换到user1，在主目录下新建文件test1，切换有效组为root，再新建文件test2。
+Shell 和其他编程语言一样，支持多种运算符，包括：
 
-（3）修改用户user1的个人说明为This is a test（提示加-c选项）。
+- 算数运算符
+- 关系运算符
+- 布尔运算符
+- 字符串运算符
+- 文件测试运算符
 
-（4）修改用户密码过期时间为2010-09-01。
+原生bash不支持简单的数学运算，但是可以通过其他命令来实现，例如 awk 和 expr，expr 最常用。
 
-（5）更改用户user1的密码为111111，加锁用户user1并查看/etc/shadow，用户user1通过ssh登录127.0.0.1。
+expr 是一款表达式计算工具，使用它能完成表达式的求值操作。
 
-（6）更改用户主目录/home/user1为/home/user11。
+例如，两个数相加(**注意使用的是反引号 \**`\** 而不是单引号 \**'\****)：
 
-（7）列出用户user1的UID、GID等。
+## 实例
 
-（8）增加用户user3、user4，增加组testgroup，给组testgroup设定密码，将组testgroup管理权授予user1，并同时将root、user1、user3加入到testgroup，检查结果，切换到user1，将user4加入到testgroup组。
+```sh
+#!/bin/bash
 
-（9）使用passwd将user1用户密码冻结，用passwd查看user1相关信息，最后用passwd将用户user1解冻。
+val=`expr 2 + 2`
+echo "两数之和为 : $val"
+```
 
-（10）切换user1用户，用su加命令行
+执行脚本，输出结果如下所示：
+
+```
+两数之和为 : 4
+```
+
+两点注意：
+
+- 表达式和运算符之间要有空格，例如 2+2 是不对的，必须写成 2 + 2，这与我们熟悉的大多数编程语言不一样。
+- 完整的表达式要被 **` `** 包含，注意这个字符不是常用的单引号，在 Esc 键下边。
+
+------
+
+## 算术运算符
+
+下表列出了常用的算术运算符，假定变量 a 为 10，变量 b 为 20：
+
+| 运算符 | 说明                                          | 举例                          |
+| :----- | :-------------------------------------------- | :---------------------------- |
+| +      | 加法                                          | `expr $a + $b` 结果为 30。    |
+| -      | 减法                                          | `expr $a - $b` 结果为 -10。   |
+| *      | 乘法                                          | `expr $a \* $b` 结果为  200。 |
+| /      | 除法                                          | `expr $b / $a` 结果为 2。     |
+| %      | 取余                                          | `expr $b % $a` 结果为 0。     |
+| =      | 赋值                                          | a=$b 将把变量 b 的值赋给 a。  |
+| ==     | 相等。用于比较两个数字，相同则返回 true。     | [ $a == $b ] 返回 false。     |
+| !=     | 不相等。用于比较两个数字，不相同则返回 true。 | [ $a != $b ] 返回 true。      |
+
+**注意：**条件表达式要放在方括号之间，并且要有空格，例如: **[$a==$b]** 是错误的，必须写成 **[ $a == $b ]**。
+
+### 实例
+
+算术运算符实例如下：
+
+## 实例
+
+```sh
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+a=10
+b=20
+
+val=`expr $a + $b`
+echo "a + b : $val"
+
+val=`expr $a - $b`
+echo "a - b : $val"
+
+val=`expr $a \* $b`
+echo "a * b : $val"
+
+val=`expr $b / $a`
+echo "b / a : $val"
+
+val=`expr $b % $a`
+echo "b % a : $val"
+
+if [ $a == $b ]
+then
+   echo "a 等于 b"
+fi
+if [ $a != $b ]
+then
+   echo "a 不等于 b"
+fi
+```
+
+
+
+执行脚本，输出结果如下所示：
+
+```
+a + b : 30
+a - b : -10
+a * b : 200
+b / a : 2
+b % a : 0
+a 不等于 b
+```
+
+> **注意：**
+>
+> - 乘号(*)前边必须加反斜杠(\)才能实现乘法运算；
+> - if...then...fi 是条件语句，后续将会讲解。
+> - 在 MAC 中 shell 的 expr 语法是：**$((表达式))**，此处表达式中的 "*" 不需要转义符号 "\" 。
+
+------
+
+## 关系运算符
+
+关系运算符只支持数字，不支持字符串，除非字符串的值是数字。
+
+下表列出了常用的关系运算符，假定变量 a 为 10，变量 b 为 20：
+
+| 运算符 | 说明                                                  | 举例                       |
+| :----- | :---------------------------------------------------- | :------------------------- |
+| -eq    | 检测两个数是否相等，相等返回 true。                   | [ $a -eq $b ] 返回 false。 |
+| -ne    | 检测两个数是否不相等，不相等返回 true。               | [ $a -ne $b ] 返回 true。  |
+| -gt    | 检测左边的数是否大于右边的，如果是，则返回 true。     | [ $a -gt $b ] 返回 false。 |
+| -lt    | 检测左边的数是否小于右边的，如果是，则返回 true。     | [ $a -lt $b ] 返回 true。  |
+| -ge    | 检测左边的数是否大于等于右边的，如果是，则返回 true。 | [ $a -ge $b ] 返回 false。 |
+| -le    | 检测左边的数是否小于等于右边的，如果是，则返回 true。 | [ $a -le $b ] 返回 true。  |
+
+### 实例
+
+关系运算符实例如下：
+
+## 实例
+
+```sh
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+a=10
+b=20
+
+if [ $a -eq $b ]
+then
+   echo "$a -eq $b : a 等于 b"
+else
+   echo "$a -eq $b: a 不等于 b"
+fi
+if [ $a -ne $b ]
+then
+   echo "$a -ne $b: a 不等于 b"
+else
+   echo "$a -ne $b : a 等于 b"
+fi
+if [ $a -gt $b ]
+then
+   echo "$a -gt $b: a 大于 b"
+else
+   echo "$a -gt $b: a 不大于 b"
+fi
+if [ $a -lt $b ]
+then
+   echo "$a -lt $b: a 小于 b"
+else
+   echo "$a -lt $b: a 不小于 b"
+fi
+if [ $a -ge $b ]
+then
+   echo "$a -ge $b: a 大于或等于 b"
+else
+   echo "$a -ge $b: a 小于 b"
+fi
+if [ $a -le $b ]
+then
+   echo "$a -le $b: a 小于或等于 b"
+else
+   echo "$a -le $b: a 大于 b"
+fi
+```
+
+
+
+执行脚本，输出结果如下所示：
+
+```
+10 -eq 20: a 不等于 b
+10 -ne 20: a 不等于 b
+10 -gt 20: a 不大于 b
+10 -lt 20: a 小于 b
+10 -ge 20: a 小于 b
+10 -le 20: a 小于或等于 b
+```
+
+------
+
+## 布尔运算符
+
+下表列出了常用的布尔运算符，假定变量 a 为 10，变量 b 为 20：
+
+| 运算符 | 说明                                                | 举例                                     |
+| :----- | :-------------------------------------------------- | :--------------------------------------- |
+| !      | 非运算，表达式为 true 则返回 false，否则返回 true。 | [ ! false ] 返回 true。                  |
+| -o     | 或运算，有一个表达式为 true 则返回 true。           | [ $a -lt 20 -o $b -gt 100 ] 返回 true。  |
+| -a     | 与运算，两个表达式都为 true 才返回 true。           | [ $a -lt 20 -a $b -gt 100 ] 返回 false。 |
+
+### 实例
+
+布尔运算符实例如下：
+
+## 实例
+
+```sh
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+a=10
+b=20
+
+if [ $a != $b ]
+then
+   echo "$a != $b : a 不等于 b"
+else
+   echo "$a == $b: a 等于 b"
+fi
+if [ $a -lt 100 -a $b -gt 15 ]
+then
+   echo "$a 小于 100 且 $b 大于 15 : 返回 true"
+else
+   echo "$a 小于 100 且 $b 大于 15 : 返回 false"
+fi
+if [ $a -lt 100 -o $b -gt 100 ]
+then
+   echo "$a 小于 100 或 $b 大于 100 : 返回 true"
+else
+   echo "$a 小于 100 或 $b 大于 100 : 返回 false"
+fi
+if [ $a -lt 5 -o $b -gt 100 ]
+then
+   echo "$a 小于 5 或 $b 大于 100 : 返回 true"
+else
+   echo "$a 小于 5 或 $b 大于 100 : 返回 false"
+fi
+```
+
+
+
+执行脚本，输出结果如下所示：
+
+```
+10 != 20 : a 不等于 b
+10 小于 100 且 20 大于 15 : 返回 true
+10 小于 100 或 20 大于 100 : 返回 true
+10 小于 5 或 20 大于 100 : 返回 false
+```
+
+------
+
+## 逻辑运算符
+
+以下介绍 Shell 的逻辑运算符，假定变量 a 为 10，变量 b 为 20:
+
+| 运算符 | 说明       | 举例                                       |
+| :----- | :--------- | :----------------------------------------- |
+| &&     | 逻辑的 AND | [[ $a -lt 100 && $b -gt 100 ]] 返回 false  |
+| \|\|   | 逻辑的 OR  | [[ $a -lt 100 \|\| $b -gt 100 ]] 返回 true |
+
+### 实例
+
+逻辑运算符实例如下：
+
+## 实例
+
+```sh
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+a=10
+b=20
+
+if [[ $a -lt 100 && $b -gt 100 ]]
+then
+   echo "返回 true"
+else
+   echo "返回 false"
+fi
+
+if [[ $a -lt 100 || $b -gt 100 ]]
+then
+   echo "返回 true"
+else
+   echo "返回 false"
+fi
+```
+
+
+
+执行脚本，输出结果如下所示：
+
+```
+返回 false
+返回 true
+```
+
+------
+
+## 字符串运算符
+
+下表列出了常用的字符串运算符，假定变量 a 为 "abc"，变量 b 为 "efg"：
+
+| 运算符 | 说明                                         | 举例                     |
+| :----- | :------------------------------------------- | :----------------------- |
+| =      | 检测两个字符串是否相等，相等返回 true。      | [ $a = $b ] 返回 false。 |
+| !=     | 检测两个字符串是否不相等，不相等返回 true。  | [ $a != $b ] 返回 true。 |
+| -z     | 检测字符串长度是否为0，为0返回 true。        | [ -z $a ] 返回 false。   |
+| -n     | 检测字符串长度是否不为 0，不为 0 返回 true。 | [ -n "$a" ] 返回 true。  |
+| $      | 检测字符串是否为空，不为空返回 true。        | [ $a ] 返回 true。       |
+
+### 实例
+
+字符串运算符实例如下：
+
+## 实例
+
+```sh
+
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+a="abc"
+b="efg"
+
+if [ $a = $b ]
+then
+   echo "$a = $b : a 等于 b"
+else
+   echo "$a = $b: a 不等于 b"
+fi
+if [ $a != $b ]
+then
+   echo "$a != $b : a 不等于 b"
+else
+   echo "$a != $b: a 等于 b"
+fi
+if [ -z $a ]
+then
+   echo "-z $a : 字符串长度为 0"
+else
+   echo "-z $a : 字符串长度不为 0"
+fi
+if [ -n "$a" ]
+then
+   echo "-n $a : 字符串长度不为 0"
+else
+   echo "-n $a : 字符串长度为 0"
+fi
+if [ $a ]
+then
+   echo "$a : 字符串不为空"
+else
+   echo "$a : 字符串为空"
+fi
+```
+
+
+
+执行脚本，输出结果如下所示：
+
+```
+abc = efg: a 不等于 b
+abc != efg : a 不等于 b
+-z abc : 字符串长度不为 0
+-n abc : 字符串长度不为 0
+abc : 字符串不为空
+```
+
+------
+
+## 文件测试运算符
+
+文件测试运算符用于检测 Unix 文件的各种属性。
+
+属性检测描述如下：
+
+| 操作符  | 说明                                                         | 举例                      |
+| :------ | :----------------------------------------------------------- | :------------------------ |
+| -b file | 检测文件是否是块设备文件，如果是，则返回 true。              | [ -b $file ] 返回 false。 |
+| -c file | 检测文件是否是字符设备文件，如果是，则返回 true。            | [ -c $file ] 返回 false。 |
+| -d file | 检测文件是否是目录，如果是，则返回 true。                    | [ -d $file ] 返回 false。 |
+| -f file | 检测文件是否是普通文件（既不是目录，也不是设备文件），如果是，则返回 true。 | [ -f $file ] 返回 true。  |
+| -g file | 检测文件是否设置了 SGID 位，如果是，则返回 true。            | [ -g $file ] 返回 false。 |
+| -k file | 检测文件是否设置了粘着位(Sticky Bit)，如果是，则返回 true。  | [ -k $file ] 返回 false。 |
+| -p file | 检测文件是否是有名管道，如果是，则返回 true。                | [ -p $file ] 返回 false。 |
+| -u file | 检测文件是否设置了 SUID 位，如果是，则返回 true。            | [ -u $file ] 返回 false。 |
+| -r file | 检测文件是否可读，如果是，则返回 true。                      | [ -r $file ] 返回 true。  |
+| -w file | 检测文件是否可写，如果是，则返回 true。                      | [ -w $file ] 返回 true。  |
+| -x file | 检测文件是否可执行，如果是，则返回 true。                    | [ -x $file ] 返回 true。  |
+| -s file | 检测文件是否为空（文件大小是否大于0），不为空返回 true。     | [ -s $file ] 返回 true。  |
+| -e file | 检测文件（包括目录）是否存在，如果是，则返回 true。          | [ -e $file ] 返回 true。  |
+
+其他检查符：
+
+- **-S**: 判断某文件是否 socket。
+- **-L**: 检测文件是否存在并且是一个符号链接。
+
+
+
+### 实例
+
+变量 file 表示文件 **/var/www/runoob/test.sh**，它的大小为 100 字节，具有 **rwx** 权限。下面的代码，将检测该文件的各种属性：
+
+## 实例
+
+```sh
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+file="/var/www/runoob/test.sh"
+if [ -r $file ]
+then
+   echo "文件可读"
+else
+   echo "文件不可读"
+fi
+if [ -w $file ]
+then
+   echo "文件可写"
+else
+   echo "文件不可写"
+fi
+if [ -x $file ]
+then
+   echo "文件可执行"
+else
+   echo "文件不可执行"
+fi
+if [ -f $file ]
+then
+   echo "文件为普通文件"
+else
+   echo "文件为特殊文件"
+fi
+if [ -d $file ]
+then
+   echo "文件是个目录"
+else
+   echo "文件不是个目录"
+fi
+if [ -s $file ]
+then
+   echo "文件不为空"
+else
+   echo "文件为空"
+fi
+if [ -e $file ]
+then
+   echo "文件存在"
+else
+   echo "文件不存在"
+fi
+```
+
+
+
+执行脚本，输出结果如下所示：
+
+```
+文件可读
+文件可写
+文件可执行
+文件为普通文件
+文件不是个目录
+文件不为空
+文件存在
+```
+
+# Shell echo命令
+
+Shell 的 echo 指令与 PHP 的 echo 指令类似，都是用于字符串的输出。命令格式：
+
+```
+echo string
+```
+
+您可以使用echo实现更复杂的输出格式控制。
+
+### 1.显示普通字符串:
+
+```
+echo "It is a test"
+```
+
+这里的双引号完全可以省略，以下命令与上面实例效果一致：
+
+```
+echo It is a test
+```
+
+### 2.显示转义字符
+
+```
+echo "\"It is a test\""
+```
+
+结果将是:
+
+```
+"It is a test"
+```
+
+同样，双引号也可以省略
+
+### 3.显示变量
+
+read 命令从标准输入中读取一行,并把输入行的每个字段的值指定给 shell 变量
+
+```
+#!/bin/sh
+read name 
+echo "$name It is a test"
+```
+
+以上代码保存为 test.sh，name 接收标准输入的变量，结果将是:
+
+```
+[root@www ~]# sh test.sh
+OK                     #标准输入
+OK It is a test        #输出
+```
+
+### 4.显示换行
+
+```
+echo -e "OK! \n" # -e 开启转义
+echo "It is a test"
+```
+
+输出结果：
+
+```
+OK!
+
+It is a test
+```
+
+### 5.显示不换行
+
+```
+#!/bin/sh
+echo -e "OK! \c" # -e 开启转义 \c 不换行
+echo "It is a test"
+```
+
+输出结果：
+
+```
+OK! It is a test
+```
+
+### 6.显示结果定向至文件
+
+```
+echo "It is a test" > myfile
+```
+
+### 7.原样输出字符串，不进行转义或取变量(用单引号)
+
+```
+echo '$name\"'
+```
+
+输出结果：
+
+```
+$name\"
+```
+
+### 8.显示命令执行结果
+
+```
+echo `date`
+```
+
+**注意：** 这里使用的是反引号 **`**, 而不是单引号 **'**。
+
+结果将显示当前日期
+
+```
+Thu Jul 24 10:08:46 CST 2014
+```
+
+# Shell printf 命令
+
+上一章节我们学习了 Shell 的 echo 命令，本章节我们来学习 Shell 的另一个输出命令 printf。
+
+printf 命令模仿 C 程序库（library）里的 printf() 程序。
+
+printf 由 POSIX 标准所定义，因此使用 printf 的脚本比使用 echo 移植性好。
+
+printf 使用引用文本或空格分隔的参数，外面可以在 **printf** 中使用格式化字符串，还可以制定字符串的宽度、左右对齐方式等。默认的 printf 不会像 **echo** 自动添加换行符，我们可以手动添加 **\n**。
+
+printf 命令的语法：
+
+```
+printf  format-string  [arguments...]
+```
+
+**参数说明：**
+
+- **format-string:** 为格式控制字符串
+- **arguments:** 为参数列表。
+
+```sh
+$ echo "Hello, Shell"
+Hello, Shell
+$ printf "Hello, Shell\n"
+Hello, Shell
+$
+```
+
+接下来,我来用一个脚本来体现 printf 的强大功能：
+
+```sh
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+ 
+printf "%-10s %-8s %-4s\n" 姓名 性别 体重kg  
+printf "%-10s %-8s %-4.2f\n" 郭靖 男 66.1234
+printf "%-10s %-8s %-4.2f\n" 杨过 男 48.6543
+printf "%-10s %-8s %-4.2f\n" 郭芙 女 47.9876
+```
+
+执行脚本，输出结果如下所示：
+
+```
+姓名     性别   体重kg
+郭靖     男      66.12
+杨过     男      48.65
+郭芙     女      47.99
+```
+
+**%s %c %d %f** 都是格式替代符，**％s** 输出一个字符串，**％d** 整型输出，**％c** 输出一个字符，**％f** 输出实数，以小数形式输出。
+
+**%-10s** 指一个宽度为 10 个字符（**-** 表示左对齐，没有则表示右对齐），任何字符都会被显示在 10 个字符宽的字符内，如果不足则自动以空格填充，超过也会将内容全部显示出来。
+
+**%-4.2f** 指格式化为小数，其中 **.2** 指保留2位小数。
+
+```sh
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+ 
+# format-string为双引号
+printf "%d %s\n" 1 "abc"
+
+# 单引号与双引号效果一样
+printf '%d %s\n' 1 "abc"
+
+# 没有引号也可以输出
+printf %s abcdef
+
+# 格式只指定了一个参数，但多出的参数仍然会按照该格式输出，format-string 被重用
+printf %s abc def
+
+printf "%s\n" abc def
+
+printf "%s %s %s\n" a b c d e f g h i j
+
+# 如果没有 arguments，那么 %s 用NULL代替，%d 用 0 代替
+printf "%s and %d \n"
+```
+
+执行脚本，输出结果如下所示：
+
+```
+1 abc
+1 abc
+abcdefabcdefabc
+def
+a b c
+d e f
+g h i
+j  
+ and 0
+```
+
+------
+
+## printf 的转义序列
+
+| 序列  | 说明                                                         |
+| :---- | :----------------------------------------------------------- |
+| \a    | 警告字符，通常为ASCII的BEL字符                               |
+| \b    | 后退                                                         |
+| \c    | 抑制（不显示）输出结果中任何结尾的换行字符（只在%b格式指示符控制下的参数字符串中有效），而且，任何留在参数里的字符、任何接下来的参数以及任何留在格式字符串中的字符，都被忽略 |
+| \f    | 换页（formfeed）                                             |
+| \n    | 换行                                                         |
+| \r    | 回车（Carriage return）                                      |
+| \t    | 水平制表符                                                   |
+| \v    | 垂直制表符                                                   |
+| \\    | 一个字面上的反斜杠字符                                       |
+| \ddd  | 表示1到3位数八进制值的字符。仅在格式字符串中有效             |
+| \0ddd | 表示1到3位的八进制值字符                                     |
+
+```sh
+$ printf "a string, no processing:<%s>\n" "A\nB"
+a string, no processing:<A\nB>
+
+$ printf "a string, no processing:<%b>\n" "A\nB"
+a string, no processing:<A
+B>
+
+$ printf "www.runoob.com \a"
+www.runoob.com $                  #不换行
+```
+
+# Shell 流程控制
+
+和 Java、PHP 等语言不一样，sh 的流程控制不可为空，如(以下为 PHP 流程控制写法)：
+
+```sh
+<?php
+if (isset($_GET["q"])) {
+    search(q);
+}
+else {
+    // 不做任何事情
+}
+```
+
+在 sh/bash 里可不能这么写，如果 else 分支没有语句执行，就不要写这个 else。
+
+------
+
+## if else
+
+### fi
+
+if 语句语法格式：
+
+```
+if condition
+then
+    command1 
+    command2
+    ...
+    commandN 
+fi
+```
+
+写成一行（适用于终端命令提示符）：
+
+```
+if [ $(ps -ef | grep -c "ssh") -gt 1 ]; then echo "true"; fi
+```
+
+末尾的 fi 就是 if 倒过来拼写，后面还会遇到类似的。
+
+### if else
+
+if else 语法格式：
+
+```
+if condition
+then
+    command1 
+    command2
+    ...
+    commandN
+else
+    command
+fi
+```
+
+### if else-if else
+
+if else-if else 语法格式：
+
+```
+if condition1
+then
+    command1
+elif condition2 
+then 
+    command2
+else
+    commandN
+fi
+```
+
+以下实例判断两个变量是否相等：
+
+```sh
+a=10
+b=20
+if [ $a == $b ]
+then
+   echo "a 等于 b"
+elif [ $a -gt $b ]
+then
+   echo "a 大于 b"
+elif [ $a -lt $b ]
+then
+   echo "a 小于 b"
+else
+   echo "没有符合的条件"
+fi
+```
+
+输出结果：
+
+```
+a 小于 b
+```
+
+if else 语句经常与 test 命令结合使用，如下所示：
+
+```sh
+num1=$[2*3]
+num2=$[1+5]
+if test $[num1] -eq $[num2]
+then
+    echo '两个数字相等!'
+else
+    echo '两个数字不相等!'
+fi
+```
+
+输出结果：
+
+```
+两个数字相等!
+```
+
+------
+
+## for 循环
+
+与其他编程语言类似，Shell支持for循环。
+
+for循环一般格式为：
+
+```sh
+for var in item1 item2 ... itemN
+do
+    command1
+    command2
+    ...
+    commandN
+done
+```
+
+写成一行：
+
+```
+for var in item1 item2 ... itemN; do command1; command2… done;
+```
+
+当变量值在列表里，for 循环即执行一次所有命令，使用变量名获取列表中的当前取值。命令可为任何有效的 shell 命令和语句。in 列表可以包含替换、字符串和文件名。
+
+in列表是可选的，如果不用它，for循环使用命令行的位置参数。
+
+例如，顺序输出当前列表中的数字：
+
+```sh
+for loop in 1 2 3 4 5
+do
+    echo "The value is: $loop"
+done
+```
+
+## for 循环
+
+与其他编程语言类似，Shell支持for循环。
+
+for循环一般格式为：
+
+```
+for var in item1 item2 ... itemN
+do
+    command1
+    command2
+    ...
+    commandN
+done
+```
+
+写成一行：
+
+```
+for var in item1 item2 ... itemN; do command1; command2… done;
+```
+
+当变量值在列表里，for 循环即执行一次所有命令，使用变量名获取列表中的当前取值。命令可为任何有效的 shell 命令和语句。in 列表可以包含替换、字符串和文件名。
+
+in列表是可选的，如果不用它，for循环使用命令行的位置参数。
+
+例如，顺序输出当前列表中的数字：
+
+## 实例
+
+**for** loop **in** 1 2 3 4 5
+**do**
+  **echo** "The value is: $loop"
+**done**
+
+输出结果：
+
+```
+The value is: 1
+The value is: 2
+The value is: 3
+The value is: 4
+The value is: 5
+```
+
+顺序输出字符串中的字符：
+
+```
+#!/bin/bash
+
+for str in This is a string
+do
+    echo $str
+done
+```
+
+输出结果：
+
+```
+This
+is
+a
+string
+```
+
+------
+
+## while 语句
+
+while 循环用于不断执行一系列命令，也用于从输入文件中读取数据。其语法格式为：
+
+```
+while condition
+do
+    command
+done
+```
+
+以下是一个基本的 while 循环，测试条件是：如果 int 小于等于 5，那么条件返回真。int 从 1 开始，每次循环处理时，int 加 1。运行上述脚本，返回数字 1 到 5，然后终止。
+
+```sh
+#!/bin/bash
+int=1
+while(( $int<=5 ))
+do
+    echo $int
+    let "int++"
+done
+```
+
+运行脚本，输出：
+
+```
+1
+2
+3
+4
+5
+```
+
+以上实例使用了 Bash let 命令，它用于执行一个或多个表达式，变量计算中不需要加上 $ 来表示变量，具体可查阅：[Bash let 命令](https://www.runoob.com/linux/linux-comm-let.html)。
+
+while循环可用于读取键盘信息。下面的例子中，输入信息被设置为变量FILM，按<Ctrl-D>结束循环。
+
+```sh
+echo '按下 <CTRL-D> 退出'
+echo -n '输入你最喜欢的网站名: '
+while read FILM
+do
+    echo "是的！$FILM 是一个好网站"
+done
+```
+
+运行脚本，输出类似下面：
+
+```
+按下 <CTRL-D> 退出
+输入你最喜欢的网站名:菜鸟教程
+是的！菜鸟教程 是一个好网站
+```
+
+### 无限循环
+
+无限循环语法格式：
+
+```
+while :
+do
+    command
+done
+```
+
+或者
+
+```
+while true
+do
+    command
+done
+```
+
+或者
+
+```
+for (( ; ; ))
+```
+
+------
+
+## until 循环
+
+until 循环执行一系列命令直至条件为 true 时停止。
+
+until 循环与 while 循环在处理方式上刚好相反。
+
+一般 while 循环优于 until 循环，但在某些时候—也只是极少数情况下，until 循环更加有用。
+
+until 语法格式:
+
+```
+until condition
+do
+    command
+done
+```
+
+condition 一般为条件表达式，如果返回值为 false，则继续执行循环体内的语句，否则跳出循环。
+
+以下实例我们使用 until 命令来输出 0 ~ 9 的数字：
+
+```sh
+#!/bin/bash
+
+a=0
+
+until [ ! $a -lt 10 ]
+do
+   echo $a
+   a=`expr $a + 1`
+done
+```
+
+运行结果：
+
+输出结果为：
+
+```
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+```
+
+------
+
+## case ... esac
+
+**case ... esac** 为多选择语句，与其他语言中的 switch ... case 语句类似，是一种多分枝选择结构，每个 case 分支用右圆括号开始，用两个分号 **;;** 表示 break，即执行结束，跳出整个 case ... esac 语句，esac（就是 case 反过来）作为结束标记。
+
+可以用 case 语句匹配一个值与一个模式，如果匹配成功，执行相匹配的命令。
+
+**case ... esac** 语法格式如下：
+
+```sh
+case 值 in
+模式1)
+    command1
+    command2
+    ...
+    commandN
+    ;;
+模式2）
+    command1
+    command2
+    ...
+    commandN
+    ;;
+esac
+```
+
+case 工作方式如上所示，取值后面必须为单词 **in**，每一模式必须以右括号结束。取值可以为变量或常数，匹配发现取值符合某一模式后，其间所有命令开始执行直至 **;;**。
+
+取值将检测匹配的每一个模式。一旦模式匹配，则执行完匹配模式相应命令后不再继续其他模式。如果无一匹配模式，使用星号 * 捕获该值，再执行后面的命令。
+
+下面的脚本提示输入 1 到 4，与每一种模式进行匹配：
+
+```sh
+echo '输入 1 到 4 之间的数字:'
+echo '你输入的数字为:'
+read aNum
+case $aNum in
+    1)  echo '你选择了 1'
+    ;;
+    2)  echo '你选择了 2'
+    ;;
+    3)  echo '你选择了 3'
+    ;;
+    4)  echo '你选择了 4'
+    ;;
+    *)  echo '你没有输入 1 到 4 之间的数字'
+    ;;
+esac
+```
+
+输入不同的内容，会有不同的结果，例如：
+
+```
+输入 1 到 4 之间的数字:
+你输入的数字为:
+3
+你选择了 3
+```
+
+下面的脚本匹配字符串：
+
+```sh
+#!/bin/sh
+
+site="runoob"
+
+case "$site" in
+   "runoob") echo "菜鸟教程"
+   ;;
+   "google") echo "Google 搜索"
+   ;;
+   "taobao") echo "淘宝网"
+   ;;
+esac
+```
+
+输出结果为：
+
+```
+菜鸟教程
+```
+
+------
+
+## 跳出循环
+
+在循环过程中，有时候需要在未达到循环结束条件时强制跳出循环，Shell使用两个命令来实现该功能：break和continue。
+
+### break命令
+
+break命令允许跳出所有循环（终止执行后面的所有循环）。
+
+下面的例子中，脚本进入死循环直至用户输入数字大于5。要跳出这个循环，返回到shell提示符下，需要使用break命令。
+
+```sh
+#!/bin/bash
+while :
+do
+    echo -n "输入 1 到 5 之间的数字:"
+    read aNum
+    case $aNum in
+        1|2|3|4|5) echo "你输入的数字为 $aNum!"
+        ;;
+        *) echo "你输入的数字不是 1 到 5 之间的! 游戏结束"
+            break
+        ;;
+    esac
+done
+```
+
+执行以上代码，输出结果为：
+
+```
+输入 1 到 5 之间的数字:3
+你输入的数字为 3!
+输入 1 到 5 之间的数字:7
+你输入的数字不是 1 到 5 之间的! 游戏结束
+```
+
+### continue
+
+continue命令与break命令类似，只有一点差别，它不会跳出所有循环，仅仅跳出当前循环。
+
+对上面的例子进行修改：
+
+```sh
+#!/bin/bash
+while :
+do
+    echo -n "输入 1 到 5 之间的数字: "
+    read aNum
+    case $aNum in
+        1|2|3|4|5) echo "你输入的数字为 $aNum!"
+        ;;
+        *) echo "你输入的数字不是 1 到 5 之间的!"
+            continue
+            echo "游戏结束"
+        ;;
+    esac
+done
+```
+
+运行代码发现，当输入大于5的数字时，该例中的循环不会结束，语句 **echo "游戏结束"** 永远不会被执行。
+
+# Shell 函数
+
+linux shell 可以用户定义函数，然后在shell脚本中可以随便调用。
+
+shell中函数的定义格式如下：
+
+```sh
+[ function ] funname [()]
+
+{
+
+    action;
+
+    [return int;]
+
+}
+```
+
+说明：
+
+- 1、可以带function fun() 定义，也可以直接fun() 定义,不带任何参数。
+- 2、参数返回，可以显示加：return 返回，如果不加，将以最后一条命令运行结果，作为返回值。 return后跟数值n(0-255
+
+下面的例子定义了一个函数并进行调用：
+
+```sh
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+demoFun(){
+    echo "这是我的第一个 shell 函数!"
+}
+echo "-----函数开始执行-----"
+demoFun
+echo "-----函数执行完毕-----"
+```
+
+输出结果：
+
+```
+-----函数开始执行-----
+这是我的第一个 shell 函数!
+-----函数执行完毕-----
+```
+
+下面定义一个带有return语句的函数：
+
+```sh
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+funWithReturn(){
+    echo "这个函数会对输入的两个数字进行相加运算..."
+    echo "输入第一个数字: "
+    read aNum
+    echo "输入第二个数字: "
+    read anotherNum
+    echo "两个数字分别为 $aNum 和 $anotherNum !"
+    return $(($aNum+$anotherNum))
+}
+funWithReturn
+echo "输入的两个数字之和为 $? !"
+```
+
+输出类似下面：
+
+```
+这个函数会对输入的两个数字进行相加运算...
+输入第一个数字: 
+1
+输入第二个数字: 
+2
+两个数字分别为 1 和 2 !
+输入的两个数字之和为 3 !
+```
+
+函数返回值在调用该函数后通过 $? 来获得。
+
+注意：所有函数在使用前必须定义。这意味着必须将函数放在脚本开始部分，直至shell解释器首次发现它时，才可以使用。调用函数仅使用其函数名即可。
+
+## 函数参数
+
+在Shell中，调用函数时可以向其传递参数。在函数体内部，通过 $n 的形式来获取参数的值，例如，$1表示第一个参数，$2表示第二个参数...
+
+带参数的函数示例：
+
+```sh
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+funWithParam(){
+    echo "第一个参数为 $1 !"
+    echo "第二个参数为 $2 !"
+    echo "第十个参数为 $10 !"
+    echo "第十个参数为 ${10} !"
+    echo "第十一个参数为 ${11} !"
+    echo "参数总数有 $# 个!"
+    echo "作为一个字符串输出所有参数 $* !"
+}
+funWithParam 1 2 3 4 5 6 7 8 9 34 73
+```
+
+输出结果：
+
+```
+第一个参数为 1 !
+第二个参数为 2 !
+第十个参数为 10 !
+第十个参数为 34 !
+第十一个参数为 73 !
+参数总数有 11 个!
+作为一个字符串输出所有参数 1 2 3 4 5 6 7 8 9 34 73 !
+```
+
+注意，$10 不能获取第十个参数，获取第十个参数需要${10}。当n>=10时，需要使用${n}来获取参数。
+
+另外，还有几个特殊字符用来处理参数：
+
+| 参数处理 | 说明                                                         |
+| :------- | :----------------------------------------------------------- |
+| $#       | 传递到脚本或函数的参数个数                                   |
+| $*       | 以一个单字符串显示所有向脚本传递的参数                       |
+| $$       | 脚本运行的当前进程ID号                                       |
+| $!       | 后台运行的最后一个进程的ID号                                 |
+| $@       | 与$*相同，但是使用时加引号，并在引号中返回每个参数。         |
+| $-       | 显示Shell使用的当前选项，与set命令功能相同。                 |
+| $?       | 显示最后命令的退出状态。0表示没有错误，其他任何值表明有错误。 |
+
+> **$?** 仅对其上一条指令负责，一旦函数返回后其返回值没有立即保存入参数，那么其返回值将不再能通过 **$?** 获得。
+
+# Shell 输入/输出重定向
+
+大多数 UNIX 系统命令从你的终端接受输入并将所产生的输出发送回到您的终端。一个命令通常从一个叫标准输入的地方读取输入，默认情况下，这恰好是你的终端。同样，一个命令通常将其输出写入到标准输出，默认情况下，这也是你的终端。
+
+重定向命令列表如下：
+
+| 命令            | 说明                                               |
+| :-------------- | :------------------------------------------------- |
+| command > file  | 将输出重定向到 file。                              |
+| command < file  | 将输入重定向到 file。                              |
+| command >> file | 将输出以追加的方式重定向到 file。                  |
+| n > file        | 将文件描述符为 n 的文件重定向到 file。             |
+| n >> file       | 将文件描述符为 n 的文件以追加的方式重定向到 file。 |
+| n >& m          | 将输出文件 m 和 n 合并。                           |
+| n <& m          | 将输入文件 m 和 n 合并。                           |
+| << tag          | 将开始标记 tag 和结束标记 tag 之间的内容作为输入。 |
+
+> 需要注意的是文件描述符 0 通常是标准输入（STDIN），1 是标准输出（STDOUT），2 是标准错误输出（STDERR）。
+
+------
+
+## 输出重定向
+
+重定向一般通过在命令间插入特定的符号来实现。特别的，这些符号的语法如下所示:
+
+```
+command1 > file1
+```
+
+上面这个命令执行command1然后将输出的内容存入file1。
+
+注意任何file1内的已经存在的内容将被新内容替代。如果要将新内容添加在文件末尾，请使用>>操作符。
+
+### 实例
+
+执行下面的 who 命令，它将命令的完整的输出重定向在用户文件中(users):
+
+```
+$ who > users
+```
+
+执行后，并没有在终端输出信息，这是因为输出已被从默认的标准输出设备（终端）重定向到指定的文件。
+
+你可以使用 cat 命令查看文件内容：
+
+```
+$ cat users
+_mbsetupuser console  Oct 31 17:35 
+tianqixin    console  Oct 31 17:35 
+tianqixin    ttys000  Dec  1 11:33 
+```
+
+输出重定向会覆盖文件内容，请看下面的例子：
+
+```
+$ echo "菜鸟教程：www.runoob.com" > users
+$ cat users
+菜鸟教程：www.runoob.com
+$
+```
+
+如果不希望文件内容被覆盖，可以使用 >> 追加到文件末尾，例如：
+
+```
+$ echo "菜鸟教程：www.runoob.com" >> users
+$ cat users
+菜鸟教程：www.runoob.com
+菜鸟教程：www.runoob.com
+$
+```
+
+------
+
+## 输入重定向
+
+和输出重定向一样，Unix 命令也可以从文件获取输入，语法为：
+
+```
+command1 < file1
+```
+
+这样，本来需要从键盘获取输入的命令会转移到文件读取内容。
+
+注意：输出重定向是大于号(>)，输入重定向是小于号(<)。
+
+### 实例
+
+接着以上实例，我们需要统计 users 文件的行数,执行以下命令：
+
+```
+$ wc -l users
+       2 users
+```
+
+也可以将输入重定向到 users 文件：
+
+```
+$  wc -l < users
+       2 
+```
+
+注意：上面两个例子的结果不同：第一个例子，会输出文件名；第二个不会，因为它仅仅知道从标准输入读取内容。
+
+```
+command1 < infile > outfile
+```
+
+同时替换输入和输出，执行command1，从文件infile读取内容，然后将输出写入到outfile中。
+
+### 重定向深入讲解
+
+一般情况下，每个 Unix/Linux 命令运行时都会打开三个文件：
+
+- 标准输入文件(stdin)：stdin的文件描述符为0，Unix程序默认从stdin读取数据。
+- 标准输出文件(stdout)：stdout 的文件描述符为1，Unix程序默认向stdout输出数据。
+- 标准错误文件(stderr)：stderr的文件描述符为2，Unix程序会向stderr流中写入错误信息。
+
+默认情况下，command > file 将 stdout 重定向到 file，command < file 将stdin 重定向到 file。
+
+如果希望 stderr 重定向到 file，可以这样写：
+
+```
+$ command 2>file
+```
+
+如果希望 stderr 追加到 file 文件末尾，可以这样写：
+
+```
+$ command 2>>file
+```
+
+**2** 表示标准错误文件(stderr)。
+
+如果希望将 stdout 和 stderr 合并后重定向到 file，可以这样写：
+
+```
+$ command > file 2>&1
+
+或者
+
+$ command >> file 2>&1
+```
+
+如果希望对 stdin 和 stdout 都重定向，可以这样写：
+
+```
+$ command < file1 >file2
+```
+
+command 命令将 stdin 重定向到 file1，将 stdout 重定向到 file2。
+
+------
+
+## Here Document
+
+Here Document 是 Shell 中的一种特殊的重定向方式，用来将输入重定向到一个交互式 Shell 脚本或程序。
+
+它的基本的形式如下：
+
+```
+command << delimiter
+    document
+delimiter
+```
+
+它的作用是将两个 delimiter 之间的内容(document) 作为输入传递给 command。
+
+> 注意：
+>
+> - 结尾的delimiter 一定要顶格写，前面不能有任何字符，后面也不能有任何字符，包括空格和 tab 缩进。
+> - 开始的delimiter前后的空格会被忽略掉。
+
+### 实例
+
+在命令行中通过 **wc -l** 命令计算 Here Document 的行数：
+
+```
+$ wc -l << EOF
+    欢迎来到
+    菜鸟教程
+    www.runoob.com
+EOF
+3          # 输出结果为 3 行
+$
+```
+
+我们也可以将 Here Document 用在脚本中，例如：
+
+```
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+cat << EOF
+欢迎来到
+菜鸟教程
+www.runoob.com
+EOF
+```
+
+执行以上脚本，输出结果：
+
+```
+欢迎来到
+菜鸟教程
+www.runoob.com
+```
+
+------
+
+## /dev/null 文件
+
+如果希望执行某个命令，但又不希望在屏幕上显示输出结果，那么可以将输出重定向到 /dev/null：
+
+```
+$ command > /dev/null
+```
+
+/dev/null 是一个特殊的文件，写入到它的内容都会被丢弃；如果尝试从该文件读取内容，那么什么也读不到。但是 /dev/null 文件非常有用，将命令的输出重定向到它，会起到"禁止输出"的效果。
+
+如果希望屏蔽 stdout 和 stderr，可以这样写：
+
+```
+$ command > /dev/null 2>&1
+```
+
+> **注意：**0 是标准输入（STDIN），1 是标准输出（STDOUT），2 是标准错误输出（STDERR）。
+>
+> 这里的 **2** 和 **>** 之间不可以有空格，**2>** 是一体的时候才表示错误输出。
+
+# Shell 文件包含
+
+和其他语言一样，Shell 也可以包含外部脚本。这样可以很方便的封装一些公用的代码作为一个独立的文件。
+
+Shell 文件包含的语法格式如下：
+
+```
+. filename   # 注意点号(.)和文件名中间有一空格
+
+或
+
+source filename
+```
+
+### 实例
+
+创建两个 shell 脚本文件。
+
+test1.sh 代码如下：
+
+```
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+url="http://www.runoob.com"
+```
+
+test2.sh 代码如下：
+
+```
+#!/bin/bash
+# author:菜鸟教程
+# url:www.runoob.com
+
+#使用 . 号来引用test1.sh 文件
+. ./test1.sh
+
+# 或者使用以下包含文件代码
+# source ./test1.sh
+
+echo "菜鸟教程官网地址：$url"
+```
+
+接下来，我们为 test2.sh 添加可执行权限并执行：
+
+```
+$ chmod +x test2.sh 
+$ ./test2.sh 
+菜鸟教程官网地址：http://www.runoob.com
+```
+
+> **注：**被包含的文件 test1.sh 不需要可执行权限。
+
+
+
+# Linux 命令大全
+
+| Linux 命令大全                                               |                                                              |                                                              |                                                              |
+| :----------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| **1、文件管理**                                              |                                                              |                                                              |                                                              |
+| [cat](https://www.runoob.com/linux/linux-comm-cat.html)      | [chattr](https://www.runoob.com/linux/linux-comm-chattr.html) | [chgrp](https://www.runoob.com/linux/linux-comm-chgrp.html)  | [chmod](https://www.runoob.com/linux/linux-comm-chmod.html)  |
+| [chown](https://www.runoob.com/linux/linux-comm-chown.html)  | [cksum](https://www.runoob.com/linux/linux-comm-cksum.html)  | [cmp](https://www.runoob.com/linux/linux-comm-cmp.html)      | [diff](https://www.runoob.com/linux/linux-comm-diff.html)    |
+| [diffstat](https://www.runoob.com/linux/linux-comm-diffstat.html) | [file](https://www.runoob.com/linux/linux-comm-file.html)    | [find](https://www.runoob.com/linux/linux-comm-find.html)    | [git](https://www.runoob.com/linux/linux-comm-git.html)      |
+| [gitview](https://www.runoob.com/linux/linux-comm-gitview.html) | [indent](https://www.runoob.com/linux/linux-comm-indent.html) | [cut](https://www.runoob.com/linux/linux-comm-cut.html)      | [ln](https://www.runoob.com/linux/linux-comm-ln.html)        |
+| [less](https://www.runoob.com/linux/linux-comm-less.html)    | [locate](https://www.runoob.com/linux/linux-comm-locate.html) | [lsattr](https://www.runoob.com/linux/linux-comm-lsattr.html) | [mattrib](https://www.runoob.com/linux/linux-comm-mattrib.html) |
+| [mc](https://www.runoob.com/linux/linux-comm-mc.html)        | [mdel](https://www.runoob.com/linux/linux-comm-mdel.html)    | [mdir](https://www.runoob.com/linux/linux-comm-mdir.html)    | [mktemp](https://www.runoob.com/linux/linux-comm-mktemp.html) |
+| [more](https://www.runoob.com/linux/linux-comm-more.html)    | [mmove](https://www.runoob.com/linux/linux-comm-mmove.html)  | [mread](https://www.runoob.com/linux/linux-comm-mread.html)  | [mren](https://www.runoob.com/linux/linux-comm-mren.html)    |
+| [mtools](https://www.runoob.com/linux/linux-comm-mtools.html) | [mtoolstest](https://www.runoob.com/linux/linux-comm-mtoolstest.html) | [mv](https://www.runoob.com/linux/linux-comm-mv.html)        | [od](https://www.runoob.com/linux/linux-comm-od.html)        |
+| [paste](https://www.runoob.com/linux/linux-comm-paste.html)  | [patch](https://www.runoob.com/linux/linux-comm-patch.html)  | [rcp](https://www.runoob.com/linux/linux-comm-rcp.html)      | [rm](https://www.runoob.com/linux/linux-comm-rm.html)        |
+| [slocate](https://www.runoob.com/linux/linux-comm-slocate.html) | [split](https://www.runoob.com/linux/linux-comm-split.html)  | [tee](https://www.runoob.com/linux/linux-comm-tee.html)      | [tmpwatch](https://www.runoob.com/linux/linux-comm-tmpwatch.html) |
+| [touch](https://www.runoob.com/linux/linux-comm-touch.html)  | [umask](https://www.runoob.com/linux/linux-comm-umask.html)  | [which](https://www.runoob.com/linux/linux-comm-which.html)  | [cp](https://www.runoob.com/linux/linux-comm-cp.html)        |
+| [whereis](https://www.runoob.com/linux/linux-comm-whereis.html) | [mcopy](https://www.runoob.com/linux/linux-comm-mcopy.html)  | [mshowfat](https://www.runoob.com/linux/linux-comm-mshowfat.html) | [rhmask](https://www.runoob.com/linux/linux-comm-rhmask.html) |
+| [scp](https://www.runoob.com/linux/linux-comm-scp.html)      | [awk](https://www.runoob.com/linux/linux-comm-awk.html)      | [read](https://www.runoob.com/linux/linux-comm-read.html)    | [updatedb](https://www.runoob.com/linux/linux-comm-updatedb.html) |
+| **2、文档编辑**                                              |                                                              |                                                              |                                                              |
+| [col](https://www.runoob.com/linux/linux-comm-col.html)      | [colrm](https://www.runoob.com/linux/linux-comm-colrm.html)  | [comm](https://www.runoob.com/linux/linux-comm-comm.html)    | [csplit](https://www.runoob.com/linux/linux-comm-csplit.html) |
+| [ed](https://www.runoob.com/linux/linux-comm-ed.html)        | [egrep](https://www.runoob.com/linux/linux-comm-egrep.html)  | [ex](https://www.runoob.com/linux/linux-comm-ex.html)        | [fgrep](https://www.runoob.com/linux/linux-comm-fgrep.html)  |
+| [fmt](https://www.runoob.com/linux/linux-comm-fmt.html)      | [fold](https://www.runoob.com/linux/linux-comm-fold.html)    | [grep](https://www.runoob.com/linux/linux-comm-grep.html)    | [ispell](https://www.runoob.com/linux/linux-comm-ispell.html) |
+| [jed](https://www.runoob.com/linux/linux-comm-jed.html)      | [joe](https://www.runoob.com/linux/linux-comm-joe.html)      | [join](https://www.runoob.com/linux/linux-comm-join.html)    | [look](https://www.runoob.com/linux/linux-comm-look.html)    |
+| [mtype](https://www.runoob.com/linux/linux-comm-mtype.html)  | [pico](https://www.runoob.com/linux/linux-comm-pico.html)    | [rgrep](https://www.runoob.com/linux/linux-comm-rgrep.html)  | [sed](https://www.runoob.com/linux/linux-comm-sed.html)      |
+| [sort](https://www.runoob.com/linux/linux-comm-sort.html)    | [spell](https://www.runoob.com/linux/linux-comm-spell.html)  | [tr](https://www.runoob.com/linux/linux-comm-tr.html)        | [expr](https://www.runoob.com/linux/linux-comm-expr.html)    |
+| [uniq](https://www.runoob.com/linux/linux-comm-uniq.html)    | [wc](https://www.runoob.com/linux/linux-comm-wc.html)        | [let](https://www.runoob.com/linux/linux-comm-let.html)      |                                                              |
+| **3、文件传输**                                              |                                                              |                                                              |                                                              |
+| [lprm](https://www.runoob.com/linux/linux-comm-lprm.html)    | [lpr](https://www.runoob.com/linux/linux-comm-lpr.html)      | [lpq](https://www.runoob.com/linux/linux-comm-lpq.html)      | [lpd](https://www.runoob.com/linux/linux-comm-lpd.html)      |
+| [bye](https://www.runoob.com/linux/linux-comm-bye.html)      | [ftp](https://www.runoob.com/linux/linux-comm-ftp.html)      | [uuto](https://www.runoob.com/linux/linux-comm-uuto.html)    | [uupick](https://www.runoob.com/linux/linux-comm-uupick.html) |
+| [uucp](https://www.runoob.com/linux/linux-comm-uucp.html)    | [uucico](https://www.runoob.com/linux/linux-comm-uucico.html) | [tftp](https://www.runoob.com/linux/linux-comm-tftp.html)    | [ncftp](https://www.runoob.com/linux/linux-comm-ncftp.html)  |
+| [ftpshut](https://www.runoob.com/linux/linux-comm-ftpshut.html) | [ftpwho](https://www.runoob.com/linux/linux-comm-ftpwho.html) | [ftpcount](https://www.runoob.com/linux/linux-comm-ftpcount.html) |                                                              |
+| **4、磁盘管理**                                              |                                                              |                                                              |                                                              |
+| [cd](https://www.runoob.com/linux/linux-comm-cd.html)        | [df](https://www.runoob.com/linux/linux-comm-df.html)        | [dirs](https://www.runoob.com/linux/linux-comm-dirs.html)    | [du](https://www.runoob.com/linux/linux-comm-du.html)        |
+| [edquota](https://www.runoob.com/linux/linux-comm-edquota.html) | [eject](https://www.runoob.com/linux/linux-comm-eject.html)  | [mcd](https://www.runoob.com/linux/linux-comm-mcd.html)      | [mdeltree](https://www.runoob.com/linux/linux-comm-mdeltree.html) |
+| [mdu](https://www.runoob.com/linux/linux-comm-mdu.html)      | [mkdir](https://www.runoob.com/linux/linux-comm-mkdir.html)  | [mlabel](https://www.runoob.com/linux/linux-comm-mlabel.html) | [mmd](https://www.runoob.com/linux/linux-comm-mmd.html)      |
+| [mrd](https://www.runoob.com/linux/linux-comm-mrd.html)      | [mzip](https://www.runoob.com/linux/linux-comm-mzip.html)    | [pwd](https://www.runoob.com/linux/linux-comm-pwd.html)      | [quota](https://www.runoob.com/linux/linux-comm-quota.html)  |
+| [mount](https://www.runoob.com/linux/linux-comm-mount.html)  | [mmount](https://www.runoob.com/linux/linux-comm-mmount.html) | [rmdir](https://www.runoob.com/linux/linux-comm-rmdir.html)  | [rmt](https://www.runoob.com/linux/linux-comm-rmt.html)      |
+| [stat](https://www.runoob.com/linux/linux-comm-stat.html)    | [tree](https://www.runoob.com/linux/linux-comm-tree.html)    | [umount](https://www.runoob.com/linux/linux-comm-umount.html) | [ls](https://www.runoob.com/linux/linux-comm-ls.html)        |
+| [quotacheck](https://www.runoob.com/linux/linux-comm-quotacheck.html) | [quotaoff](https://www.runoob.com/linux/linux-comm-quotaoff.html) | [lndir](https://www.runoob.com/linux/linux-comm-lndir.html)  | [repquota](https://www.runoob.com/linux/linux-comm-repquota.html) |
+| [quotaon](https://www.runoob.com/linux/linux-comm-quotaon.html) |                                                              |                                                              |                                                              |
+| **5、磁盘维护**                                              |                                                              |                                                              |                                                              |
+| [badblocks](https://www.runoob.com/linux/linux-comm-badblocks.html) | [cfdisk](https://www.runoob.com/linux/linux-comm-cfdisk.html) | [dd](https://www.runoob.com/linux/linux-comm-dd.html)        | [e2fsck](https://www.runoob.com/linux/linux-comm-e2fsck.html) |
+| [ext2ed](https://www.runoob.com/linux/linux-comm-ext2ed.html) | [fsck](https://www.runoob.com/linux/linux-comm-fsck.html)    | [fsck.minix](https://www.runoob.com/linux/linux-comm-fsck-minix.html) | [fsconf](https://www.runoob.com/linux/linux-comm-fsconf.html) |
+| [fdformat](https://www.runoob.com/linux/linux-comm-fdformat.html) | [hdparm](https://www.runoob.com/linux/linux-comm-hdparm.html) | [mformat](https://www.runoob.com/linux/linux-comm-mformat.html) | [mkbootdisk](https://www.runoob.com/linux/linux-comm-mkbootdisk.html) |
+| [mkdosfs](https://www.runoob.com/linux/linux-comm-mkdosfs.html) | [mke2fs](https://www.runoob.com/linux/linux-comm-mke2fs.html) | [mkfs.ext2](https://www.runoob.com/linux/linux-comm-mkfs-ext2.html) | [mkfs.msdos](https://www.runoob.com/linux/linux-comm-mkfs-msdos.html) |
+| [mkinitrd](https://www.runoob.com/linux/linux-comm-mkinitrd.html) | [mkisofs](https://www.runoob.com/linux/linux-comm-mkisofs.html) | [mkswap](https://www.runoob.com/linux/linux-comm-mkswap.html) | [mpartition](https://www.runoob.com/linux/linux-comm-mpartition.html) |
+| [swapon](https://www.runoob.com/linux/linux-comm-swapon.html) | [symlinks](https://www.runoob.com/linux/linux-comm-symlinks.html) | [sync](https://www.runoob.com/linux/linux-comm-sync.html)    | [mbadblocks](https://www.runoob.com/linux/linux-comm-mbadblocks.html) |
+| [mkfs.minix](https://www.runoob.com/linux/linux-comm-mkfs-minix.html) | [fsck.ext2](https://www.runoob.com/linux/linux-comm-fsck-ext2.html) | [fdisk](https://www.runoob.com/linux/linux-comm-fdisk.html)  | [losetup](https://www.runoob.com/linux/linux-comm-losetup.html) |
+| [mkfs](https://www.runoob.com/linux/linux-comm-mkfs.html)    | [sfdisk](https://www.runoob.com/linux/linux-comm-sfdisk.html) | [swapoff](https://www.runoob.com/linux/linux-comm-swapoff.html) |                                                              |
+| **6、网络通讯**                                              |                                                              |                                                              |                                                              |
+| [apachectl](https://www.runoob.com/linux/linux-comm-apachectl.html) | [arpwatch](https://www.runoob.com/linux/linux-comm-arpwatch.html) | [dip](https://www.runoob.com/linux/linux-comm-dip.html)      | [getty](https://www.runoob.com/linux/linux-comm-getty.html)  |
+| [mingetty](https://www.runoob.com/linux/linux-comm-mingetty.html) | [uux](https://www.runoob.com/linux/linux-comm-uux.html)      | [telnet](https://www.runoob.com/linux/linux-comm-telnet.html) | [uulog](https://www.runoob.com/linux/linux-comm-uulog.html)  |
+| [uustat](https://www.runoob.com/linux/linux-comm-uustat.html) | [ppp-off](https://www.runoob.com/linux/linux-comm-ppp-off.html) | [netconfig](https://www.runoob.com/linux/linux-comm-netconfig.html) | [nc](https://www.runoob.com/linux/linux-comm-nc.html)        |
+| [httpd](https://www.runoob.com/linux/linux-comm-httpd.html)  | [ifconfig](https://www.runoob.com/linux/linux-comm-ifconfig.html) | [minicom](https://www.runoob.com/linux/linux-comm-minicom.html) | [mesg](https://www.runoob.com/linux/linux-comm-mesg.html)    |
+| [dnsconf](https://www.runoob.com/linux/linux-comm-dnsconf.html) | [wall](https://www.runoob.com/linux/linux-comm-wall.html)    | [netstat](https://www.runoob.com/linux/linux-comm-netstat.html) | [ping](https://www.runoob.com/linux/linux-comm-ping.html)    |
+| [pppstats](https://www.runoob.com/linux/linux-comm-pppstats.html) | [samba](https://www.runoob.com/linux/linux-comm-samba.html)  | [setserial](https://www.runoob.com/linux/linux-comm-setserial.html) | [talk](https://www.runoob.com/linux/linux-comm-talk.html)    |
+| [traceroute](https://www.runoob.com/linux/linux-comm-traceroute.html) | [tty](https://www.runoob.com/linux/linux-comm-tty.html)      | [newaliases](https://www.runoob.com/linux/linux-comm-newaliases.html) | [uuname](https://www.runoob.com/linux/linux-comm-uuname.html) |
+| [netconf](https://www.runoob.com/linux/linux-comm-netconf.html) | [write](https://www.runoob.com/linux/linux-comm-write.html)  | [statserial](https://www.runoob.com/linux/linux-comm-statserial.html) | [efax](https://www.runoob.com/linux/linux-comm-efax.html)    |
+| [pppsetup](https://www.runoob.com/linux/linux-comm-pppsetup.html) | [tcpdump](https://www.runoob.com/linux/linux-comm-tcpdump.html) | [ytalk](https://www.runoob.com/linux/linux-comm-ytalk.html)  | [cu](https://www.runoob.com/linux/linux-comm-cu.html)        |
+| [smbd](https://www.runoob.com/linux/linux-comm-smbd.html)    | [testparm](https://www.runoob.com/linux/linux-comm-testparm.html) | [smbclient](https://www.runoob.com/linux/linux-comm-smbclient.html) | [shapecfg](https://www.runoob.com/linux/linux-comm-shapecfg.html) |
+| **7、系统管理**                                              |                                                              |                                                              |                                                              |
+| [adduser](https://www.runoob.com/linux/linux-comm-adduser.html) | [chfn](https://www.runoob.com/linux/linux-comm-chfn.html)    | [useradd](https://www.runoob.com/linux/linux-comm-useradd.html) | [date](https://www.runoob.com/linux/linux-comm-date.html)    |
+| [exit](https://www.runoob.com/linux/linux-comm-exit.html)    | [finger](https://www.runoob.com/linux/linux-comm-finger.html) | [fwhios](https://www.runoob.com/linux/linux-comm-fwhios.html) | [sleep](https://www.runoob.com/linux/linux-comm-sleep.html)  |
+| [suspend](https://www.runoob.com/linux/linux-comm-suspend.html) | [groupdel](https://www.runoob.com/linux/linux-comm-groupdel.html) | [groupmod](https://www.runoob.com/linux/linux-comm-groupmod.html) | [halt](https://www.runoob.com/linux/linux-comm-halt.html)    |
+| [kill](https://www.runoob.com/linux/linux-comm-kill.html)    | [last](https://www.runoob.com/linux/linux-comm-last.html)    | [lastb](https://www.runoob.com/linux/linux-comm-lastb.html)  | [login](https://www.runoob.com/linux/linux-comm-login.html)  |
+| [logname](https://www.runoob.com/linux/linux-comm-logname.html) | [logout](https://www.runoob.com/linux/linux-comm-logout.html) | [ps](https://www.runoob.com/linux/linux-comm-ps.html)        | [nice](https://www.runoob.com/linux/linux-comm-nice.html)    |
+| [procinfo](https://www.runoob.com/linux/linux-comm-procinfo.html) | [top](https://www.runoob.com/linux/linux-comm-top.html)      | [pstree](https://www.runoob.com/linux/linux-comm-pstree.html) | [reboot](https://www.runoob.com/linux/linux-comm-reboot.html) |
+| [rlogin](https://www.runoob.com/linux/linux-comm-rlogin.html) | [rsh](https://www.runoob.com/linux/linux-comm-rsh.html)      | [sliplogin](https://www.runoob.com/linux/linux-comm-sliplogin.html) | [screen](https://www.runoob.com/linux/linux-comm-screen.html) |
+| [shutdown](https://www.runoob.com/linux/linux-comm-shutdown.html) | [rwho](https://www.runoob.com/linux/linux-comm-rwho.html)    | [sudo](https://www.runoob.com/linux/linux-comm-sudo.html)    | [gitps](https://www.runoob.com/linux/linux-comm-gitps.html)  |
+| [swatch](https://www.runoob.com/linux/linux-comm-swatch.html) | [tload](https://www.runoob.com/linux/linux-comm-tload.html)  | [logrotate](https://www.runoob.com/linux/linux-comm-logrotate.html) | [uname](https://www.runoob.com/linux/linux-comm-uname.html)  |
+| [chsh](https://www.runoob.com/linux/linux-comm-chsh.html)    | [userconf](https://www.runoob.com/linux/linux-comm-userconf.html) | [userdel](https://www.runoob.com/linux/linux-comm-userdel.html) | [usermod](https://www.runoob.com/linux/linux-comm-usermod.html) |
+| [vlock](https://www.runoob.com/linux/linux-comm-vlock.html)  | [who](https://www.runoob.com/linux/linux-comm-who.html)      | [whoami](https://www.runoob.com/linux/linux-comm-whoami.html) | [whois](https://www.runoob.com/linux/linux-comm-whois.html)  |
+| [newgrp](https://www.runoob.com/linux/linux-comm-newgrp.html) | [renice](https://www.runoob.com/linux/linux-comm-renice.html) | [su](https://www.runoob.com/linux/linux-comm-su.html)        | [skill](https://www.runoob.com/linux/linux-comm-skill.html)  |
+| [w](https://www.runoob.com/linux/linux-comm-w.html)          | [id](https://www.runoob.com/linux/linux-comm-id.html)        | [groupadd](https://www.runoob.com/linux/linux-comm-groupadd.html) | [free](https://www.runoob.com/linux/linux-comm-free.html)    |
+| **8、系统设置**                                              |                                                              |                                                              |                                                              |
+| [reset](https://www.runoob.com/linux/linux-comm-reset.html)  | [clear](https://www.runoob.com/linux/linux-comm-clear.html)  | [alias](https://www.runoob.com/linux/linux-comm-alias.html)  | [dircolors](https://www.runoob.com/linux/linux-comm-dircolors.html) |
+| [aumix](https://www.runoob.com/linux/linux-comm-aumix.html)  | [bind](https://www.runoob.com/linux/linux-comm-bind.html)    | [chroot](https://www.runoob.com/linux/linux-comm-chroot.html) | [clock](https://www.runoob.com/linux/linux-comm-clock.html)  |
+| [crontab](https://www.runoob.com/linux/linux-comm-crontab.html) | [declare](https://www.runoob.com/linux/linux-comm-declare.html) | [depmod](https://www.runoob.com/linux/linux-comm-depmod.html) | [dmesg](https://www.runoob.com/linux/linux-comm-dmesg.html)  |
+| [enable](https://www.runoob.com/linux/linux-comm-enable.html) | [eval](https://www.runoob.com/linux/linux-comm-eval.html)    | [export](https://www.runoob.com/linux/linux-comm-export.html) | [pwunconv](https://www.runoob.com/linux/linux-comm-pwunconv.html) |
+| [grpconv](https://www.runoob.com/linux/linux-comm-grpconv.html) | [rpm](https://www.runoob.com/linux/linux-comm-rpm.html)      | [insmod](https://www.runoob.com/linux/linux-comm-insmod.html) | [kbdconfig](https://www.runoob.com/linux/linux-comm-kbdconfig.html) |
+| [lilo](https://www.runoob.com/linux/linux-comm-lilo.html)    | [liloconfig](https://www.runoob.com/linux/linux-comm-liloconfig.html) | [lsmod](https://www.runoob.com/linux/linux-comm-lsmod.html)  | [minfo](https://www.runoob.com/linux/linux-comm-minfo.html)  |
+| [set](https://www.runoob.com/linux/linux-comm-set.html)      | [modprobe](https://www.runoob.com/linux/linux-comm-modprobe.html) | [ntsysv](https://www.runoob.com/linux/linux-comm-ntsysv.html) | [mouseconfig](https://www.runoob.com/linux/linux-comm-mouseconfig.html) |
+| [passwd](https://www.runoob.com/linux/linux-comm-passwd.html) | [pwconv](https://www.runoob.com/linux/linux-comm-pwconv.html) | [rdate](https://www.runoob.com/linux/linux-comm-rdate.html)  | [resize](https://www.runoob.com/linux/linux-comm-resize.html) |
+| [rmmod](https://www.runoob.com/linux/linux-comm-rmmod.html)  | [grpunconv](https://www.runoob.com/linux/linux-comm-grpunconv.html) | [modinfo](https://www.runoob.com/linux/linux-comm-modinfo.html) | [time](https://www.runoob.com/linux/linux-comm-time.html)    |
+| [setup](https://www.runoob.com/linux/linux-comm-setup.html)  | [sndconfig](https://www.runoob.com/linux/linux-comm-sndconfig.html) | [setenv](https://www.runoob.com/linux/linux-comm-setenv.html) | [setconsole](https://www.runoob.com/linux/linux-comm-setconsole.html) |
+| [timeconfig](https://www.runoob.com/linux/linux-comm-timeconfig.html) | [ulimit](https://www.runoob.com/linux/linux-comm-ulimit.html) | [unset](https://www.runoob.com/linux/linux-comm-unset.html)  | [chkconfig](https://www.runoob.com/linux/linux-comm-chkconfig.html) |
+| [apmd](https://www.runoob.com/linux/linux-comm-apmd.html)    | [hwclock](https://www.runoob.com/linux/linux-comm-hwclock.html) | [mkkickstart](https://www.runoob.com/linux/linux-comm-mkkickstart.html) | [fbset](https://www.runoob.com/linux/linux-comm-fbset.html)  |
+| [unalias](https://www.runoob.com/linux/linux-comm-unalias.html) | [SVGATextMode](https://www.runoob.com/linux/linux-comm-svgatextmode.html) | [gpasswd](https://www.runoob.com/linux/linux-comm-gpasswd.html) |                                                              |
+| **9、备份压缩**                                              |                                                              |                                                              |                                                              |
+| [ar](https://www.runoob.com/linux/linux-comm-ar.html)        | [bunzip2](https://www.runoob.com/linux/linux-comm-bunzip2.html) | [bzip2](https://www.runoob.com/linux/linux-comm-bzip2.html)  | [bzip2recover](https://www.runoob.com/linux/linux-comm-bzip2recover.html) |
+| [gunzip](https://www.runoob.com/linux/linux-comm-gunzip.html) | [unarj](https://www.runoob.com/linux/linux-comm-unarj.html)  | [compress](https://www.runoob.com/linux/linux-comm-compress.html) | [cpio](https://www.runoob.com/linux/linux-comm-cpio.html)    |
+| [dump](https://www.runoob.com/linux/linux-comm-dump.html)    | [uuencode](https://www.runoob.com/linux/linux-comm-uuencode.html) | [gzexe](https://www.runoob.com/linux/linux-comm-gzexe.html)  | [gzip](https://www.runoob.com/linux/linux-comm-gzip.html)    |
+| [lha](https://www.runoob.com/linux/linux-comm-lha.html)      | [restore](https://www.runoob.com/linux/linux-comm-restore.html) | [tar](https://www.runoob.com/linux/linux-comm-tar.html)      | [uudecode](https://www.runoob.com/linux/linux-comm-uudecode.html) |
+| [unzip](https://www.runoob.com/linux/linux-comm-unzip.html)  | [zip](https://www.runoob.com/linux/linux-comm-zip.html)      | [zipinfo](https://www.runoob.com/linux/linux-comm-zipinfo.html) |                                                              |
+| **10、设备管理**                                             |                                                              |                                                              |                                                              |
+| [setleds](https://www.runoob.com/linux/linux-comm-setleds.html) | [loadkeys](https://www.runoob.com/linux/linux-comm-loadkeys.html) | [rdev](https://www.runoob.com/linux/linux-comm-rdev.html)    | [dumpkeys](https://www.runoob.com/linux/linux-comm-dumpkeys.html) |
+| [MAKEDEV](https://www.runoob.com/linux/linux-comm-makedev.html) | [poweroff](https://www.runoob.com/linux/linux-comm-poweroff.html) |                                                              |                                                              |
+
+------
+
+## 其他命令
+
+- [Linux bc 命令](https://www.runoob.com/linux/linux-comm-bc.html)
+- [Linux tail 命令](https://www.runoob.com/linux/linux-comm-tail.html)
+- [Linux head 命令](https://www.runoob.com/linux/linux-comm-head.html)
+- [Linux xargs 命令](https://www.runoob.com/linux/linux-comm-xargs.html)
+- [Linux ip 命令](https://www.runoob.com/linux/linux-comm-ip.html)
+- [Linux nohup 命令](https://www.runoob.com/linux/linux-comm-nohup.html)
+- [Linux killall 命令](https://www.runoob.com/linux/linux-comm-killall.html)
+- [Linux pkill 命令](https://www.runoob.com/linux/linux-comm-pkill.html)
+
+### 扩展文章
+
+- [Linux 常用命令全拼](https://www.runoob.com/w3cnote/linux-command-full-fight.html)
+

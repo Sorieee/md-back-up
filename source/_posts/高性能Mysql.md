@@ -622,4 +622,1670 @@ mysql> COMMIT;
 
 ​	一般情况下，都是通过迭代逐步地修改基准测试的参数，而不是每次运行时都做大量的修改。举个例子，如果要通过调整参数来创造一个特定行为，可以通过使用分治法（divide-and-conquer，每次运行时将参数对分减半）来找到正确的值。
 
+​	很多基准测试都是用来做预测系统迁移后的性能的，比如从Oracle迁移到MySQL。这种测试通常比较麻烦，因为MySQL执行的查询类型与Oracle完全不同。如果想知道在Oracle运行得很好的应用迁移到MySQL以后性能如何，通常需要重新设计MySQL的schema和查询（在某些情况下，比如，建立一个跨平台的应用时，可能想知道同一条查询是如何在两个平台运行的，不过这种情况并不多见）。
+
+​	固态存储（SSD或者PCI-E卡）给基准测试带来了很大的挑战，第9章将进一步讨论。
+
+​	最后，如果测试中出现异常结果，不要轻易当作坏数据点而丢弃。应该认真研究并找到产生这种结果的原因。测试可能会得到有价值的结果，或者一个严重的错误，抑或基准测试的设计缺陷。如果对测试结果不了解，就不要轻易公布。有一些案例表明，异常的测试结果往往都是由于很小的错误导致的，最后搞得测试无功而返[(7)](part0009_split_006.html#ch7)。
+
+### 2.3.5　运行基准测试并分析结果
+
+​	自动化的方式有很多，可以是一个Makefile文件或者一组脚本。脚本语言可以根据需要选择：shell、PHP、Perl等都可以。要尽可能地使所有测试过程都自动化，包括装载数据、系统预热、执行测试、记录结果等。
+
+​	基准测试通常需要运行多次。具体需要运行多少次要看对结果的记分方式，以及测试的重要程度。要提高测试的准确度，就需要多运行几次。一般在测试的实践中，可以取最好的结果值，或者所有结果的平均值，抑或从五个测试结果里取最好三个值的平均值。可以根据需要更进一步精确化测试结果。还可以对结果使用统计方法，确定置信区间（confidence interval）等。不过通常来说，不会用到这种程度的确定性结果[(8)](part0009_split_006.html#ch8)。只要测试的结果能满足目前的需求，简单地运行几轮测试，看看结果的变化就可以了。如果结果变化很大，可以再多运行几次，或者运行更长的时间，这样都可以获得更确定的结果。
+
+​	如何从数据中抽象出有意义的结果，依赖于如何收集数据。通常需要写一些脚本来分析数据，这不仅能减轻分析的工作量，而且和自动化基准测试一样可以重复运行，并易于文档化。下面是一个非常简单的shell脚本，演示了如何从前面的数据采集脚本采集到的数据中抽取时间维度信息。脚本的输入参数是采集到的数据文件的名字。
+
+```sh
+#!/bin/sh
+    
+    # This script converts SHOW GLOBAL STATUS into a tabulated format, one line
+    # per sample in the input, with the metrics divided by the time elapsed
+    # between samples.
+    awk '
+        BEGIN {
+           printf "#ts date time load QPS";
+           fmt = " %.2f";
+        }
+        /^TS/ { # The timestamp lines begin with TS.
+           ts = substr($2, 1, index($2, ".") - 1);
+           load = NF - 2;
+           diff = ts - prev_ts;
+           prev_ts = ts;
+           printf "\n%s %s %s %s", ts, $3, $4, substr($load, 1, length($load)-1);
+        }
+        /Queries/ {
+            printf fmt, ($2-Queries)/diff;
+            Queries=$2
+        }
+        ' "$@"
+```
+
+假设该脚本名为*analyze*，当前面的脚本生成状态文件以后，就可以运行该脚本，可能会得到如下的结果：
+
+```
+    [baron@ginger ~]$ ./analyze 5-sec-status-2011-03-20
+    #ts date time load QPS
+    1300642150 2011-03-20 17:29:10 0.00 0.62
+    1300642155 2011-03-20 17:29:15 0.00 1311.60
+    1300642160 2011-03-20 17:29:20 0.00 1770.60
+    1300642165 2011-03-20 17:29:25 0.00 1756.60
+    1300642170 2011-03-20 17:29:30 0.00 1752.40
+    1300642175 2011-03-20 17:29:35 0.00 1735.00
+    1300642180 2011-03-20 17:29:40 0.00 1713.00
+    1300642185 2011-03-20 17:29:45 0.00 1788.00
+    1300642190 2011-03-20 17:29:50 0.00 1596.40
+```
+
+第一行是列的名字；第二行的数据应该忽略，因为这是测试实际启动前的数据。接下来的行包含Unix时间戳、日期、时间（注意时间数据是每5秒更新一次，前面脚本说明时曾提过）、系统负载、数据库的QPS（每秒查询次数）五列，这应该是用于分析系统性能的最少数据需求了。接下来将演示如何根据这些数据快速地绘成图形，并分析基准测试过程中发生了什么。
+
+### 2.3.6　绘图的重要性
+
+​	如果你想要统治世界，就必须不断地利用“阴谋”[(9)](part0009_split_006.html#ch9)。而最简单有效的图形，就是将性能指标按照时间顺序绘制。通过图形可以立刻发现一些问题，而这些问题在原始数据中却很难被注意到。或许你会坚持看测试工具打印出来的平均值或其他汇总过的信息，但平均值有时候是没有用的，它会掩盖掉一些真实情况。幸运的是，前面写的脚本的输出都可以定制作为*gnuplot*或者*R*绘图的数据来源。假设使用*gnuplot*，假设输出的数据文件名是*QPS-per-5-seconds*：
+
+```
+    gnuplot> plot "QPS-per-5-seconds" using 5 w lines title"QPS"
+```
+
+​	该*gnuplot*命令将文件的第五列q*ps数*据绘成图形，图的标题是QPS。图2-2是绘制出来的结果图。
+
+![](https://pic.imgdb.cn/item/6155de022ab3f51d914467be.jpg)
+
 ​	
+
+​	下面我们讨论一个可以更加体现图形价值的例子。假设MySQL数据正在遭受“疯狂刷新（furious flushing）”的问题，在刷新落后于检查点时会阻塞所有的活动，从而导致吞吐量严重下跌。95％的响应时间和平均响应时间指标都无法发现这个问题，也就是说这两个指标掩盖了问题。但图形会显示出这个周期性的问题，请参考图2-3。
+
+​	图2-3显示的是每分钟新订单的交易量（NOTPM，new-order transactions per minute）。从曲线可以看到明显的周期性下降，但如果从平均值（点状虚线）来看波动很小。一开始的低谷是由于系统的缓存是空的，而后面其他的下跌则是由于系统刷新脏块到磁盘导致。如果没有图形，要发现这个趋势会比较困难。
+
+![](https://pic.imgdb.cn/item/6155de5b2ab3f51d91450e89.jpg)
+
+​	这种性能尖刺在压力大的系统比较常见，需要调查原因。在这个案例中，是由于使用了旧版本的InnoDB引擎，脏块的刷新算法性能很差。但这个结论不能是想当然的，需要认真地分析详细的性能统计。在性能下跌时，SHOW ENGINE INNODB STATUS的输出是什么？SHOW FULL PROCESSLIST的输出是什么？应该可以发现InnoDB在持续地刷新脏块，并且阻塞了很多状态是“waiting on query cache lock”的线程，或者其他类似的现象。在执行基准测试的时候要尽可能地收集更多的细节数据，然后将数据绘制成图形，这样可以帮助快速地发现问题。
+
+## 2.4　基准测试工具
+
+### 2.4.1　集成式测试工具
+
+***ab***
+
+​	*ab*是一个Apache HTTP服务器基准测试工具。它可以测试HTTP服务器每秒最多可以处理多少请求。如果测试的是Web应用服务，这个结果可以转换成整个应用每秒可以满足多少请求。这是个非常简单的工具，用途也有限，只能针对单个URL进行尽可能快的压力测试。关于ab的更多信息可以参考*http://httpd.apache.org/docs/2.0/programs/ab.html*。
+
+***http_load***
+
+​	这个工具概念上和*ab*类似，也被设计为对Web服务器进行测试，但比*ab*要更加灵活。可以通过一个输入文件提供多个URL，*http_load*在这些URL中随机选择进行测试。也可以定制*http_load*，使其按照时间比率进行测试，而不仅仅是测试最大请求处理能力。更多信息请参考*http://www.acme.com/software/http-load/*。
+
+***JMeter***
+
+​	JMeter是一个Java应用程序，可以加载其他应用并测试其性能。它虽然是设计用来测试Web应用的，但也可以用于测试其他诸如FTP服务器，或者通过JDBC进行数据库查询测试。
+
+​	JMeter比*ab*和*http_load*都要复杂得多。例如，它可以通过控制预热时间等参数，更加灵活地模拟真实用户的访问。JMeter拥有绘图接口（带有内置的图形化处理的功能），还可以对测试进行记录，然后离线重演测试结果。更多信息请参考*http://jakarta.apache.org/jmeter/*。
+
+### 2.4.2　单组件式测试工具
+
+有一些有用的工具可以测试MySQL和基于MySQL的系统的性能。2.5节将演示如何利用这些工具进行测试。
+
+***mysqlslap***
+
+​	*mysqlslap*（*http://dev.mysql.com/doc/refman/5.1/en/mysqlslap.html*）可以模拟服务器的负载，并输出计时信息。它包含在MySQL 5.1的发行包中，应该在MySQL 4.1或者更新的版本中都可以使用。测试时可以执行并发连接数，并指定SQL语句（可以在命令行上执行，也可以把SQL语句写入到参数文件中）。如果没有指定SQL语句，*mysqlslap*会自动生成查询schema的SELECT语句。
+
+***MySQL Benchmark Suite（sql-bench）***
+
+​	在MySQL的发行包中也提供了一款自己的基准测试套件，可以用于在不同数据库服务器上进行比较测试。它是单线程的，主要用于测试服务器执行查询的速度。结果会显示哪种类型的操作在服务器上执行得更快。
+
+​	这个测试套件的主要好处是包含了大量预定义的测试，容易使用，所以可以很轻松地用于比较不同存储引擎或者不同配置的性能测试。其也可以用于高层次测试，比较两个服务器的总体性能。当然也可以只执行预定义测试的子集（例如只测试UPDATE的性能）。这些测试大部分是CPU密集型的，但也有些短时间的测试需要大量的磁盘I/O操作。
+
+​	这个套件的最大缺点主要有：它是单用户模式的，测试的数据集很小且用户无法使用指定的数据，并且同一个测试多次运行的结果可能会相差很大。因为是单线程且串行执行的，所以无法测试多CPU的能力，只能用于比较单CPU服务器的性能差别。使用这个套件测试数据库服务器还需要Perl和BDB的支持，相关文档请参考*http://dev.mysql.com/doc/en/mysql-benchmarks.html/*。
+
+***Super Smack***
+
+​	Super Smack（*http://vegan.net/tony/supersmack/*）是一款用于MySQL和PostgreSQL的基准测试工具，可以提供压力测试和负载生成。这是一个复杂而强大的工具，可以模拟多用户访问，可以加载测试数据到数据库，并支持使用随机数据填充测试表。测试定义在“smack”文件中，smack文件使用一种简单的语法定义测试的客户端、表、查询等测试要素。
+
+***Database Test Suite***
+
+​	Database Test Suite是由开源软件开发实验室（OSDL，Open Source Development Labs）设计的，发布在SourceForge网站（*http://sourceforge.net/projects/osdldbt/*）上，这是一款类似某些工业标准测试的测试工具集，例如由事务处理性能委员会（TPC，Transaction Processing Performance Council）制定的各种标准。特别值得一提的是，其中的*dbt2*就是一款免费的TPC-C OLTP测试工具（未认证）。之前本书作者经常使用该工具，不过现在已经使用自己研发的专用于MySQL的测试工具替代了。
+
+***Percona's TPCC-MySQL Tool***
+
+​	我们开发了一个类似TPC-C的基准测试工具集，其中有部分是专门为MySQL测试开发的。在评估大压力下MySQL的一些行为时，我们经常会利用这个工具进行测试（简单的测试，一般会采用*sysbench*替代）。该工具的源代码可以在*https://launchpad.net/perconatools*下载，在源码库中有一个简单的文档说明。
+
+***sysbench***
+
+​	*sysbench*（*https://launchpad.net/sysbench*）是一款多线程系统压测工具。它可以根据影响数据库服务器性能的各种因素来评估系统的性能。例如，可以用来测试文件I/O、操作系统调度器、内存分配和传输速度、POSIX线程，以及数据库服务器等。*sysbench*支持Lua脚本语言（*http://www.lua.org*），Lua对于各种测试场景的设置可以非常灵活。*sysbench*是我们非常喜欢的一种全能测试工具，支持MySQL、操作系统和硬件的硬件测试。
+
+## 2.5　基准测试案例
+
+### 2.5.1　http_load
+
+下面通过一个简单的例子来演示如何使用*http_load*。首先创建一个*urls.txt*文件，输入如下的URL：
+
+```
+    http://www.mysqlperformanceblog.com/
+    http://www.mysqlperformanceblog.com/page/2/
+    http://www.mysqlperformanceblog.com/mysql-patches/
+    http://www.mysqlperformanceblog.com/mysql-performance-presentations/
+    http://www.mysqlperformanceblog.com/2006/09/06/slow-query-log-analyzes-tools/
+```
+
+*http_load*最简单的用法，就是循环请求给定的URL列表。测试程序将以最快的速度请求这些URL：
+
+```
+    $ http_load -parallel 1 -seconds 10 urls.txt
+    19 fetches, 1 max parallel, 837929 bytes, in 10.0003 seconds
+    44101.5 mean bytes/connection
+    1.89995 fetches/sec, 83790.7 bytes/sec
+    msecs/connect: 41.6647 mean, 56.156 max, 38.21 min
+    msecs/first-response: 320.207 mean, 508.958 max, 179.308 min
+    HTTP response codes:
+       code 200 - 19
+```
+
+测试的结果很容易理解，只是简单地输出了请求的统计信息。下面是另外一个稍微复杂的测试，还是尽可能快地循环请求给定的URL列表，不过模拟同时有五个并发用户在进行请求：
+
+```
+    $ http_load -parallel 5 -seconds 10 urls.txt
+    94 fetches, 5 max parallel, 4.75565e+06 bytes, in 10.0005 seconds
+    50592 mean bytes/connection
+    9.39953 fetches/sec, 475541 bytes/sec
+    msecs/connect: 65.1983 mean, 169.991 max, 38.189 min
+    msecs/first-response: 245.014 mean, 993.059 max, 99.646 min
+    HTTP response codes:
+      code 200 - 94
+```
+
+另外，除了测试最快的速度，也可以根据预估的访问请求率（比如每秒5次）来做压力模拟测试。
+
+```
+    $ http_load -rate 5 -seconds 10 urls.txt
+    48 fetches, 4 max parallel, 2.50104e+06 bytes, in 10 seconds
+    52105 mean bytes/connection
+    4.8 fetches/sec, 250104 bytes/sec
+    msecs/connect: 42.5931 mean, 60.462 max, 38.117 min
+    msecs/first-response: 246.811 mean, 546.203 max, 108.363 min
+    HTTP response codes:
+      code 200 - 48
+```
+
+最后，还可以模拟更大的负载，可以将访问请求率提高到每秒20次请求。请注意，连接和请求响应时间都会随着负载的提高而增加。
+
+```
+    $ http_load -rate 20 -seconds 10 urls.txt
+    111 fetches, 89 max parallel, 5.91142e+06 bytes, in 10.0001 seconds
+    53256.1 mean bytes/connection
+    11.0998 fetches/sec, 591134 bytes/sec
+    msecs/connect: 100.384 mean, 211.885 max, 38.214 min
+    msecs/first-response: 2163.51 mean, 7862.77 max, 933.708 min
+    HTTP response codes:
+      code 200 -- 111
+```
+
+### 2.5.2　MySQL基准测试套件
+
+MySQL基准测试套件（MySQL Benchmark Suite）由一组基于Perl开发的基准测试工具组成。在MySQL安装目录下的*sql-bench*子目录中包含了该工具。比如在Debian GNU/Linux系统上，默认的路径是*/usr/share/mysql/sql-bench*。
+
+在用这个工具集测试前，应该读一下*README*文件，了解使用方法和命令行参数说明。如果要运行全部测试，可以使用如下的命令：
+
+```
+    $ cd /usr/share/mysql/sql-bench/
+    sql-bench$ ./run-all-tests --server=mysql --user=root --log --fast
+    Test finished. You can find the result in:
+    output/RUN-mysql_fast-Linux_2.4.18_686_smp_i686
+```
+
+运行全部测试需要比较长的时间，有可能会超过一个小时，其具体长短依赖于测试的硬件环境和配置。如果指定了*--log*命令行，则可以监控到测试的进度。测试的结果都保存在*output*子目录中，每项测试的结果文件中都会包含一系列的操作计时信息。下面是一个具体的例子，为方便印刷，部分格式做了修改。
+
+```
+    sql-bench$ tail −5 output/select-mysql_fast-Linux_2.4.18_686_smp_i686
+    Time for count_distinct_group_on_key (1000:6000):
+      34 wallclock secs ( 0.20 usr 0.08 sys + 0.00 cusr 0.00 csys = 0.28 CPU)
+    Time for count_distinct_group_on_key_parts (1000:100000):
+      34 wallclock secs ( 0.57 usr 0.27 sys + 0.00 cusr 0.00 csys = 0.84 CPU)
+    Time for count_distinct_group (1000:100000):
+      34 wallclock secs ( 0.59 usr 0.20 sys + 0.00 cusr 0.00 csys = 0.79 CPU)
+    Time for count_distinct_big (100:1000000):
+      8 wallclock secs ( 4.22 usr 2.20 sys + 0.00 cusr 0.00 csys = 6.42 CPU)
+    Total time:
+      868 wallclock secs (33.24 usr 9.55 sys + 0.00 cusr 0.00 csys = 42.79 CPU)
+```
+
+如上所示，count_distinct_group_on_key（1000:6000）测试花费了34秒（wallclock secs），这是客户端运行测试花费的总时间；其他值（包括usr，sys，cursr，csys）则占了测试的0.28秒的开销，这是运行客户端测试代码所花费的时间，而不是等待MySQL服务器响应的时间。而测试者真正需要关心的测试结果，是除去客户端控制的部分，即实际运行时间应该是33.72秒。
+
+除了运行全部测试集外，也可以选择单独执行其中的部分测试项。例如可以选择只执行
+
+insert测试，这会比运行全部测试集所得到的汇总信息给出更多的详细信息：
+
+```
+    sql-bench$ ./test-insert
+    Testing server 'MySQL 4.0.13 log' at 2003-05-18 11:02:39
+    
+    Testing the speed of inserting data into 1 table and do some selects on it.
+    The tests are done with a table that has 100000 rows.
+    
+    Generating random keys
+    Creating tables
+    Inserting 100000 rows in order
+    Inserting 100000 rows in reverse order
+    Inserting 100000 rows in random order
+    Time for insert (300000):
+      42 wallclock secs ( 7.91 usr 5.03 sys + 0.00 cusr 0.00 csys = 12.94 CPU)
+    Testing insert of duplicates
+    Time for insert_duplicates (100000):
+      16 wallclock secs ( 2.28 usr 1.89 sys + 0.00 cusr 0.00 csys = 4.17 CPU)
+```
+
+### 2.5.3　sysbench
+
+*sysbench*可以执行多种类型的基准测试，它不仅设计用来测试数据库的性能，也可以测试运行数据库的服务器的性能。实际上，Peter和Vadim最初设计这个工具是用来执行MySQL性能测试的（尽管并不能完成所有的MySQL基准测试）。下面先演示一些非MySQL的测试场景，来测试各个子系统的性能，这些测试可以用来评估系统的整体性能瓶颈。后面再演示如何测试数据库的性能。
+
+强烈建议大家都能熟悉*sysbench*测试，在MySQL用户的工具包中，这应该是最有用的工具之一。尽管有其他很多测试工具可以替代*sysbench*的某些功能，但那些工具有时候并不可靠，获得的结果也不一定和MySQL性能相关。例如，I/O性能测试可以用*iozone、bonnie++*等一系列工具，但需要注意设计场景，以便可以模拟InnoDB的磁盘I/O模式。而*sysbench*的I/O测试则和InnoDB的I/O模式非常类似，所以fleio选项是非常好用的。
+
+#### sysbench的CPU基准测试
+
+最典型的子系统测试就是CPU基准测试。该测试使用64位整数，测试计算素数直到某个最大值所需要的时间。下面的例子将比较两台不同的GNU/Linux服务器上的测试结果。第一台机器的CPU配置如下：
+
+```
+    [server1 ~]$ cat /proc/cpuinfo
+    ...
+    model name : AMD Opteron(tm) Processor 246
+    stepping : 1
+    cpu MHz : 1992.857
+    cache size : 1024 KB
+```
+
+在这台服务器上运行如下的测试：
+
+```
+    [server1 ~]$ sysbench --test=cpu --cpu-max-prime=20000 run
+    sysbench v0.4.8: multithreaded system evaluation benchmark
+    ...
+    Test execution summary: total time:                        121.7404s
+```
+
+第二台服务器配置了不同的CPU：
+
+```
+    [server2 ~]$ cat /proc/cpuinfo
+    ...
+    model name : Intel(R) Xeon(R) CPU     5130 @ 2.00GHz
+    stepping   : 6
+    cpu MHz    : 1995.005
+```
+
+测试结果如下：
+
+```
+    [server1 ~]$ sysbench --test=cpu --cpu-max-prime=20000 run
+    sysbench v0.4.8: multithreaded system evaluation benchmark
+    ...
+    Test execution summary:    total time:             61.8596s
+```
+
+测试的结果简单打印出了计算出素数的时间，很容易进行比较。在上面的测试中，第二台服务器的测试结果显示比第一台快两倍。
+
+#### sysbench的文件I/O基准测试
+
+文件I/O（fileio）基准测试可以测试系统在不同I/O负载下的性能。这对于比较不同的硬盘驱动器、不同的RAID卡、不同的RAID模式，都很有帮助。可以根据测试结果来调整I/O子系统。文件I/O基准测试模拟了很多InnoDB的I/O特性。
+
+测试的第一步是准备（prepare）阶段，生成测试用到的数据文件，生成的数据文件至少要比内存大。如果文件中的数据能完全放入内存中，则操作系统缓存大部分的数据，导致测试结果无法体现I/O密集型的工作负载。首先通过下面的命令创建一个数据集：
+
+```
+    $ sysbench --test=fileio --file-total-size=150G prepare
+```
+
+这个命令会在当前工作目录下创建测试文件，后续的运行（run）阶段将通过读写这些文件进行测试。第二步就是运行（run）阶段，针对不同的I/O类型有不同的测试选项：
+
+seqwr
+
+顺序写入。
+
+seqrewr
+
+顺序重写。
+
+seqrd
+
+顺序读取。
+
+rndrd
+
+随机读取。
+
+rndwr
+
+随机写入。
+
+rdnrw
+
+混合随机读/写。
+
+下面的命令运行文件I/O混合随机读/写基准测试：
+
+```
+    $ sysbench --test=fileio --file-total-size=150G --file-test-mode=rndrw/
+    --init-rng=on--max-time=300--max-requests=0 run
+```
+
+结果如下：
+
+```
+    sysbench v0.4.8: multithreaded system evaluation benchmark
+    
+    Running the test with following options:
+    Number of threads: 1
+    Initializing random number generator from timer.
+    
+    Extra file open flags: 0
+    128 files, 1.1719Gb each
+    150Gb total file size
+    Block size 16Kb
+    Number of random requests for random IO: 10000
+    Read/Write ratio for combined random IO test: 1.50
+    Periodic FSYNC enabled, calling fsync() each 100 requests.
+    Calling fsync() at the end of test, Enabled.
+    Using synchronous I/O mode
+    Doing random r/w test
+    Threads started!
+    Time limit exceeded, exiting...
+    Done.
+    
+    Operations performed: 40260 Read, 26840 Write, 85785 Other = 152885 Total
+    Read 629.06Mb Written 419.38Mb Total transferred 1.0239Gb (3.4948Mb/sec)
+      223.67 Requests/sec executed
+      
+    Test execution summary:
+        total time:                          300.0004s
+        total number of events:              67100
+        total time taken by event execution: 254.4601
+        per-request statistics:
+             min:                            0.0000s
+             avg:                            0.0038s
+             max:                            0.5628s
+             approx. 95 percentile:         0.0099s
+    Threads fairness:
+        events (avg/stddev):              67100.0000/0.00
+        execution time (avg/stddev):      254.4601/0.00
+```
+
+输出结果中包含了大量的信息。和I/O子系统密切相关的包括每秒请求数和总吞吐量。在上述例子中，每秒请求数是223.67 Requests/sec，吞吐量是3.4948MB/sec。另外，时间信息也非常有用，尤其是大约95％的时间分布。这些数据对于评估磁盘性能十分有用。
+
+测试完成后，运行清除（cleanup）操作删除第一步生成的测试文件：
+
+```
+    $ sysbench --test=fileio --file-total-size=150G cleanup
+```
+
+#### sysbench的OLTP基准测试
+
+OLTP基准测试模拟了一个简单的事务处理系统的工作负载。下面的例子使用的是一张超过百万行记录的表，第一步是先生成这张表：
+
+```
+    $ sysbench --test=oltp --oltp-table-size=1000000 --mysql-db=test/
+    --mysql-user=root prepare
+    sysbench v0.4.8: multithreaded system evaluation benchmark
+    
+    No DB drivers specified, using mysql
+    Creating table 'sbtest'...
+    Creating 1000000 records in table 'sbtest'...
+```
+
+生成测试数据只需要上面这条简单的命令即可。接下来可以运行测试，这个例子采用了8个并发线程，只读模式，测试时长60秒：
+
+```
+    $ sysbench --test=oltp --oltp-table-size=1000000 --mysql-db=test --mysql-user=root/
+    --max-time=60 --oltp-read-only=on --max-requests=0 --num-threads=8 run
+    sysbench v0.4.8: multithreaded system evaluation benchmark
+    
+    No DB drivers specified, using mysql
+    WARNING: Preparing of "BEGIN" is unsupported, using emulation
+    (last message repeated 7 times)
+    Running the test with following options:
+    Number of threads: 8
+    
+    Doing OLTP test.
+    Running mixed OLTP test
+    Doing read-only test
+    Using Special distribution (12 iterations, 1 pct of values are returned in 75 pct
+    cases)
+    Using "BEGIN" for starting transactions
+    Using auto_inc on the id column
+    Threads started!
+    Time limit exceeded, exiting...
+    (last message repeated 7 times)
+    Done.
+    
+    OLTP test statistics:
+        queries performed:
+            read:                               179606
+            write:                              0
+            other:                              25658
+            total:                              205264
+        transactions:                           12829 (213.07 per sec.)
+        deadlocks:                              0 (0.00 per sec.)
+        read/write requests:                    179606 (2982.92 per sec.)
+        other operations:                       25658 (426.13 per sec.)
+    
+    Test execution summary:
+        total time:                             60.2114s
+        total number of events:                 12829
+        total time taken by event execution:    480.2086
+        per-request statistics:
+            min:                                0.0030s
+            avg:                                0.0374s
+            max:                                1.9106s
+            approx. 95 percentile:              0.1163s
+    Threads fairness:
+        events (avg/stddev):              1603.6250/70.66
+        execution time (avg/stddev):      60.0261/0.06
+```
+
+如上所示，结果中包含了相当多的信息。其中最有价值的信息如下：
+
+- 总的事务数。
+- 每秒事务数。
+- 时间统计信息（最小、平均、最大响应时间，以及95％百分比响应时间）。
+- 线程公平性统计信息（thread-fairness），用于表示模拟负载的公平性。
+
+这个例子使用的是sysbench的第4版，在SourceForge.net可以下载到这个版本的编译好的可执行文件。也可以从Launchpad下载最新的第5版的源代码自行编译（这是一件简单、有用的事情），这样就可以利用很多新版本的特性，包括可以基于多个表而不是单个表进行测试，可以每隔一定的间隔比如10秒打印出吞吐量和响应的结果。这些指标对于理解系统的行为非常重要。
+
+#### sysbench的其他特性
+
+*sysbench*还有一些其他的基准测试，但和数据库性能没有直接关系。
+
+memory内存（memory）
+
+测试内存的连续读写性能。
+
+线程（thread）
+
+测试线程调度器的性能。对于高负载情况下测试线程调度器的行为非常有用。
+
+互斥锁（mutex）
+
+测试互斥锁（mutex）的性能，方式是模拟所有线程在同一时刻并发运行，并都短暂请求互斥锁（互斥锁mutex是一种数据结构，用来对某些资源进行排他性访问控制，防止因并发访问导致问题）。
+
+顺序写（seqwr）
+
+测试顺序写的性能。这对于测试系统的实际性能瓶颈很重要。可以用来测试RAID控制器的高速缓存的性能状况，如果测试结果异常则需要引起重视。例如，如果RAID控制器写缓存没有电池保护，而磁盘的压力达到了3000次请求/秒，就是一个问题，数据可能是不安全的。
+
+另外，除了指定测试模式参数（*--test*）外，*sysbench*还有其他很多参数，比如*--num-threads、--max-requests*和*--max-time*参数，更多信息请查阅相关文档。
+
+### 2.5.4　数据库测试套件中的*dbt2* TPC-C测试
+
+数据库测试套件（Database Test Suite）中的*dbt2*是一款免费的TPC-C测试工具。TPC-C是TPC组织发布的一个测试规范，用于模拟测试复杂的在线事务处理系统（OLTP）。它的测试结果包括每分钟事务数（tpmC），以及每事务的成本（Price/tpmC）。这种测试的结果非常依赖硬件环境，所以公开发布的TPC-C测试结果都会包含具体的系统硬件配置信息。
+
+![img](http://localhost:8000/c58e1839-40bc-4171-828a-4f2242edaf62/images/00002.jpeg)*dbt2*并不是真正的TPC-C测试，它没有得到TPC组织的认证，它的结果不能直接跟TPC-C的结果做对比。而且本书作者开发了一款比*dbt2*更好的测试工具，详细情况见2.5.5节。
+
+下面看一个设置和运行*dbt2*基准测试的例子。这里使用的是*dbt2* 0.37版本，这个版本能够支持MySQL的最新版本（还有更新的版本，但包含了一些MySQL不能提供完全支持的修正）。下面是测试步骤。
+
+1．准备测试数据。
+下面的命令会在指定的目录创建用于10个仓库的数据。每个仓库使用大约700MB磁盘空间，测试所需要的总的磁盘空间和仓库的数量成正比。因此，可以通过-w参数来调整仓库的个数以生成合适大小的数据集。
+
+```
+    # src/datagen -w 10 -d /mnt/data/dbt2-w10
+    warehouses = 10
+    districts = 10
+    customers = 3000
+    items = 100000
+    orders = 3000
+    stock = 100000
+    new_orders = 900
+    
+    Output directory of data files: /mnt/data/dbt2-w10
+    
+    Generating data files for 10 warehouse(s)...
+    Generating item table data...
+    Finished item table data...
+    Generating warehouse table data...
+    Finished warehouse table data...
+    Generating stock table data...
+```
+
+2．加载数据到MySQL数据库。
+下面的命令创建一个名为dbt2w10的数据库，并且将上一步生成的测试数据加载到数据库中（*-d*参数指定数据库，*-f*参数指定测试数据所在的目录）。
+
+```
+    # scripts/mysql/mysql_load_db.sh -d dbt2w10 -f /mnt/data/dbt2-w10/
+    -s /var/lib/mysql/mysql.sock
+```
+
+3．运行测试。
+最后一步是运行*scripts*脚本目录中的如下命令执行测试：
+
+![img](http://localhost:8000/c58e1839-40bc-4171-828a-4f2242edaf62/images/00014.jpeg)
+
+![img](http://localhost:8000/c58e1839-40bc-4171-828a-4f2242edaf62/images/00015.jpeg)
+
+最重要的结果是输出信息中末尾处的一行：
+
+```
+    3396.95 new-order transactions per minute（NOTPM）
+```
+
+这里显示了系统每分钟可以处理的最大事务数，越大越好（new-order并非一种事务类型的专用术语，它只是表明测试是模拟用户在假想的电子商务网站下的新订单）。
+
+通过修改某些参数可以定制不同的基准测试。
+
+*-c*
+
+到数据库的连接数。修改该参数可以模拟不同程度的并发性，以测试系统的可扩展性。-e
+
+*-e*
+
+启用零延迟（zero-delay）模式，这意味着在不同查询之间没有时间延迟。这可以对数据库施加更大的压力，但不符合真实情况。因为真实的用户在执行一个新查询前总需要一个“思考时间（think time）”。
+
+*-t*
+
+基准测试的持续时间。这个参数应该精心设置，否则可能导致测试的结果是无意义的。对于I/O密集型的基准测试，太短的持续时间会导致错误的结果，因为系统可能还没有足够的时间对缓存进行预热。而对于CPU密集型的基准测试，这个时间又不应该设置得太长；否则生成的数据量过大，可能转变成I/O密集型。
+
+这种基准测试的结果，可以比单纯的性能测试提供更多的信息。例如，如果发现测试有很多的回滚现象，那么就可以判定很可能什么地方出现错误了。
+
+### 2.5.5　Percona的TPCC-MySQL测试工具
+
+尽管*sysbench*的测试很简单，并且结果也具有可比性，但毕竟无法模拟真实的业务压力。相比而言，TPC-C测试则能模拟真实压力。2.5.4节谈到的*dbt2*是TPC-C的一个很好的实现，但也还有一些不足之处。为了满足很多大型基准测试的需求，本书的作者重新开发了一款新的类TPC-C测试工具，代码放在Launchpad上，可以通过如下地址获取：*https://code.launchpad.net/~percona-dev/perconatools/tpcc-mysql*，其中包含了一个README文件说明了如何编译。该工具使用很简单，但测试数据中的仓库数量很多，可能需要用到其中的并行数据加载工具来加快准备测试数据集的速度，否则这一步会花费很长时间。
+
+使用这个测试工具，需要创建数据库和表结构、加载数据、执行测试三个步骤。数据库和表结构通过包含在源码中的SQL脚本创建。加载数据通过用C写的*tpcc_load*工具完成，该工具需要自行编译。加载数据需要执行一段时间，并且会产生大量的输出信息（一般都应该将程序输出重定向到文件中，这里尤其应该如此，否则可能丢失滚动的历史信息）。下面的例子显示了配置过程，创建了一个小型（五个仓库）的测试数据集，数据库名为tpcc5。
+
+```
+    <b>$ ./tpcc_load localhost tpcc5 username p4ssword 5</b>
+    *************************************
+    *** ###easy### TPC-C Data Loader ***
+    *************************************
+    <Parameters>
+        [server]: localhost
+        [port]: 3306
+        [DBname]: tpcc5
+          [user]: username
+          [pass]: p4ssword
+      [warehouse]: 5
+    TPCC Data Load Started...
+    Loading Item
+    .................................................. 5000
+    .................................................. 10000
+    .................................................. 15000
+    
+    [output snipped for brevity]
+    
+    Loading Orders for D=10, W= 5
+    .......... 1000
+    .......... 2000
+    .......... 3000
+    Orders Done.
+    
+    ...DATA LOADING COMPLETED SUCCESSFULLY.
+```
+
+然后，使用*tpcc_start*工具开始执行基准测试。其同样会产生很多输出信息，还是建议重定向到文件中。下面是一个简单的示例，使用五个线程操作五个仓库，30秒预热时间，30秒测试时间：
+
+```
+    $ ./tpcc_start localhost tpcc5 username p4ssword 5 5 30 30
+    ***************************************
+    *** ###easy### TPC-C Load Generator ***
+    ***************************************
+    <Parameters>
+          [server]: localhost
+          [port]: 3306
+          [DBname]: tpcc5
+            [user]: username
+            [pass]: p4ssword
+     [warehouse]: 5
+    [connection]: 5
+        [rampup]: 30 (sec.)
+       [measure]: 30 (sec.)
+    
+    RAMP-UP TIME.(30 sec.)
+    
+    MEASURING START.
+    
+    10, 63(0):0.40, 63(0):0.42, 7(0):0.76, 6(0):2.60, 6(0):0.17
+    20, 75(0):0.40, 74(0):0.62, 7(0):0.04, 9(0):2.38, 7(0):0.75
+    30, 83(0):0.22, 84(0):0.37, 9(0):0.04, 7(0):1.97, 9(0):0.80
+    
+    STOPPING THREADS.....
+    
+    <RT Histogram>
+    
+    1.New-Order
+    2.Payment
+    3.Order-Status
+    4.Delivery
+    5.Stock-Level
+    
+    <90th Percentile RT (MaxRT)>
+       New-Order : 0.37 (1.10)
+         Payment : 0.47 (1.24)
+    Order-Status : 0.06 (0.96)
+        Delivery : 2.43 (2.72)
+     Stock-Level : 0.75 (0.79)
+     
+    <Raw Results>
+      [0] sc:221 lt:0 rt:0 fl:0
+      [1] sc:221 lt:0 rt:0 fl:0
+      [2] sc:23 lt:0 rt:0 fl:0
+      [3] sc:22 lt:0 rt:0 fl:0
+      [4] sc:22 lt:0 rt:0 fl:0
+    in 30 sec.
+    
+    <Raw Results2(sum ver.)>
+      [0] sc:221 lt:0 rt:0 fl:0
+      [1] sc:221 lt:0 rt:0 fl:0
+      [2] sc:23 lt:0 rt:0 fl:0
+      [3] sc:22 lt:0 rt:0 fl:0
+      [4] sc:22 lt:0 rt:0 fl:0
+    
+    <Constraint Check> (all must be [OK])
+    [transaction percentage]
+            Payment: 43.42% (>=43.0%) [OK]
+      Order-Status: 4.52% (>= 4.0%) [OK]
+          Delivery: 4.32% (>= 4.0%) [OK]
+       Stock-Level: 4.32% (>= 4.0%) [OK]
+    [response time (at least 90% passed)]
+         New-Order: 100.00% [OK]
+           Payment: 100.00% [OK]
+      Order-Status: 100.00% [OK]
+          Delivery: 100.00% [OK]
+       Stock-Level: 100.00% [OK]
+    
+    <TpmC>
+                     442.000 TpmC
+```
+
+最后一行就是测试的结果：每分钟执行完的事务数[(11)](part0009_split_006.html#ch11)。如果紧挨着最后一行前发现有异常结果输出，比如有关于约束检查的信息，那么可以检查一下响应时间的直方图，或者通过其他详细输出信息寻找线索。当然，最好是能使用本章前面提到的一些脚本，这样就可以很容易获得测试执行期间的详细的诊断数据和性能数据。
+
+## 2.6　总结
+
+每个MySQL的使用者都应该了解一些基准测试的知识。基准测试不仅仅是用来解决业务问题的一种实践行动，也是一种很好的学习方法。学习如何将问题分解成可以通过基准测试来获得答案的方法，就和在数学课上从文字题目中推导出方程式一样。首先正确地描述问题，之后选择合适的基准测试来回答问题，设置基准测试的持续时间和参数，运行测试，收集数据，分析结果数据，这一系列的训练可以帮助你成为更好的MySQL用户。
+
+如果你还没有做过基准测试，那么建议至少要熟悉*sysbench*。可以先学习如何使用oltp和fileio测试。oltp基准测试可以很方便地比较不同系统的性能。另一方面，文件系统和磁盘基准测试，则可以在系统出现问题时有效地诊断和隔离异常的组件。通过这样的基准测试，我们多次发现了一些数据库管理员的说法存在问题，比如SAN存储真的出现了一块坏盘，或者RAID控制器的缓存策略的配置并不是像工具中显示的那样。通过对单块磁盘进行基准测试，如果发现每秒可以执行14000次随机读，那要么是碰到了严重的错误，要么是配置出现了问题[(12)](part0009_split_006.html#ch12)。
+
+如果经常执行基准测试，那么制定一些原则是很有必要的。选择一些合适的测试工具并深入地学习。可以建立一个脚本库，用于配置基准测试，收集输出结果、系统性能和状态信息，以及分析结果。使用一种熟练的绘图工具如*gnuplot*或者*R*（不用浪费时间使用电子表格，它们既笨重，速度又慢）。尽量早和多地使用绘图的方式，来发现基准测试和系统中的问题和错误。你的眼睛是比任何脚本和自动化工具都更有效的发现问题的工具。
+
+# 3. 服务器性能剖析
+
+​	这看起来是个艰巨的任务，但是事实证明，有一个简单的方法能够从噪声中发现苗头。这个方法就是专注于测量服务器的时间花费在哪里，使用的技术则是性能剖析（profiling）
+
+## 3.1　性能优化简介
+
+​	问10个人关于性能的问题，可能会得到10个不同的回答，比如“每秒查询次数”、“CPU利用率”、“可扩展性”之类。这其实也没有问题，每个人在不同场景下对性能有不同的理解，但本章将给性能一个正式的定义。我们将性能定义为完成某件任务所需要的时间度量，换句话说，性能即响应时间，这是一个非常重要的原则。我们通过任务和时间而不是资源来测量性能。数据库服务器的目的是执行SQL语句，所以它关注的任务是查询或者语句，如SELECT、UPDATE、DELETE等[(1)](part0010_split_006.html#ch1)。数据库服务器的性能用查询的响应时间来度量，单位是每个查询花费的时间。
+
+​	很多人对此很迷茫。假如你认为性能优化是降低CPU利用率，那么可以减少对资源的使用。但这是一个陷阱，资源是用来消耗并用来工作的，所以有时候消耗更多的资源能够加快查询速度。很多时候将使用老版本InnoDB引擎的MySQL升级到新版本后，CPU利用率会上升得很厉害，这并不代表性能出现了问题，反而说明新版本的InnoDB对资源的利用率上升了。查询的响应时间则更能体现升级后的性能是不是变得更好。版本升级有时候会带来一些bug，比如不能利用某些索引从而导致CPU利用率上升。CPU利用率只是一种现象，而不是很好的可度量的目标。
+
+​	同样，如果把性能优化仅仅看成是提升每秒查询量，这其实只是吞吐量优化。吞吐量的提升可以看作性能优化的副产品[(3)](part0010_split_006.html#ch3)。对查询的优化可以让服务器每秒执行更多的查询，因为每条查询执行的时间更短了（吞吐量的定义是单位时间内的查询数量，这正好是我们对性能的定义的倒数）。
+
+​	所以如果目标是降低响应时间，那么就需要理解为什么服务器执行查询需要这么多时间，然后去减少或者消除那些对获得查询结果来说不必要的工作。也就是说，先要搞清楚时间花在哪里。这就引申出优化的第二个原则：无法测量就无法有效地优化。所以第一步应该测量时间花在什么地方。
+
+​	我们观察到，很多人在优化时，都将精力放在修改一些东西上，却很少去进行精确的测量。我们的做法完全相反，将花费非常多，甚至90％的时间来测量响应时间花在哪里。如果通过测量没有找到答案，那要么是测量的方式错了，要么是测量得不够完整。如果测量了系统中完整而且正确的数据，性能问题一般都能暴露出来，对症下药的解决方案也就比较明了。测量是一项很有挑战性的工作，并且分析结果也同样有挑战性，测出时间花在哪里，和知道为什么花在那里，是两码事。
+
+​	前面提到需要合适的测量范围，这是什么意思呢？合适的测量范围是说只测量需要优化的活动。有两种比较常见的情况会导致不合适的测量：
+
+- 在错误的时间启动和停止测量。
+- 测量的是聚合后的信息，而不是目标活动本身。
+
+
+
+​	例如，一个常见的错误是先查看慢查询，然后又去排查整个服务器的情况来判断问题在哪里。如果确认有慢查询，那么就应该测量慢查询，而不是测量整个服务器。测量的应该是从慢查询的开始到结束的时间，而不是查询之前或查询之后的时间。
+
+​	完成一项任务所需要的时间可以分成两部分：执行时间和等待时间。如果要优化任务的执行时间，最好的办法是通过测量定位不同的子任务花费的时间，然后优化去掉一些子任务、降低子任务的执行频率或者提升子任务的效率。而优化任务的等待时间则相对要复杂一些，因为等待有可能是由其他系统间接影响导致，任务之间也可能由于争用磁盘或者CPU资源而相互影响。根据时间是花在执行还是等待上的不同，诊断也需要不同的工具和技术。
+
+​	刚才说到需要定位和优化子任务，但只是一笔带过。一些运行不频繁或者很短的子任务对整体响应时间的影响很小，通常可以忽略不计。那么如何确认哪些子任务是优化的目标呢？这个时候性能剖析就可以派上用场了。
+
+### 3.1.1　通过性能剖析进行优化
+
+​	为了更好地说明，这里举一个对整个数据库服务器工作负载的性能剖析的例子，主要输出的是各种类型的查询和执行查询的时间。这是从整体的角度来分析响应时间，后面会演示其他角度的分析结果。下面的输出是用Percona Toolkit中的*pt-query-digest*（实际上就是著名的Maatkit工具中的*mk-query-digest*）分析得到的结果。为了显示方便，对结果做了一些微调，并且只截取了前面几行结果：
+
+```
+ Rank Response time    Calls R/Call Item
+    ==== ================ ===== ====== =======
+        1 11256.3618 68.1% 78069 0.1442 SELECT InvitesNew
+        2 2029.4730 12.3% 14415 0.1408 SELECT StatusUpdate
+        3 1345.3445 8.1% 3520 0.3822 SHOW STATUS
+```
+
+​	上面只是性能剖析结果的前几行，根据总响应时间进行排名，只包括剖析所需要的最小列组合。每一行都包括了查询的响应时间和占总时间的百分比、查询的执行次数、单次执行的平均响应时间，以及该查询的摘要。通过这个性能剖析可以很清楚地看到每个查询相互之间的成本比较，以及每个查询占总成本的比较。在这个例子中，任务指的就是查询，实际上在分析MySQL的时候经常都指的是查询。
+
+​	事实上，当基于执行时间的分析发现一个任务需要花费太多时间的时候，应该深入去分析一下，可能会发现某些“执行时间”实际上是在等待。例如，上面简单的性能剖析的输出显示表InvitesNew上的SELECT查询花费了大量时间，如果深入研究，则可能发现时间都花费在等待I/O完成上。
+
+​	举个例子，在Percona Server 5.0中，慢查询日志揭露了一些性能低下的原因，如磁盘I/O等待或者行级锁等待。如果日志中显示一条查询花费10秒，其中9.6秒在等待磁盘I/O，那么追究其他4％的时间花费在哪里就没有意义，磁盘I/O才是最重要的原因。
+
+### 3.1.2　理解性能剖析
+
+​	MySQL的性能剖析（profile）将最重要的任务展示在前面，但有时候没显示出来的信息也很重要。可以参考一下前面提到过的性能剖析的例子。不幸的是，尽管性能剖析输出了排名、总计和平均值，但还是有很多需要的信息是缺失的，如下所示。
+
+**值得优化的查询（worthwhile query）**
+
+​	性能剖析不会自动给出哪些查询值得花时间去优化。这把我们带回到优化的本意，如果你读过Cary Millsap的书，对此就会有更多的理解。这里我们要再次强调两点：第一，一些只占总响应时间比重很小的查询是不值得优化的。根据阿姆达尔定律（Amdahl's Law），对一个占总响应时间不超过5％的查询进行优化，无论如何努力，收益也不会超过5％。第二，如果花费了1000美元去优化一个任务，但业务的收入没有任何增加，那么可以说反而导致业务被逆优化了1000美元。如果优化的成本大于收益，就应当停止优化。
+
+**异常情况**
+
+​	某些任务即使没有出现在性能剖析输出的前面也需要优化。比如某些任务执行次数很少，但每次执行都非常慢，严重影响用户体验。因为其执行频率低，所以总的响应时间占比并不突出。
+
+**未知的未知[(5)](part0010_split_006.html#ch5)**
+
+​	一款好的性能剖析工具会显示可能的“丢失的时间”。丢失的时间指的是任务的总时间和实际测量到的时间之间的差。例如，如果处理器的CPU时间是10秒，而剖析到的任务总时间是9.7秒，那么就有300毫秒的丢失时间。这可能是有些任务没有测量到，也可能是由于测量的误差和精度问题的缘故。如果工具发现了这类问题，则要引起重视，因为有可能错过了某些重要的事情。即使性能剖析没有发现丢失时间，也需要注意考虑这类问题存在的可能性，这样才不会错过重要的信息。我们的例子中没有显示丢失的时间，这是我们所使用工具的一个局限性。
+
+**被掩藏的细节**
+
+​	性能剖析无法显示所有响应时间的分布。只相信平均值是非常危险的，它会隐藏很多信息，而且无法表达全部情况。Peter经常举例说医院所有病人的平均体温没有任何价值[(6)](part0010_split_006.html#ch6)。假如在前面的性能剖析的例子的第一项中，如果有两次查询的响应时间是1秒，而另外12771次查询的响应时间是几十微秒，结果会怎样？只从平均值里是无法发现两次1秒的查询的。要做出最好的决策，需要为性能剖析里输出的这一行中包含的12773次查询提供更多的信息，尤其是更多响应时间的信息，比如直方图、百分比、标准差、偏差指数等。
+
+​	好的工具可以自动地获得这些信息。实际上，*pt-query-digest*就在剖析的结果里包含了很多这类细节信息，并且输出在剖析报告中。对此我们做了简化，可以将精力集中在重要而基础的例子上：通过排序将最昂贵的任务排在前面。本章后面会展示更多丰富而有用的性能剖析的例子。
+
+## 3.2　对应用程序进行性能剖析
+
+​	性能瓶颈可能有很多影响因素：
+
+- 外部资源，比如调用了外部的Web服务或者搜索引擎。
+- 应用需要处理大量的数据，比如分析一个超大的XML文件。
+- 在循环中执行昂贵的操作，比如滥用正则表达式。
+- 使用了低效的算法，比如使用暴力搜索算法（naïve search algorithm）来查找列表中的项。
+
+### 3.2.1　测量PHP应用程序
+
+​	略
+
+## 3.3　剖析MySQL查询
+
+### 3.3.1　剖析服务器负载
+
+**捕获MySQL的查询到日志文件中**
+
+​	在MySQL中，慢查询日志最初只是捕获比较“慢”的查询，而性能剖析却需要针对所有的查询。而且在MySQL 5.0及之前的版本中，慢查询日志的响应时间的单位是秒，粒度太粗了。幸运的是，这些限制都已经成为历史了。在MySQL 5.1及更新的版本中，慢日志的功能已经被加强，可以通过设置long_query_time为0来捕获所有的查询，而且查询的响应时间单位已经可以做到微秒级。如果使用的是Percona Server，那么5.0版本就具备了这些特性，而且Percona Server提供了对日志内容和查询捕获的更多控制能力。
+
+​	在MySQL的当前版本中，慢查询日志是开销最低、精度最高的测量查询时间的工具。如果还在担心开启慢查询日志会带来额外的I/O开销，那大可以放心。我们在I/O密集型场景做过基准测试，慢查询日志带来的开销可以忽略不计（实际上在CPU密集型场景的影响还稍微大一些）。更需要担心的是日志可能消耗大量的磁盘空间。如果长期开启慢查询日志，注意要部署日志轮转（log rotation）工具。或者不要长期启用慢查询日志，只在需要收集负载样本的期间开启即可。
+
+​	第二种技术是通过抓取TCP网络包，然后根据MySQL的客户端/服务端通信协议进行解析。可以先通过*tcpdump*将网络包数据保存到磁盘，然后使用*pt-query-digest*的*--type=tcpdump*选项来解析并分析查询。此方法的精度比较高，并且可以捕获所有查询。还可以解析更高级的协议特性，比如可以解析二进制协议，从而创建并执行服务端预解析的语句（prepared statement）及压缩协议。另外还有一种方法，就是通过MySQL Proxy代理层的脚本来记录所有查询，但在实践中我们很少这样做。
+
+**分析查询日志**
+
+​	强烈建议大家从现在起就利用慢查询日志捕获服务器上的所有查询，并且进行分析。可以在一些典型的时间窗口如业务高峰期的一个小时内记录查询。如果业务趋势比较均衡，那么一分钟甚至更短的时间内捕获需要优化的低效查询也是可行的。
+
+​	不要直接打开整个慢查询日志进行分析，这样做只会浪费时间和金钱。首先应该生成一个剖析报告，如果需要，则可以再查看日志中需要特别关注的部分。自顶向下是比较好的方式，否则有可能像前面提到的，反而导致业务的逆优化。
+
+​	从慢查询日志中生成剖析报告需要有一款好工具，这里我们建议使用*pt-query-digest*，这毫无疑问是分析MySQL查询日志最有力的工具。该工具功能强大，包括可以将查询报告保存到数据库中，以及追踪工作负载随时间的变化。
+
+一般情况下，只需要将慢查询日志文件作为参数传递给*pt-query-digest*，就可以正确地工作了。它会将查询的剖析报告打印出来，并且能够选择将“重要”的查询逐条打印出更详细的信息。输出的报告细节详尽，绝对可以让生活更美好。该工具还在持续的开发中，因此要了解最新的功能请阅读最新版本的文档。
+
+这里给出一份*pt-query-digest*输出的报告的例子，作为进行性能剖析的开始。这是前面提到过的一个未修改过的剖析报告：
+
+```
+    # Profile
+    # Rank Query ID Response time Calls R/Call V/M Item
+    # ==== ================== ================ ===== ====== ===== =======
+    #    1 0xBFCF8E3F293F6466 11256.3618 68.1% 78069  0.1442 0.21 SELECT InvitesNew?
+    #    2 0x620B8CAB2B1C76EC  2029.4730 12.3% 14415  0.1408 0.21 SELECT StatusUpdate?
+    #    3 0xB90978440CC11CC7  1345.3445  8.1%  3520  0.3822 0.00 SHOW  STATUS
+    #    4 0xCB73D6B5B031B4CF  1341.6432  8.1%  3509  0.3823 0.00 SHOW  STATUS
+    # MISC 0xMISC               560.7556  3.4%  23930 0.0234 0.0 <17 ITEMS>
+```
+
+​	可以看到这个比之前的版本多了一些细节。首先，每个查询都有一个ID，这是对查询语句计算出的哈希值指纹，计算时去掉了查询条件中的文本值和所有空格，并且全部转化为小写字母（请注意第三条和第四条语句的摘要看起来一样，但哈希指纹是不一样的）。该工具对表名也有类似的规范做法。表名InvitesNew后面的问号意味着这是一个分片（shard）的表，表名后面的分片标识被问号替代，这样就可以将同一组分片表作为一个整体做汇总统计。这个例子实际上是来自一个压力很大的分片过的Facebook应用。
+
+​	报告中的V/M列提供了方差均值比（variance-to-mean ratio）的详细数据，方差均值比也就是常说的离差指数（index of dispersion）。离差指数高的查询对应的执行时间的变化较大，而这类查询通常都值得去优化。如果*pt-query-digest*指定了*--explain*选项，输出结果中会增加一列简要描述查询的执行计划，执行计划是查询背后的“极客代码”。通过联合观察执行计划列和V/M列，可以更容易识别出性能低下需要优化的查询。
+
+​	最后，在尾部也增加了一行输出，显示了其他17个占比较低而不值得单独显示的查询的统计数据。可以通过*--limit*和*--outliers*选项指定工具显示更多查询的详细信息，而不是将一些不重要的查询汇总在最后一行。默认只会打印时间消耗前10位的查询，或者执行时间超过1秒阈值很多倍的查询，这两个限制都是可配置的。
+
+​	剖析报告的后面包含了每种查询的详细报告。可以通过查询的ID或者排名来匹配前面的剖析统计和查询的详细报告。下面是排名第一也就是“最差”的查询的详细报告：
+
+![](https://pic.imgdb.cn/item/6155e3b32ab3f51d914f62bc.jpg)
+
+​	查询报告的顶部包含了一些元数据，包括查询执行的频率、平均并发度，以及该查询性能最差的一次执行在日志文件中的字节偏移值，接下来还有一个表格格式的元数据，包括诸如标准差一类的统计信息[(9)](part0010_split_006.html#ch9)。
+
+​	接下来的部分是响应时间的直方图。有趣的是，可以看到上面这个查询在Query_time distribution部分的直方图上有两个明显的高峰，大部分情况下执行都需要几百毫秒，但在快三个数量级的部分也有一个明显的尖峰，几百微秒就能执行完成。如果这是Percona Server的记录，那么在查询日志中还会有更多丰富的属性，可以对查询进行切片分析到底发生了什么。比如可能是因为查询条件传递了不同的值，而这些值的分布很不均衡，导致服务器选择了不同的索引；或者是由于查询缓存命中等。在实际系统中，这种有两个尖峰的直方图的情况很少见，尤其是对于简单的查询，查询越简单执行计划也越稳定。
+
+​	在细节报告的最后部分是方便复制、粘贴到终端去检查表的模式和状态的语句，以及完整的可用于EXPLAIN分析执行计划的语句。EXPLAIN分析的语句要求所有的条件是文本值而不是“指纹”替代符，所以是真正可直接执行的语句。在本例中是执行时间最长的一条实际的查询。
+
+​	确定需要优化的查询后，可以利用这个报告迅速地检查查询的执行情况。这个工具我们经常使用，并且会根据使用的情况不断进行修正以帮助提升工具的可用性和效率，强烈建议大家都能熟练使用它。MySQL本身在未来或许也会有更多复杂的测量点和剖析工具，但在本书写作时，通过慢查询日志记录查询或者使用*pt-query-digest*分析*tcpdump*的结果，是可以找到的最好的两种方式。
+
+### 3.3.2　剖析单条查询
+
+​	在定位到需要优化的单条查询后，可以针对此查询“钻取”更多的信息，确认为什么会花费这么长的时间执行，以及需要如何去优化。关于如何优化查询的技术将在本书后续的一些章节讨论，在此之前还需要介绍一些相关的背景知识。本章的主要目的是介绍如何方便地测量查询执行的各部分花费了多少时间，有了这些数据才能决定采用何种优化技术。
+
+​	不幸的是，MySQL目前大多数的测量点对于剖析查询都没有什么帮助。当然这种状况正在改善，但在本书写作之际，大多数生产环境的服务器还没有使用包含最新剖析特性的版本。所以在实际应用中，除了SHOW STATUS、SHOW PROFILE、检查慢查询日志的条目（这还要求必须是Percona Server，官方MySQL版本的慢查询日志缺失了很多附加信息）这三种方法外就没有什么更好的办法了。下面将逐一演示如何使用这三种方法来剖析单条查询，看看每一种方法是如何显示查询的执行情况的。
+
+**使用SHOW PROFILE**
+
+​	SHOW PROFILE命令是在MySQL 5.1以后的版本中引入的，来源于开源社区中的Jeremy Cole的贡献。这是在本书写作之际唯一一个在GA版本中包含的真正的查询剖析工具。默认是禁用的，但可以通过服务器变量在会话（连接）级别动态地修改。
+
+```
+    mysql> SET profiling = 1;
+```
+
+​	然后，在服务器上执行的所有语句，都会测量其耗费的时间和其他一些查询执行状态变更相关的数据。这个功能有一定的作用，而且最初的设计功能更强大，但未来版本中可能会被Performance Schema所取代。尽管如此，这个工具最有用的作用还是在语句执行期间剖析服务器的具体工作。
+
+​	当一条查询提交给服务器时，此工具会记录剖析信息到一张临时表，并且给查询赋予一个从1开始的整数标识符。下面是对Sakila样本数据库的一个视图的剖析结果[(10)](part0010_split_006.html#ch10)：
+
+​	
+
+```
+mysql> SELECT * FROM sakila.nicer_but_slower_film_list;
+    [query results omitted]
+    997 rows in set (0.17 sec)
+```
+
+该查询返回了997行记录，花费了大概1/6秒。下面看一下SHOW PROFILES有什么结果：
+
+![](https://pic.imgdb.cn/item/6155e4482ab3f51d91506126.jpg)
+
+​	剖析报告给出了查询执行的每个步骤及其花费的时间，看结果很难快速地确定哪个步骤花费的时间最多。因为输出是按照执行顺序排序，而不是按花费的时间排序的——而实际上我们更关心的是花费了多少时间，这样才能知道哪些开销比较大。但不幸的是无法通过诸如ORDER BY之类的命令重新排序。假如不使用SHOW PROFILE命令而是直接查询INFORMATION_SCHEMA中对应的表，则可以按照需要格式化输出：
+
+![](https://pic.imgdb.cn/item/6155e4a92ab3f51d9150fb8d.jpg)
+
+​	效果好多了！通过这个结果可以很容易看到查询时间太长主要是因为花了一大半的时间在将数据复制到临时表这一步。那么优化就要考虑如何改写查询以避免使用临时表，或者提升临时表的使用效率。第二个消耗时间最多的是“发送数据（Sending data）”，这个状态代表的原因非常多，可能是各种不同的服务器活动，包括在关联时搜索匹配的行记录等，这部分很难说能优化节省多少消耗的时间。另外也要注意到“结果排序（Sorting result）”花费的时间占比非常低，所以这部分是不值得去优化的。这是一个比较典型的问题，所以一般我们都不建议用户在“优化排序缓冲区（tuning sort buffer）”或者类似的活动上花时间。
+
+​	尽管剖析报告能帮助我们定位到哪些活动花费了最多的时间，但并不会告诉我们为什么会这样。要弄清楚为什么复制数据到临时表要花费这么多时间，就需要深入下去，继续剖析这一步的子任务。
+
+**使用SHOW STATUS**
+
+​	MySQL的SHOW STATUS命令返回了一些计数器。既有服务器级别的全局计数器，也有基于某个连接的会话级别的计数器。例如其中的Queries[(11)](part0010_split_006.html#ch11)在会话开始时为0，每提交一条查询增加1。如果执行SHOW GLOBAL STATUS（注意到新加的GLOBAL关键字），则可以查看服务器级别的从服务器启动时开始计算的查询次数统计。不同计数器的可见范围不一样，不过全局的计数器也会出现在SHOW STATUS的结果中，容易被误认为是会话级别的，千万不要搞迷糊了。在使用这个命令的时候要注意几点，就像前面所讨论的，收集合适级别的测量值是很关键的。如果打算优化从某些特定连接观察到的东西，测量的却是全局级别的数据，就会导致混乱。MySQL官方手册中对所有的变量是会话级还是全局级做了详细的说明。
+
+​	SHOW STATUS是一个有用的工具，但并不是一款剖析工具[(12)](part0010_split_006.html#ch12)。SHOW STATUS的大部分结果都只是一个计数器，可以显示某些活动如读索引的频繁程度，但无法给出消耗了多少时间。SHOW STATUS的结果中只有一条指的是操作的时间（Innodb_row_lock_time），而且只能是全局级的，所以还是无法测量会话级别的工作。
+
+​	尽管SHOW STATUS无法提供基于时间的统计，但对于在执行完查询后观察某些计数器的值还是有帮助的。有时候可以猜测哪些操作代价较高或者消耗的时间较多。最有用的计数器包括句柄计数器（handler counter）、临时文件和表计数器等。在附录B中会对此做更详细的解释。下面的例子演示了如何将会话级别的计数器重置为0，然后查询前面（“使用SHOW PROFILE”一节）提到的视图，再检查计数器的结果：
+
+![](https://pic.imgdb.cn/item/6155e51c2ab3f51d9151ba35.jpg)
+
+​	从结果可以看到该查询使用了三个临时表，其中两个是磁盘临时表，并且有很多的没有用到索引的读操作（Handler_read_rnd_next）。假设我们不知道这个视图的具体定义，仅从结果来推测，这个查询有可能是做了多表关联（join）查询，并且没有合适的索引，可能是其中一个子查询创建了临时表，然后和其他表做联合查询。而用于保存子查询结果的临时表没有索引，如此大致可以解释这样的结果。
+
+​	使用这个技术的时候，要注意SHOW STATUS本身也会创建一个临时表，而且也会通过句柄操作访问此临时表，这会影响到SHOW STATUS结果中对应的数字，而且不同的版本可能行为也不尽相同。比较前面通过SHOW PROFILES获得的查询的执行计划的结果来看，至少临时表的计数器多加了2。
+
+​	你可能会注意到通过EXPLAIN查看查询的执行计划也可以获得大部分相同的信息，但EXPLAIN是通过估计得到的结果，而通过计数器则是实际的测量结果。例如，EXPLAIN无法告诉你临时表是否是磁盘表，这和内存临时表的性能差别是很大的。附录D包含更多关于EXPLAIN的内容。
+
+**使用慢查询日志**
+
+​	那么针对上面这样的查询语句，Percona Server对慢查询日志做了哪些改进？下面是“使用SHOW PROFILE”一节演示过的相同的查询执行后抓取到的结果：
+
+```
+ # Time: 110905 17:03:18
+    # User@Host: root[root] @ localhost [127.0.0.1]
+    # Thread_id: 7 Schema: sakila Last_errno: 0 Killed: 0
+    # Query_time: 0.166872 Lock_time: 0.000552 Rows_sent: 997 Rows_examined: 24861
+    Rows_affected: 0 Rows_read: 997
+    # Bytes_sent: 216528 Tmp_tables: 3 Tmp_disk_tables: 2 Tmp_table_sizes: 11627188
+    # InnoDB_trx_id: 191E
+    # QC_Hit: No Full_scan: Yes Full_join: No Tmp_table: Yes Tmp_table_on_disk: Yes
+    # Filesort: Yes Filesort_on_disk: No Merge_passes: 0
+    # InnoDB_IO_r_ops: 0 InnoDB_IO_r_bytes: 0 InnoDB_IO_r_wait: 0.000000
+    # InnoDB_rec_lock_wait: 0.000000 InnoDB_queue_wait: 0.000000
+    # InnoDB_pages_distinct: 20
+    # PROFILE_VALUES ... Copying to tmp table: 0.090623... [omitted]
+    SET timestamp=1315256598;
+    SELECT * FROM sakila.nicer_but_slower_film_list;
+```
+
+### 3.3.3　使用性能剖析
+
+​	当获得服务器或者查询的剖析报告后，怎么使用？好的剖析报告能够将潜在的问题显示出来，但最终的解决方案还需要用户来决定（尽管报告可能会给出建议）。优化查询时，用户需要对服务器如何执行查询有较深的了解。剖析报告能够尽可能多地收集需要的信息、给出诊断问题的正确方向，以及为其他诸如EXPLAIN等工具提供基础信息。这里只是先引出话题，后续章节将继续讨论。
+
+## 3.4　诊断间歇性问题
+
+​	间歇性的问题比如系统偶尔停顿或者慢查询，很难诊断。有些幻影问题只在没有注意到的时候才发生，而且无法确认如何重现，诊断这样的问题往往要花费很多时间，有时候甚至需要好几个月。在这个过程中，有些人会尝试以不断试错的方式来诊断，有时候甚至会想要通过随机地改变一些服务器的设置来侥幸地找到问题。
+
+​	尽量不要使用试错的方式来解决问题。这种方式有很大的风险，因为结果可能变得更坏。这也是一种令人沮丧且低效的方式。如果一时无法定位问题，可能是测量的方式不正确，或者测量的点选择有误，或者使用的工具不合适（也可能是缺少现成的工具，我们已经开发过工具来解决各个系统不透明导致的问题，包括从操作系统到MySQL都有）。
+
+​	为了演示为什么要尽量避免试错的诊断方式，下面列举了我们认为已经解决的一些间歇性数据库性能问题的实际案例：
+
+- 应用通过*curl*从一个运行得很慢的外部服务来获取汇率报价的数据。
+- *memcached*缓存中的一些重要条目过期，导致大量请求落到MySQL以重新生成缓存条目。
+- DNS查询偶尔会有超时现象。
+- 可能是由于互斥锁争用，或者内部删除查询缓存的算法效率太低的缘故，MySQL的查询缓存有时候会导致服务有短暂的停顿。
+- 当并发度超过某个阈值时，InnoDB的扩展性限制导致查询计划的优化需要很长的时间。
+
+### 3.4.1　单条查询问题还是服务器问题
+
+​	发现问题的蛛丝马迹了吗？如果有，则首先要确认这是单条查询的问题，还是服务器的问题。这将为解决问题指出正确的方向。如果服务器上所有的程序都突然变慢，又突然都变好，每一条查询也都变慢了，那么慢查询可能就不一定是原因，而是由于其他问题导致的结果。反过来说，如果服务器整体运行没有问题，只有某条查询偶尔变慢，就需要将注意力放到这条特定的查询上面。
+
+​	服务器的问题非常常见。在过去几年，硬件的能力越来越强，配置16核或者更多CPU的服务器成了标配，MySQL在SMP架构的机器上的可扩展性限制也就越来越显露出来。尤其是较老的版本，其问题更加严重，而目前生产环境中的老版本还非常多。新版本MySQL依然也还有一些扩展性限制，但相比老版本已经没有那么严重，而且出现的频率相对小很多，只是偶尔能碰到。这是好消息，也是坏消息：好消息是很少会碰到这个问题；坏消息则是一旦碰到，则需要对MySQL内部机制更加了解才能诊断出来。当然，这也意味着很多问题可以通过升级到MySQL新版本来解决[(13)](part0010_split_006.html#ch13)。
+
+​	那么如何判断是单条查询问题还是服务器问题呢？如果问题不停地周期性出现，那么可以在某次活动中观察到；或者整夜运行脚本收集数据，第二天来分析结果。大多数情况下都可以通过三种技术来解决，下面将一一道来。
+
+**使用SHOW GLOBAL STATUS**
+
+​	这个方法实际上就是以较高的频率比如一秒执行一次SHOW GLOBAL STATUS命令捕获数据，问题出现时，则可以通过某些计数器（比如Threads_running、Threads_connected、Questions和Queries）的“尖刺”或者“凹陷”来发现。这个方法比较简单，所有人都可以使用（不需要特殊的权限），对服务器的影响也很小，所以是一个花费时间不多却能很好地了解问题的好方法。下面是示例命令及其输出：
+
+```
+  $ mysqladmin ext -i1 | awk '
+        /Queries/{q=$4-qp;qp=$4}
+        /Threads_connected/{tc=$4}
+        /Threads_running/{printf "%5d %5d %5d\n", q, tc, $4}'
+    2147483647   136  7
+       798  136    7
+       767  134    9
+       828  134    7
+       683  134    7
+       784  135    7
+       614  134    7
+       108  134   24
+       187  134   31
+       179  134   28
+      1179  134    7
+      1151  134    7
+      1240  135    7
+      1000  135    7
+```
+
+​	这个命令每秒捕获一次SHOW GLOBAL STATUS的数据，输出给*awk*计算并输出每秒的查询数、Threads_connected和Threads_running（表示当前正在执行查询的线程数）。这三个数据的趋势对于服务器级别偶尔停顿的敏感性很高。一般发生此类问题时，根据原因的不同和应用连接数据库方式的不同，每秒的查询数一般会下跌，而其他两个则至少有一个会出现尖刺。在这个例子中，应用使用了连接池，所以Threads_connected没有变化。但正在执行查询的线程数明显上升，同时每秒的查询数相比正常数据有严重的下跌。
+
+​	如何解析这个现象呢？凭猜测有一定的风险。但在实践中有两个原因的可能性比较大。其中之一是服务器内部碰到了某种瓶颈，导致新查询在开始执行前因为需要获取老查询正在等待的锁而造成堆积。这一类的锁一般也会对应用服务器造成后端压力，使得应用服务器也出现排队问题。另外一个常见的原因是服务区突然遇到了大量查询请求的冲击，比如前端的*memcached*突然失效导致的查询风暴。
+
+​	这个命令每秒输出一行数据，可以运行几个小时或者几天，然后将结果绘制成图形，这样就可以方便地发现是否有趋势的突变。如果问题确实是间歇性的，发生的频率又较低，也可以根据需要尽可能长时间地运行此命令，直到发现问题再回头来看输出结果。大多数情况下，通过输出结果都可以更明确地定位问题。
+
+**使用SHOW PROCESSLIST**
+
+​	这个方法是通过不停地捕获SHOW PROCESSLIST的输出，来观察是否有大量线程处于不正常的状态或者有其他不正常的特征。例如查询很少会长时间处于“statistics”状态，这个状态一般是指服务器在查询优化阶段如何确定表关联的顺序——通常都是非常快的。另外，也很少会见到大量线程报告当前连接用户是“未经验证的用户（Unauthenticated user）”，这只是在连接握手的中间过程中的状态，当客户端等待输入用于登录的用户信息的时候才会出现。
+
+​	使用SHOW PROCESSLIST命令时，在尾部加上\G可以垂直的方式输出结果，这很有用，因为这样会将每一行记录的每一列都单独输出为一行，这样可以方便地使用*sort|uniq|sort*一类的命令来计算某个列值出现的次数：
+
+```
+    $ mysql -e 'SHOW PROCESSLIST\G' | grep State: | sort | uniq -c | sort -rn
+        744  State:
+        67   State: Sending data
+        36   State: freeing items
+         8   State: NULL
+         6   State: end
+         4   State: Updating
+         4   State: cleaning up
+         2   State: update
+         1   State: Sorting result
+         1   State: logging slow query
+```
+
+​	如果要查看不同的列，只需要修改grep的模式即可。在大多数案例中，State列都非常有用。从这个例子的输出中可以看到，有很多线程处于查询执行的结束部分的状态，包括“freeing items”、“end”、“cleaning up”和“logging slow query”。事实上，在案例中的这台服务器上，同样模式或类似的输出采样出现了很多次。大量的线程处于“freeing items”状态是出现了大量有问题查询的很明显的特征和指示。
+
+​	用这种技术查找问题，上面的命令行不是唯一的方法。如果MySQL服务器的版本较新，也可以直接查询INFORMATION_SCHEMA中的PROCESSLIST表；或者使用*innotop*工具以较高的频率刷新，以观察屏幕上出现的不正常查询堆积。上面演示的这个例子是由于InnoDB内部的争用和脏块刷新所导致，但有时候原因可能比这个要简单得多。一个经典的例子是很多查询处于“Locked”状态，这是MyISAM的一个典型问题，它的表级别锁定，在写请求较多时，可能迅速导致服务器级别的线程堆积。
+
+**使用查询日志**
+
+​	如果要通过查询日志发现问题，需要开启慢查询日志并在全局级别设置long_query_time为0，并且要确认所有的连接都采用了新的设置。这可能需要重置所有连接以使新的全局设置生效；或者使用Percona Server的一个特性，可以在不断开现有连接的情况下动态地使设置强制生效。
+
+​	如果因为某些原因，不能设置慢查询日志记录所有的查询，也可以通过*tcpdump*和*pt-query-digest*工具来模拟替代。要注意找到吞吐量突然下降时间段的日志。查询是在完成阶段才写入到慢查询日志的，所以堆积会造成大量查询处于完成阶段，直到阻塞其他查询的资源占用者释放资源后，其他的查询才能执行完成。这种行为特征的一个好处是，当遇到吞吐量突然下降时，可以归咎于吞吐量下降后完成的第一个查询（有时候也不一定是第一个查询。当某些查询被阻塞时，其他查询可以不受影响继续运行，所以不能完全依赖这个经验）。
+
+​	再重申一次，好的工具可以帮助诊断这类问题，否则要人工去几百GB的查询日志中找原因。下面的例子只有一行代码，却可以根据MySQL每秒将当前时间写入日志中的模式统计每秒的查询数量：
+
+```
+   $ awk '/^# Time:/{print$3,$4，c;c=0}/^# User/{c++}' slow-query.log
+   080913 21:52:17 51
+   080913 21:52:18 29
+   080913 21:52:19 34
+   080913 21:52:20 33
+   080913 21:52:21 38
+   080913 21:52:22 15
+   080913 21:52:23 47
+   080913 21:52:24 96
+   080913 21:52:25 6
+   080913 21:52:26 66
+   080913 21:52:27 37
+   080913 21:52:28 59
+```
+
+从上面的输出可以看到有吞吐量突然下降的情况发生，而且在下降之前还有一个突然的高峰，仅从这个输出而不去查询当时的详细信息很难确定发生了什么，但应该可以说这个突然的高峰和随后的下降一定有关联。不管怎么说，这种现象都很奇怪，值得去日志中挖掘该时间段的详细信息（实际上通过日志的详细信息，可以发现突然的高峰时段有很多连接被断开的现象，可能是有一台应用服务器重启导致的。所以不是所有的问题都是MySQL的问题）。
+
+**理解发现的问题（Making sense of the findings）**
+
+​	可视化的数据最具有说服力。上面只演示了很少的几个例子，但在实际情况中，利用上面的工具诊断时可能产生大量的输出结果。可以选择用*gnuplot*或*R*，或者其他绘图工具将结果绘制成图形。这些绘图工具速度很快，比电子表格要快得多，而且可以对图上的一些异常的地方进行缩放，这比在终端中通过滚动条翻看文字要好用得多，除非你是“黑客帝国”中的矩阵观察者[(14)](part0010_split_006.html#ch14)。
+
+​	我们建议诊断问题时先使用前两种方法：SHOW STATUS和SHOW PROCESSLIST。这两种方法的开销很低，而且可以通过简单的shell脚本或者反复执行的查询来交互式地收集数据。分析慢查询日志则相对要困难一些，经常会发现一些蛛丝马迹，但仔细去研究时可能又消失了。这样我们很容易会认为其实没有问题。
+
+​	发现输出的图形异常意味着什么？通常来说可能是查询在某个地方排队了，或者某种查询的量突然飙升了。接下来的任务就是找出这些原因。
+
+### 3.4.2　捕获诊断数据
+
+Capturing Diagnostic Data
+
+当出现间歇性问题时，需要尽可能多地收集所有数据，而不只是问题出现时的数据。虽然这样会收集大量的诊断数据，但总比真正能够诊断问题的数据没有被收集到的情况要好。
+
+在开始之前，需要搞清楚两件事：
+
+1. 一个可靠且实时的“触发器”，也就是能区分什么时候问题出现的方法。
+2. 一个收集诊断数据的工具。
+
+#### 诊断触发器
+
+​	触发器非常重要。这是在问题出现时能够捕获数据的基础。有两个常见的问题可能导致无法达到预期的结果：误报（false positive）或者漏检（false negative）。误报是指收集了很多诊断数据，但期间其实没有发生问题，这可能浪费时间，而且令人沮丧。而漏检则指在问题出现时没有捕获到数据，错失了机会，一样地浪费时间。所以在开始收集数据前多花一点时间来确认触发器能够真正地识别问题是划算的。
+
+​	那么好的触发器的标准是什么呢？像前面的例子展示的，Threads_running的趋势在出现问题时会比较敏感，而没有问题时则比较平稳。另外SHOW PROCESSLIST中线程的异常状态尖峰也是个不错的指标。当然除此之外还有很多的方法，包括SHOW INNODB STATUS的特定输出、服务器的平均负载尖峰等。关键是找到一些能和正常时的阈值进行比较的指标。通常情况下这是一个计数，比如正在运行的线程的数量、处于“freeing items”状态的线程的数量等。当要计算线程某个状态的数量时，*grep*的*-c*选项非常有用：
+
+```
+   $ mysql -e 'SHOW PROCESSLIST\G' | grep -c "State: freeing items"
+   36
+```
+
+​	选择一个合适的阈值很重要，既要足够高，以确保在正常时不会被触发；又不能太高，要确保问题发生时不会错过。另外要注意，要在问题开始时就捕获数据，就更不能将阈值设置得太高。问题持续上升的趋势一般会导致更多的问题发生，如果在问题导致系统快要崩溃时才开始捕获数据，就很难诊断到最初的根本原因。如果可能，在问题还是涓涓细流的时候就要开始收集数据，而不要等到波涛汹涌才开始。举个例子，Threads_connected偶尔出现非常高的尖峰值，在几分钟时间内会从100冲到5000或者更高，所以设置阈值为4999也可以捕获到问题，但为什么非要等到这么高的时候才收集数据呢？如果在正常时该值一般不超过150，将阈值设置为200或者300会更好。
+
+​	所以我们需要利用一种工具来监控服务器，当达到触发条件时能收集数据。当然可以自己编写脚本来实现，不过不用那么麻烦，Percona Toolkit中的*pt-stalk*就是为这种情况设计的。这个工具有很多有用的特性，只要碰到过类似问题就会明白这些特性的必要性。例如，它会监控磁盘的可用空间，所以不会因为收集太多的数据将空间耗尽而导致服务器崩溃。如果之前碰到过这样的情况，你就会理解这一点了。
+
+​	*pt-stalk*的用法很简单。可以配置需要监控的变量、阈值、检查的频率等。还支持一些比实际需要更多的花哨特性，但在这个例子中有这些已经足够了。在使用之前建议先阅读附带的文档。*pt-stalk*还依赖于另外一个工具执行真正的收集工作，接下来会讨论。
+
+**需要收集什么样的数据**
+
+​	现在已经确定了诊断触发器，可以开始启动一些进程来收集数据了。但需要收集什么样的数据呢？就像前面说的，答案是尽可能收集所有能收集的数据，但只在需要的时间段内收集。包括系统的状态、CPU利用率、磁盘使用率和可用空间、ps的输出采样、内存利用率，以及可以从MySQL获得的信息，如SHOW STATUS、SHOW PROCESSLIST和SHOW INNODB STATUS。这些在诊断问题时都需要用到（可能还会有更多）。
+
+​	执行时间包括用于工作的时间和等待的时间。当一个未知问题发生时，一般来说有两种可能：服务器需要做大量的工作，从而导致大量消耗CPU；或者在等待某些资源被释放。所以需要用不同的方法收集诊断数据，来确认是何种原因：剖析报告用于确认是否有太多工作，而等待分析则用于确认是否存在大量等待。如果是未知的问题，怎么知道将精力集中在哪个方面呢？没有更好的办法，所以只能两种数据都尽量收集。
+
+​	在GNU/Linux平台，可用于服务器内部诊断的一个重要工具是*oprofile*。后面会展示一些例子。也可以使用*strace*剖析服务器的系统调用，但在生产环境中使用它有一定的风险。后面还会继续讨论它。如果要剖析查询，可以使用*tcpdump*。大多数MySQL版本无法方便地打开和关闭慢查询日志，此时可以通过监听TCP流量来模拟。另外，网络流量在其他一些分析中也非常有用。
+
+​	对于等待分析，常用的方法是GDB的堆栈跟踪[(15)](part0010_split_006.html#ch15)。MySQL内的线程如果卡在一个特定的地方很长时间，往往都有相同的堆栈跟踪信息。跟踪的过程是先启动*gdb*，然后附加（attach）到*mysqld*进程，将所有线程的堆栈都转储出来。然后可以利用一些简短的脚本将类似的堆栈跟踪信息做汇总，再利用*sort|uniq|sort*的“魔法”排序出总计最多的堆栈信息。稍后将演示如何用*pt-pmp*工具来完成这个工作。
+
+​	也可以使用SHOW PROCESSLIST和SHOW INNODB STATUS的快照信息观察线程和事务的状态来进行等待分析。这些方法都不完美，但实践证明还是非常有帮助的。
+
+​	收集所有的数据听起来工作量很大。或许读者之前已经做过类似的事情，但我们提供的工具可以提供一些帮助。这个工具名为*pt-collect*，也是Percona Toolkit中的一员。*pt-collect*一般通过*pt-stalk*来调用。因为涉及很多重要数据的收集，所以需要用*root*权限来运行。默认情况下，启动后会收集30秒的数据，然后退出。对于大多数问题的诊断来说，这已经足够，但如果有误报（false positive）的问题出现，则可能收集的信息就不够。这个工具很容易下载到，并且不需要任何配置，配置都是通过*pt-stalk*进行的。系统中最好安装*gdb*和*oprofile*，然后在*pt-stalk*中配置使用。另外*mysqld*也需要有调试符号信息[(16)](part0010_split_006.html#ch16)。当触发条件满足时，*pt-collect*会很好地收集完整的数据。它也会在目录中创建时间戳文件。在本书写作之际，这个工具是基于GNU/Linux的，后续会迁移到其他操作系统，这是一个好的开始。
+
+**解释结果数据**
+
+​	如果已经正确地设置好触发条件，并且长时间运行*pt-stalk*，则只需要等待足够长的时间来捕获几次问题，就能够得到大量的数据来进行筛选。从哪里开始最好呢？我们建议先根据两个目的来查看一些东西。第一，检查问题是否真的发生了，因为有很多的样本数据需要检查，如果是误报就会白白浪费大量的时间。第二，是否有非常明显的跳跃性变化。
+
+​	在服务器正常运行时捕获一些样本数据也很重要，而不只是在有问题时捕获数据。这样可以帮助对比确认是否某些样本，或者样本中的某部分数据有异常。例如，在查看进程列表（process list）中查询的状态时，可以回答一些诸如“大量查询处于正在排序结果的状态是不是正常的”的问题。
+
+​	Percona Toolkit还提供了一款快速检查收集到的样本数据的工具：*pt-sift*。这个工具会轮流导航到所有的样本数据，得到每个样本的汇总信息。如果需要，也可以钻取到详细信息。使用此工具至少可以少打很多字，少敲很多次键盘。
+
+```
+ samples %         image name       app name      symbol  name
+    893793     31.1273   /no-vmlinux      /no-vmlinux   (no symbols)
+    325733     11.3440   mysqld           mysqld        Query_cache::free_memory_block()
+    117732      4.1001   libc             libc          (no symbols)
+    102349      3.5644   mysqld           mysqld        my_hash_sort_bin
+    76977       2.6808   mysqld           mysqld        MYSQLparse()
+    71599       2.4935   libpthread       libpthread    pthread_mutex_trylock
+    52203       1.8180   mysqld           mysqld        read_view_open_now
+    46516       1.6200   mysqld           mysqld        Query_cache::invalidate_query_block_list()
+    42153       1.4680   mysqld           mysqld        Query_cache::write_result_data()
+    37359       1.3011   mysqld           mysqld        MYSQLlex()
+    35917       1.2508   libpthread       libpthread    __pthread_mutex_unlock_usercnt
+    34248       1.1927   mysqld           mysqld        __intel_new_memcpy
+```
+
+如果你的答案是“查询缓存”，那么恭喜你答对了。在这里查询缓存导致了大量的工作，并拖慢了整个服务器。这个问题是一夜之间突然发生的，系统变慢了50倍，但这期间系统没有做过任何其他变更。关闭查询缓存后系统性能恢复了正常。这个例子比较简单地解释了服务器内部行为对性能的影响。
+
+另外一个重要的关于等待分析的性能瓶颈分析工具是gdb的堆栈跟踪。下面是对一个线程的堆栈跟踪的输出结果，为了便于印刷做了一些格式化：
+
+```
+Thread 992 (Thread 0x7f6ee0111910 (LWP 31510)):
+#0 0x0000003be560b2f9 in pthread_cond_wait@@GLIBC_2.3.2 () from /libpthread.so.0
+#1 0x00007f6ee14f0965 in os_event_wait_low () at os/os0sync.c:396
+#2 0x00007f6ee1531507 in srv_conc_enter_innodb () at srv/srv0srv.c:1185
+#3 0x00007f6ee14c906a in innodb_srv_conc_enter_innodb () at handler/ha_innodb.cc:609
+#4 ha_innodb::index_read () at handler/ha_innodb.cc:5057
+#5 0x00000000006538c5 in ?? ()
+#6 0x0000000000658029 in sub_select() ()
+#7 0x0000000000658e25 in ?? ()
+#8 0x00000000006677c0 in JOIN::exec() ()
+#9 0x000000000066944a in mysql_select() ()
+#10 0x0000000000669ea4 in handle_select() ()
+#11 0x00000000005ff89a in ?? ()
+#12 0x0000000000601c5e in mysql_execute_command() ()
+#13 0x000000000060701c in mysql_parse() ()
+#14 0x000000000060829a in dispatch_command() ()
+#15 0x0000000000608b8a in do_command(THD*) ()
+#16 0x00000000005fbd1d in handle_one_connection ()
+#17 0x0000003be560686a in start_thread () from /lib64/libpthread.so.0
+#18 0x0000003be4ede3bd in clone () from /lib64/libc.so.6
+#19 0x0000000000000000 in ?? ()
+```
+
+​	堆栈需要自下而上来看。也就是说，线程当前正在执行的是pthread_cond_wait函数，这是由os_event_wait_low调用的。继续往下，看起来是线程试图进入到InnoDB内核（srv_conc_enter_innodb），但被放入了一个内部队列中（os_event_wait_low），原因应该是内核中的线程数已经超过innodb_thread_concurrency的限制。当然，要真正地发挥堆栈跟踪的价值需要将很多的信息聚合在一起来看。这种技术是由Domas Mituzas推广的，他以前是MySQL的支持工程师，开发了著名的穷人剖析器“poor man's profiler”。他目前在Facebook工作，和其他人一起开发了更多的收集和分析堆栈跟踪的工具。可以从他的这个网站发现更多的信息：*http://www.poormansprofiler.org*。
+
+​	在Percona Toolkit中我们也开发了一个类似的穷人剖析器，叫做*pt-pmp*。这是一个用shell和*awk*脚本编写的工具，可以将类似的堆栈跟踪输出合并到一起，然后通过*sort|uniq|sort*将最常见的条目在最前面输出。下面是一个堆栈跟踪的完整例子，通过此工具将重要的信息展示了出来。使用了-l5选项指定了堆栈跟踪不超过5层，以免因太多前面部分相同而后面部分不同的跟踪信息而导致无法聚合到一起的情况，这样才能更好地显示到底在哪里产生了等待：
+
+​	
+
+```
+ $ pt-pmp -l 5 stacktraces.txt
+       507 pthread_cond_wait,one_thread_per_connection_end,handle_one_connection,
+           start_thread,clone
+       398 pthread_cond_wait,os_event_wait_low,srv_conc_enter_innodb,
+           innodb_srv_conc_enter_innodb,ha_innodb::index_read
+        83 pthread_cond_wait,os_event_wait_low,sync_array_wait_event,mutex_spin_wait,
+           mutex_enter_func
+        10 pthread_cond_wait,os_event_wait_low,os_aio_simulated_handle,fil_aio_wait,
+           io_handler_thread
+         7 pthread_cond_wait,os_event_wait_low,srv_conc_enter_innodb,
+           innodb_srv_conc_enter_innodb,ha_innodb::general_fetch
+         5 pthread_cond_wait,os_event_wait_low,sync_array_wait_event,rw_lock_s_lock_spin,
+           rw_lock_s_lock_func
+         1 sigwait,signal_hand,start_thread,clone,??
+         1 select,os_thread_sleep,srv_lock_timeout_and_monitor_thread,start_thread,clone
+         1 select,os_thread_sleep,srv_error_monitor_thread,start_thread,clone
+         1 select,handle_connections_sockets,main
+         1 read,vio_read_buff,::??,my_net_read,cli_safe_read
+    
+         1 pthread_cond_wait,os_event_wait_low,sync_array_wait_event,rw_lock_x_lock_low,
+           rw_lock_x_lock_func
+         1 pthread_cond_wait,MYSQL_BIN_LOG::wait_for_update,mysql_binlog_send,
+           dispatch_command,do_command
+         1 fsync,os_file_fsync,os_file_flush,fil_flush,log_write_up_to
+```
+
+第一行是MySQL中非常典型的空闲线程的一种特征，所以可以忽略。第二行才是最有意思的地方，看起来大量的线程正在准备进入到InnoDB内核中，但都被阻塞了。从第三行则可以看到许多线程都在等待某些互斥锁，但具体的是什么锁不清楚，因为堆栈跟踪更深的层次被截断了。如果需要确切地知道是什么互斥锁，则需要使用更大的-l选项重跑一次。一般来说，这个堆栈跟踪显示很多线程都在等待进入到InnoDB，这是为什么呢？这个工具并不清楚，需要从其他的地方来入手。
+
+从前面的堆栈跟踪和oprofile报表来看，如果不是MySQL和InnoDB源码方面的专家，这种类型的分析很难进行。如果用户在进行此类分析时碰到问题，通常需要求助于这样的专家才行。
+
+在下面的例子中，通过剖析和等待分析都无法发现服务器的问题，需要使用另外一种不同的诊断技术。
+
+### 3.4.3　一个诊断案例
+
+在本节中，我们将逐步演示一个客户实际碰到的间歇性性能问题的诊断过程。这个案例的诊断需要具备MySQL、InnoDB和GNU/Linux的相关知识。但这不是我们要讨论的重点。要尝试从疯狂中找到条理：阅读本节并保持对之前的假设和猜测的关注，保持对之前基于合理性和基于可度量的方式的关注，等等。我们在这里深入研究一个具体和详细的案例，为的是找到一个简单的一般性的方法。
+
+在尝试解决其他人提出的问题之前，先要明确两件事情，并且最好能够记录下来，以免遗漏或者遗忘：
+
+1. 首先，问题是什么？一定要清晰地描述出来，费力去解决一个错误的问题是常有的事。在这个案例中，用户抱怨说每隔一两天，服务器就会拒绝连接，报max_connections错误。这种情况一般会持续几秒到几分钟，发生的时间非常随机。
+2. 其次，为解决问题已经做过什么操作？在这个案例中，用户没有为这个问题做过任何操作。这个信息非常有帮助，因为很少有其他事情会像另外一个人来描述一件事情发生的确切顺序和曾做过的改变及其后果一样难以理解（尤其是他们还是在经过几个不眠之夜后满嘴咖啡味道地在电话里绝望呐喊的时候）。如果一台服务器遭受过未知的变更，产生了未知的结果，问题就更难解决了，尤其是时间又非常有限的时候。
+
+搞清楚这两个问题后，就可以开始了。不仅需要去了解服务器的行为，也需要花点时间去梳理一下服务器的状态、参数配置，以及软硬件环境。使用*pt-summary*和*pt-mysql-summary*工具可以获得这些信息。简单地说，这个例子中的服务器有16个CPU核心，12GB内存，数据量有900MB，且全部采用InnoDB引擎，存储在一块SSD固态硬盘上。服务器的操作系统是GNU/Linux、MySQL版本5.1.37，使用的存储引擎版本是InnoDB plugin 1.0.4。之前我们已经为这个客户解决过一些异常问题，所以对其系统已经比较了解。过去数据库从来没有出过问题，大多数问题都是由于应用程序的不良行为导致的。初步检查了服务器也没有发现明显的问题。查询有一些优化的空间，但大多数情况下响应时间都不到10毫秒。所以我们认为正常情况下数据库服务器运行良好（这一点比较重要，因为很多问题一开始只是零星地出现，慢慢地累积成大问题。比如RAID阵列中坏了一块硬盘这种情况）。
+
+我们安装好诊断工具，在Threads_connected上设置触发条件，正常情况下Threads_connected的值一般都少于15，但在发生问题时该值可能飙升到几百。下面我们会先给出一个样本数据的收集结果，后续再来评论。首先试试看，你能否从大量的输出中找出问题的重点在哪里：
+
+- 查询活动从1000到10000的QPS，其中有很多是“垃圾”命令，比如ping一下服务器确认其是否存活。其余的大部分是SELECT命令，大约每秒300～2000次，只有很少的UPDATE命令（大约每秒五次）。
+- 在SHOW PROCESSLIST中主要有两种类型的查询，只是在WHERE条件中的值不一样。下面是查询状态的汇总数据：
+
+```
+    $ grep State: processlist.txt | sort | uniq -c | sort -rn
+    161   State: Copying to tmp table
+    156   State: Sorting result
+    136   State: statistics
+     50   State: Sending data
+     24   State: NULL
+     13   State:
+      7   State: freeing items
+      7   State: cleaning up
+      1   State: storing result in query cache
+      1   State: end
+```
+
+- 大部分查询都是索引扫描或者范围扫描，很少有全表扫描或者表关联的情况。
+- 每秒大约有20～100次排序，需要排序的行大约有1000到12000行。
+- 每秒大约创建12～90个临时表，其中有3～5个是磁盘临时表。
+- 没有表锁或者查询缓存的问题。
+- 在SHOW INNODB STATUS中可以观察到主要的线程状态是“flushing buffer pool pages”，但只有很少的脏页需要刷新（Innodb_buffer_pool_pages_dirty），Innodb_buffer_pool_pages_flushed也没有太大的变化，日志顺序号（log sequence number）和最后检查点（last checkpoint）之间的差距也很少。InnoDB缓存池也还远没有用满；缓存池比数据集还要大很多。大多数线程在等待InnoDB队列：“12 queries inside InnoDB，495 queries in queue”（12个查询在InnoDB内部执行，495个查询在队列中）。
+- 每秒捕获一次*iostat*输出，持续30秒。从输出可以发现没有磁盘读，而写操作则接近了“天花板”，所以I/O平均等待时间和队列长度都非常高。下面是部分输出结果，为便于打印输出，这里截取了部分字段：
+
+```
+ r/s   w/s  rsec/s wsec/s    avgqu-sz await   svctm  %util
+    1.00 500.00 8.00   86216.00     5.05   11.95  0.59   29.40
+    0.00 451.00 0.00   206248.00  123.25  238.00  1.90   85.90
+    0.00 565.00 0.00   269792.00  143.80  245.43  1.77  100.00
+    0.00 649.00 0.00   309248.00  143.01  231.30  1.54  100.10
+    0.00 589.00 0.00   281784.00  142.58  232.15  1.70  100.00
+    0.00 384.00 0.00   162008.00   71.80  238.39  1.73   66.60
+    0.00  14.00 0.00       400.00   0.01    0.93  0.36    0.50
+    0.00  13.00 0.00       248.00   0.01    0.92  0.23    0.30
+    0.00  13.00 0.00       408.00   0.01    0.92  0.23    0.30
+```
+
+- *vmstat*的输出也验证了iostat的结果，并且CPU的大部分时间是空闲的，只是偶尔在写尖峰时有一些I/O等待时间（最高约占9％的CPU）。
+
+
+
+​	是不是感觉脑袋里塞满了东西？当你深入一个系统的细节并且没有任何先入为主（或者故意忽略了）的观念时，很容易碰到这种情况，最终只能检查所有可能的情况。很多被检查的地方最终要么是完全正常的，要么发现是问题导致的结果而不是问题产生的原因。尽管此时我们会有很多关于问题原因的猜测，但还是需要继续检查下面给出的*oprofile*报表，并且在给出更多数据的时候添加一些评论和解释：
+
+​	
+
+
+
+```
+ samples %       image name     app name       symbol name
+     473653 63.5323 no-vmlinux     no-vmlinux     /no-vmlinux
+      95164 12.7646 mysqld         mysqld /usr    /libexec/mysqld
+      53107 7.1234  libc-2.10.1.so libc-2.10.1.so memcpy
+      13698 1.8373  ha_innodb.so   ha_innodb.so   build_template()
+      13059 1.7516  ha_innodb.so   ha_innodb.so   btr_search_guess_on_hash
+      11724 1.5726  ha_innodb.so   ha_innodb.so   row_sel_store_mysql_rec
+       8872 1.1900  ha_innodb.so   ha_innodb.so   rec_init_offsets_comp_ordinary
+       7577 1.0163  ha_innodb.so   ha_innodb.so   row_search_for_mysql
+       6030 0.8088  ha_innodb.so   ha_innodb.so   rec_get_offsets_func
+       5268 0.7066  ha_innodb.so   ha_innodb.so   cmp_dtuple_rec_with_match
+```
+
+​	这里大多数符号（symbol）代表的意义并不是那么明显，而大部分的时间都消耗在内核符号（no-vmlinux）[(17)](part0010_split_006.html#ch17)和一个通用的*mysqld*符号中，这两个符号无法告诉我们更多的细节[(18)](part0010_split_006.html#ch18)。不要被多个ha_innodb.so符号分散了注意力，看一下它们占用的百分比就知道了，不管它们在做什么，其占用的时间都很少，所以应该不会是问题所在。这个例子说明，仅仅从剖析报表出发是无法得到解决问题的结果的。我们追踪的数据是错误的。如果遇到上述例子这样的情况，需要继续检查其他的数据，寻找问题根源更明显的证据。
+
+到这里，如果希望从*gdb*的堆栈跟踪进行等待分析，请参考3.4.2节的最后部分内容。那个案例就是我们当前正在诊断的这个问题。回想一下，当时的堆栈跟踪分析的结果是正在等待进入到InnoDB内核，所以SHOW INNODB STATUS的输出结果中有“12 queries inside InnoDB，495 queries in queue”。
+
+从上面的分析发现问题的关键点了吗？没有。我们看到了许多不同问题可能的症状，根据经验和直觉可以推测至少有两个可能的原因。但也有一些没有意义的地方。如果再次检查一下*iostat*的输出，可以发现wsec/s列显示了至少在6秒内，服务器每秒写入了几百MB的数据到磁盘。每个磁盘扇区是512B，所以这里采样的结果显示每秒最多写入了150MB数据。然而整个数据库也只有900MB大小，系统的压力又主要是SELECT查询。怎么会出现这样的情况呢？
+
+​	在这一点上，我们可以直接得到一个结论，但却可能是错误的。可以看到主线程的状态是InnoDB正在刷新脏页。在状态输出中出现这样的情况，一般都意味着刷新已经延迟了。我们知道这个版本的InnoDB存在“疯狂刷新”的问题（或者也被称为检查点停顿）。发生这样的情况是因为InnoDB没有按时间均匀分布刷新请求，而是隔一段时间突然请求一次强制检查点导致大量刷新操作。这种机制可能会导致InnoDB内部发生严重的阻塞，导致所有的操作需要排队等待进入内核，从而引发InnoDB上一层的服务器产生堆积。在第2章中演示的例子就是一个因为“疯狂刷新”而导致性能周期性下跌的问题。很多类似的问题都是由于强制检查点导致的，但在这个案例中却不是这个问题。有很多方法可以证明，最简单的方法是查看SHOW STATUS的计数器，追踪一下Innodb_buffer_pool_pages_flushed的变化，之前已经提到了，这个值并没有怎么增加。另外，注意到InnoDB缓冲池中也没有大量的脏页需要刷新，肯定不到几百MB。这并不值得惊讶，因为这个服务器的工作压力几乎都是SELECT查询。所以可以得到一个初步的结论，我们要关注的不是InnoDB刷新的问题，而应该是刷新延迟的问题，但这只是一个现象，而不是原因。根本的原因是磁盘的I/O已经饱和，InnoDB无法完成其I/O操作。至此我们消除了一个可能的原因，可以从基于直觉的原因列表中将其划掉了。
+
+​	从结果中将原因区别出来有时候会很困难。当一个问题看起来很眼熟的时候，也可以跳过调查阶段直接诊断。当然最好不要走这样的捷径，但有时候依靠直觉也非常重要。如果有什么地方看起来很眼熟，明智的做法还是需要花一点时间去测量一下其充分必要条件，以证明其是否就是问题所在。这样可以节省大量时间，避免查看大量其他的系统和性能数据。不过也不要过于相信直觉而直接下结论，不要说“我之前见过这样的问题，肯定就是同样的问题”。而是应该去收集相关的证据，尤其是能证明直觉的证据。
+
+​	下一步是尝试找出是什么导致了服务器的I/O利用率异常的高。首先应该注意到前面已经提到过的“服务器有连续几秒内每秒写入了几百MB数据到磁盘，而数据库一共只有900MB大小，怎么会发生这样的情况？”，注意到这里已经隐式地假设是数据库导致了磁盘写入。那么有什么证据表明是数据库导致的呢？当你有未经证实的想法，或者觉得不可思议时，如果可能的话应该去进行测量，然后排除掉一些怀疑。
+
+​	我们看到了两种可能性：要么是数据库导致了I/O（如果能找到源头的话，那么可能就找到了问题的原因）；要么不是数据库导致了所有的I/O而是其他什么导致的，而系统因为缺少I/O资源影响了数据库性能。我们也很小心地尽力避免引入另外一个隐式的假设：磁盘很忙并不一定意味着MySQL会有问题。要记住，这个服务器主要的压力是内存读取，所以也很可能出现磁盘长时间无法响应但没有造成严重问题的现象。
+
+​	如果你一直跟随我们的推理逻辑，就可以发现还需要回头检查一下另外一个假设。我们已经知道磁盘设备很忙，因为其等待时间很高。对于固态硬盘来说，其I/O平均等待时间一般不会超过1/4秒。实际上，从iostat的输出结果也可以发现磁盘本身的响应还是很快的，但请求在块设备队列中等待很长的时间才能进入到磁盘设备。但要记住，这只是iostat的输出结果，也可能是错误的信息。
+
+> 究竟是什么导致了性能低下？
+>
+> 当一个资源变得效率低下时，应该了解一下为什么会这样。有如下可能的原因：
+>
+> 1. 资源被过度使用，余量已经不足以正常工作。
+> 2. 资源没有被正确配置。
+> 3. 资源已经损坏或者失灵。
+>
+> 回到上面的例子中，*iostat*的输出显示可能是磁盘的工作负载太大，也可能是配置不正确（在磁盘响应很快的情况下，为什么I/O请求需要排队这么长时间才能进入到磁盘？）。然而，比较系统的需求和现有容量对于确定问题在哪里是很重要的一部分。大量的基准测试证明这个客户使用的这种SSD是无法支撑几百MB/s的写操作的。所以，尽管*iostat*的结果表明磁盘的响应是正常的，也不一定是完全正确的。在这个案例中，我们没有办法证明磁盘的响应比*iostat*的结果中所说的要慢，但这种情况还是有可能的。所以这不能改变我们的看法：可能是磁盘被滥用[(20)](part0010_split_006.html#ch20)，或者是错误的配置，或者两者兼而有之，是性能低下的罪魁祸首。
+
+​	在检查过所有诊断数据之后，接下来的任务就很明显了：测量出什么导致了I/O消耗。不幸的是，客户当前使用的GNU/Linux版本对此的支持不力。通过一些工作我们可以做一些相对准确的猜测，但首先还是需要探索一下其他的可能性。我们可以测量有多少I/O来自MySQL，但客户使用的MySQL版本较低以致缺乏一些诊断功能，所以也无法提供确切有利的支持。
+
+​	作为替代，基于我们已经知道MySQL如何使用磁盘，我们来观察MySQL的I/O情况。通常来说，MySQL只会写数据、日志、排序文件和临时表到磁盘。从前面的状态计数器和其他信息来看，首先可以排除数据和日志的写入问题。那么，只能假设MySQL突然写入大量数据到临时表或者排序文件，如何来观察这种情况呢？有两个简单的方法：一是观察磁盘的可用空间，二是通过lsof命令观察服务器打开的文件句柄。这两个方法我们都采用了，结果也足以满足我们的需求。下面是问题期间每秒运行df–h的结果：
+
+```
+   Filesystem Size Used Avail Use% Mounted on
+    /dev/sda3  58G  20G  36G   36%   /
+    /dev/sda3  58G  20G  36G   36%   /
+    /dev/sda3  58G  19G  36G   35%   /
+    /dev/sda3  58G  19G  36G   35%   /
+    /dev/sda3  58G  19G  36G   35%   /
+    /dev/sda3  58G  19G  36G   35%   /
+    /dev/sda3  58G  18G  37G   33%   /
+    /dev/sda3  58G  18G  37G   33%   /
+    /dev/sda3  58G  18G  37G   33%   /
+```
+
+下面则是*lsof*的数据，因为某些原因我们每五秒才收集一次。我们简单地将*mysqld*在*/tmp*中打开的文件大小做了加总，并且把总大小和采样时的时间戳一起输出到结果文件中：
+
+```
+    $ awk '
+       /mysqld.*tmp/ {
+        total += $7;
+       }
+       /^Sun Mar 28/ && total {
+         printf "%s %7.2f MB\n", $4, total/1024/1024;
+         total = 0;
+       }' lsof.txt
+    18:34:38 1655.21 MB
+    18:34:43    1.88 MB
+    18:34:48    1.88 MB
+    18:34:53    1.88 MB
+    18:34:58    1.88 MB
+```
+
+从这个数据可以看出，在问题之初MySQL大约写了1.5GB的数据到临时表，这和之前在SHOW PROCESSLIST中有大量的“Copying to tmp table”相吻合。这个证据表明可能是某些效率低下的查询风暴耗尽了磁盘资源。根据我们的工作直觉，出现这种情况比较普遍的一个原因是缓存失效。当*memcached*中所有缓存的条目同时失效，而又有很多应用需要同时访问的时候，就会出现这种情况。我们给开发人员出示了部分采样到的查询，并讨论这些查询的作用。实际情况是，缓存同时失效就是罪魁祸首（这验证了我们的直觉）。一方面开发人员在应用层面解决缓存失效的问题；另一方面我们也修改了查询，避免使用磁盘临时表。这两个方法的任何一个都可以解决问题，当然最好是两个都实施。
+
+如果读者一直顺着我们前面的思路读下来，可能还会有一些疑问。在这里我们可以稍微解释一下（我们在本章引用的方法在审阅的时候已经检查过一遍）：
+
+为什么我们不一开始就优化慢查询？
+
+因为问题不在于慢查询，而是“太多连接”的错误。当然，因为慢查询，太多查询的时间过长而导致连接堆积在逻辑上也是成立的。但也有可能是其他原因导致连接过多。如果没有找到问题的真正原因，那么回头查看慢查询或其他可能的原因，看是否能够改善是很自然的事情[(21)](part0010_split_006.html#ch21)。但这样做大多时候会让问题变得更糟。如果你把一辆车开到机械师那里抱怨说有异响，假如机械师没有指出异响的原因，也不去检查其他的地方，而是直接做了四轮平衡和更换变速箱油，然后把账单扔给你，你也会觉得不爽的吧？
+
+但是查询由于糟糕的执行计划而执行缓慢不是一种警告吗？
+
+在事故中确实如此。但慢查询到底是原因还是结果？在深入调查前是无法知晓的。记住，在正常的时候这个查询也是正常运行的。一个查询需要执行filesort和创建临时表并不一定意味着就是有问题的。尽管消除filesort和临时表通常来说是“最佳实践”。
+
+通常的“最佳实践”自然有它的道理，但不一定是解决某些特殊问题的“灵丹妙药”。比如说问题可能是因为很简单的配置错误。我们碰到过很多这样的案例，问题本来是由于错误的配置导致的，却去优化查询，这不但浪费了时间，也使得真正问题被解决的时间被拖延了。
+
+如果缓存项被重新生成了很多次，是不是会导致产生很多同样的查询呢？
+
+这个问题我们确实还没有调查到。如果是多线程重新生成同样的缓存项，那么确实有可能导致产生很多同样的查询（这和很多同类型的查询不同，比如WHERE子句中的参数可能不一样）。注意到这样会刺激我们的直觉，并更快地带我们找到问题的解决方案。
+
+每秒有几百次SELECT查询，但只有五次UPDATE。怎么能确定这五次UPDATE的压力不会导致问题呢？
+
+这些UPDATE有可能对服务器造成很大的压力。我们没有将真正的查询语句展示出来，因为这样可能会将事情搞得更杂乱。但有一点很明确，某种查询的绝对数量不一定有意义。
+
+I/O风暴最初的证据看起来不是很充分？
+
+是的，确实是这样。有很多种解释可以说明为什么一个这么小的数据库可以产生这么大量的写入磁盘，或者说为什么磁盘的可用空间下降得这么快。这个问题中使用的MySQL和GNU/Linux版本都很难对一些东西进行测量（但不是说完全不可能）。尽管在很多时候我们可能扮演“魔鬼代言人”的角色，但我们还是以尽量平衡成本和潜在的利益为第一优先级。越是难以准确测量的时候，成本/收益比越攀升，我们也更愿意接受不确定性。
+
+之前说过“数据库过去从来没出过问题”是一种偏见吗？
+
+是的，这就是偏见。如果抓住问题，很好；如果没有，也可以是证明我们都有偏见的很好例子。
+
+至此我们要结束这个案例的学习了。需要指出的是，如果使用了诸如New Relic这样的剖析工具，即使没有我们的参与，也可能解决这个问题。
+
+## 3.5　其他剖析工具
+
+我们已经演示了很多剖析MySQL、操作系统及查询的方法。我们也演示了那些我们觉得很有用的案例。当然，通过本书，我们还会展示更多工具和技术来检查和测量系统。但是等一下，本章还有更多工具没介绍呢。
+
+### 3.5.1　使用USER_STATISTICS表
+
+Percona Server和MariaDB都引入了一些额外的对象级别使用统计的INFORMATION_SCHEMA表，这些最初是由Google开发的。这些表对于查找服务器各部分的实际使用情况非常有帮助。在一个大型企业中，DBA负责管理数据库，但其对开发缺少话语权，那么通过这些表就可以对数据库活动进行测量和审计，并且强制执行使用策略。对于像共享主机环境这样的多租户环境也同样有用。另外，在查找性能问题时，这些表也可以帮助找出数据库中什么地方花费了最多的时间，或者什么表或索引使用得最频繁，抑或最不频繁。下面就是这些表：
+
+![img](http://localhost:8000/c58e1839-40bc-4171-828a-4f2242edaf62/images/00023.jpeg)
+
+这里我们不会详细地演示针对这些表的所有有用的查询，但有几个要点要说明一下：
+
+- 可以查找使用得最多或者使用得最少的表和索引，通过读取次数或者更新次数，或者两者一起排序。
+- 可以查找出从未使用的索引，可以考虑删除之。
+- 可以看看复制用户的CONNECTED_TIME和BUSY_TIME，以确认复制是否会很难跟上主库的进度。
+
+在MySQL 5.6中，Performance Schema中也添加了很多类似上面这些功能的表。
+
+### 3.5.2　使用strace
+
+*strace*工具可以调查系统调用的情况。有好几种可以使用的方法，其中一种是计算系统调用的时间并打印出来：
+
+![](https://pic.imgdb.cn/item/6159cd982ab3f51d919853e1.jpg)
+
+这种用法和*oprofile*有点像。但是*oprofile*还可以剖析程序的内部符号，而不仅仅是系统调用。另外，*strace*拦截系统调用使用的是不同于*oprofile*的技术，这会有一些不可预期性，开销也更大些。*strace*度量时使用的是实际时间，而*oprofile*使用的是花费的CPU周期。举个例子，当I/O等待出现问题的时候，*strace*能将它们显示出来，因为它从诸如read或者pread64这样的系统调用开始计时，直到调用结束。但*oprofile*不会这样，因为I/O系统调用并不会真正地消耗CPU周期，而只是等待I/O完成而已。
+
+我们会在需要的时候使用*oprofile*，因为*strace*对像*mysqld*这样有大量线程的场景会产生一些副作用。当*strace*附加上去后，*mysqld*的运行会变得很慢，因此不适合在产品环境中使用。但在某些场景中*strace*还是相当有用的，Percona Toolkit中有一个叫做*pt-ioprofile*的工具就是使用*strace*来生成I/O活动的剖析报告的。这个工具很有帮助，可以证明或者驳斥某些难以测量的情况下的一些观点，此时其他方法很难达到目的（如果运行的是MySQL 5.6，使用Performance Schema也可以达到目的）。
+
+## 3.6　总结
+
+本章给出了一些基本的思路和技术，有助于你成功地进行性能优化。正确的思维方式是开启系统的全部潜力和应用本书其他章节提供的知识的关键。下面是我们试图演示的一些基本知识点：
+
+- 我们认为定义性能最有效的方法是响应时间。
+- 如果无法测量就无法有效地优化，所以性能优化工作需要基于高质量、全方位及完整的响应时间测量。
+- 测量的最佳开始点是应用程序，而不是数据库。即使问题出在底层的数据库，借助良好的测量也可以很容易地发现问题。
+- 大多数系统无法完整地测量，测量有时候也会有错误的结果。但也可以想办法绕过一些限制，并得到好的结果（但是要能意识到所使用的方法的缺陷和不确定性在哪里）。
+- 完整的测量会产生大量需要分析的数据，所以需要用到剖析器。这是最佳的工具，可以帮助将重要的问题冒泡到前面，这样就可以决定从哪里开始分析会比较好。
+- 剖析报告是一种汇总信息，掩盖和丢弃了太多细节。而且它不会告诉你缺少了什么，所以完全依赖剖析报告也是不明智的。
+- 有两种消耗时间的操作：工作或者等待。大多数剖析器只能测量因为工作而消耗的时间，所以等待分析有时候是很有用的补充，尤其是当CPU利用率很低但工作却一直无法完成的时候。
+- 优化和提升是两回事。当继续提升的成本超过收益的时候，应当停止优化。
+- 注意你的直觉，但应该只根据直觉来指导解决问题的思路，而不是用于确定系统的问题。决策应当尽量基于数据而不是感觉。
+
+总体来说，我们认为解决性能问题的方法，首先是要澄清问题，然后选择合适的技术来解答这些问题。如果你想尝试提升服务器的总体性能，那么一个比较好的起点是将所有查询记录到日志中，然后利用*pt-query-digest*工具生成系统级别的剖析报告。如果是要追查某些性能低下的查询，记录和剖析的方法也会有帮助。可以把精力放在寻找那些消耗时间最多的、导致了糟糕的用户体验的，或者那些高度变化的，抑或有奇怪的响应时间直方图的查询。当找到了这些“坏”查询时，要钻取*pt-query-digest*报告中包含的该查询的详细信息，或者使用SHOW PROFILE及其他诸如EXPLAIN这样的工具。
+
+如果找不到这些查询性能低下的原因，那么也可能是遇到了服务器级别的性能问题。这时，可以较高精度测量和绘制服务器状态计数器的细节信息。如果通过这样的分析重现了问题，则应该通过同样的数据制定一个可靠的触发条件，来收集更多的诊断数据。多花费一点时间来确定可靠的触发条件，尽量避免漏检或者误报。如果已经可以捕获故障活动期间的数据，但还是无法找到其根本原因，则要么尝试捕获更多的数据，要么尝试寻求帮助。
+
+我们无法完整地测量工作系统，但说到底它们都是某种状态机，所以只要足够细心，逻辑清晰并且坚持下去，通常来说都能得到想要的结果。要注意的是不要把原因和结果搞混了，而且在确认问题之前也不要随便针对系统做变动。
+
+理论上纯粹的自顶向下的方法分析和详尽的测量只是理想的情况，而我们常常需要处理的是真实系统。真实系统是复杂且无法充分测量的，所以我们只能根据情况尽力而为。使用诸如*pt-query-digest*和MySQL企业监控器的查询分析器这样的工具并不完美，通常都不会给出问题根源的直接证据。但真的掌握了以后，已经足以完成大部分的优化诊断工作了。
+
+————————————————————
+
+[(1)](part0010_split_001.html#ch1-back) 本书不会严格区分查询和语句，DDL和DML等。不管给服务器发送什么命令，关心的都是执行命令的速度。本书将使用“查询”一词泛指所有发送给服务器的命令。
+
+[(2)](part0010_split_001.html#ch2-back) 本书尽量避免从理论上来阐述性能优化一词，如果有兴趣可以参考阅读另外两篇文章。在Percona的网站（*http://www.percona.com*）上，有一篇名为*Goal-Driven Performance Optimization*的白皮书，这是一篇紧凑的快速参考页。另外一篇是Cary Millsap的*Optimizing Oracle Performance*（O'Reilly出版）。Cary的优化方法，被称为R方法，是Oracle世界的优化黄金定律。
+
+[(3)](part0010_split_001.html#ch3-back) 也有人将优化定义为提升吞吐量，这也没有什么问题，但本书采用的不是这个定义，因为我们认为响应时间更重要，尽管吞吐量在基准测试中更容易测量。
+
+[(4)](part0010_split_001.html#ch4-back) MySQL 5.5的Performance Schema也没有提供查询级别的细节数据，要到MySQL 5.6才提供。
+
+[(5)](part0010_split_001.html#ch5-back) 在此向Donald Rumsfeld道歉。他的评论尽管听起来可笑，但实际上非常有见地。
+
+[(6)](part0010_split_001.html#ch6-back) 啊!（这只是个玩笑，我们并不坚持。）
+
+[(7)](part0010_split_002.html#ch7-back) 我们将在后面展示例子，因为需要有一些先验知识，这个问题跟底层相关，所以我们先跳过自顶向下的方法。
+
+[(8)](part0010_split_002.html#ch8-back) 不像PHP，大部分其他编程语言都有一些内建的剖析功能。例如Ruby可以使用-r选项，Perl则可以使用*perl-d:DProf*，等等。
+
+[(9)](part0010_split_003.html#ch9-back) 这里已经是尽可能地简化描述了，实际上Percona Server的查询日志报告会包含更多细节信息，可以帮助理解为什么某条查询花费了144ms去获取一行数据，这个时间实在是太长了。
+
+[(10)](part0010_split_003.html#ch10-back) 整个视图太长，无法在书中全部打印出来，但Sakila数据库可以从MySQL网站上下载到。
+
+[(11)](part0010_split_003.html#ch11-back) 原文用的Queries，实际上这里有点问题，虽然文档上也说这个参数是会话级的，但在MySQL 5.1/5.5多个版本中实际查询时发现其是全局级别的。——译者注
+
+[(12)](part0010_split_003.html#ch12-back) 如果你有本书的第二版，可能会注意到我们正在彻底改变这一点。
+
+[(13)](part0010_split_004.html#ch13-back) 再次强调，在没有足够的理由确信这是解决办法之前，不要随便去做升级操作。
+
+[(14)](part0010_split_004.html#ch14-back) 到目前为止我们还没发现红衣女，如果发现了，一定会让你知道的。
+
+[(15)](part0010_split_004.html#ch15-back) 警告：使用GDB是有侵入性的。它会暂时造成服务器停顿，尤其是有很多线程的时候，甚至有可能造成崩溃。但有时候收益还是大于风险的。如果服务器本身问题已经严重到无法提供服务了，那么使用GBD再造成一些暂停也就无所谓了。
+
+[(16)](part0010_split_004.html#ch16-back) 有时候为了“优化”而不安装符号信息，实际上这样做不会有多少优化的效果，反而会造成诊断问题更困难。可以使用nm工具检查是否安装了符号信息，如果没有，则可以通过安装MySQL的debuginfo包来安装。
+
+[(17)](part0010_split_004.html#ch17-back) 理论上，我们需要内核符号（kernel symbol）才能理解内核中发生了什么。实际上，安装内核符号可能会比较麻烦，并且从vmstat的输出可以看到系统CPU的利用率很低，所以即使安装了，很可能也会发现内核大多数是处于“sleeping”（睡眠）状态的。
+
+[(18)](part0010_split_004.html#ch18-back) 这看起来是一个编译有问题的MySQL版本。
+
+[(19)](part0010_split_004.html#ch19-back) 或者换个说法，不要把所有的鸡蛋都混在一个篮子里。
+
+[(20)](part0010_split_004.html#ch20-back) 也有人会拨打1-800热线电话。
+
+[(21)](part0010_split_004.html#ch21-back) 就像常说的“当你手中有了锤子，所有的东西看起来都是钉子”一样。
+
+# 4. Schema与数据类型优化
+
+## 4.1　选择优化的数据类型
+
+**更小的通常更好。**
+
+​	一般情况下，应该尽量使用可以正确存储数据的最小数据类型[(1)](part0011_split_006.html#ch1)。更小的数据类型通常更快，因为它们占用更少的磁盘、内存和CPU缓存，并且处理时需要的CPU周期也更少。
+
+​	但是要确保没有低估需要存储的值的范围，因为在schema中的多个地方增加数据类型的范围是一个非常耗时和痛苦的操作。如果无法确定哪个数据类型是最好的，就选择你认为不会超过范围的最小类型。（如果系统不是很忙或者存储的数据量不多，或者是在可以轻易修改设计的早期阶段，那之后修改数据类型也比较容易）。
+
+**简单就好**
+
+​	简单数据类型的操作通常需要更少的CPU周期。例如，整型比字符操作代价更低，因为字符集和校对规则（排序规则）使字符比较比整型比较更复杂。这里有两个例子：一个是应该使用MySQL内建的类型[(2)](part0011_split_006.html#ch2)而不是字符串来存储日期和时间，另外一个是应该用整型存储IP地址。稍后我们将专门讨论这个话题。
+
+**尽量避免NULL**
+
+​	很多表都包含可为NULL（空值）的列，即使应用程序并不需要保存NULL也是如此，这是因为可为NULL是列的默认属性[(3)](part0011_split_006.html#ch3)。通常情况下最好指定列为NOT NULL，除非真的需要存储NULL值。
+
+​	如果查询中包含可为NULL的列，对MySQL来说更难优化，因为可为NULL的列使得索引、索引统计和值比较都更复杂。可为NULL的列会使用更多的存储空间，在MySQL里也需要特殊处理。当可为NULL的列被索引时，每个索引记录需要一个额外的字节，在MyISAM里甚至还可能导致固定大小的索引（例如只有一个整数列的索引）变成可变大小的索引。
+
+​	通常把可为NULL的列改为NOT NULL带来的性能提升比较小，所以（调优时）没有必要首先在现有schema中查找并修改掉这种情况，除非确定这会导致问题。但是，如果计划在列上建索引，就应该尽量避免设计成可为NULL的列。
+
+​	当然也有例外，例如值得一提的是，InnoDB使用单独的位（bit）存储NULL值，所以对于稀疏数据[(4)](part0011_split_006.html#ch4)有很好的空间效率。但这一点不适用于MyISAM。
+
+
+
+​	在为列选择数据类型时，第一步需要确定合适的大类型：数字、字符串、时间等。这通常是很简单的，但是我们会提到一些特殊的不是那么直观的案例。
+
+​	下一步是选择具体类型。很多MySQL的数据类型可以存储相同类型的数据，只是存储的长度和范围不一样、允许的精度不同，或者需要的物理空间（磁盘和内存空间）不同。相同大类型的不同子类型数据有时也有一些特殊的行为和属性。
+
+​	例如，DATETIME和TIMESAMP列都可以存储相同类型的数据：时间和日期，精确到秒。
+
+​	然而TIMESTAMP只使用DATETIME一半的存储空间，并且会根据时区变化，具有特殊的自动更新能力。另一方面，TIMESTAMP允许的时间范围要小得多，有时候它的特殊能力会成为障碍。
+
+### 4.1.1　整数类型
+
+​	有两种类型的数字：整数（whole number）和实数（real number）。如果存储整数，可以使用这几种整数类型：TINYINT，SMALLINT，MEDIUMINT，INT，BIGINT。分别使用8，16，24，32，64位存储空间。它们可以存储的值的范围从−2（N−1）到2（N−1）−1，其中N是存储空间的位数。
+
+​	整数类型有可选的UNSIGNED属性，表示不允许负值，这大致可以使正数的上限提高一倍。例如TINYINT UNSIGNED可以存储的范围是0～255，而TINYINT的存储范围是−128～127。
+
+​	有符号和无符号类型使用相同的存储空间，并具有相同的性能，因此可以根据实际情况选择合适的类型。
+
+​	你的选择决定MySQL是怎么在内存和磁盘中保存数据的。然而，整数计算一般使用64位的BIGINT整数，即使在32位环境也是如此。（一些聚合函数是例外，它们使用DECIMAL或DOUBLE进行计算）。
+
+​	MySQL可以为整数类型指定宽度，例如INT（11），对大多数应用这是没有意义的：它不会限制值的合法范围，只是规定了MySQL的一些交互工具（例如MySQL命令行客户端）用来显示字符的个数。对于存储和计算来说，INT（1）和INT（20）是相同的。
+
+### 4.1.2　实数类型
+
+​	实数是带有小数部分的数字。然而，它们不只是为了存储小数部分；也可以使用DECIMAL存储比BIGINT还大的整数。MySQL既支持精确类型，也支持不精确类型。
+
+​	FLOAT和DOUBLE类型支持使用标准的浮点运算进行近似计算。如果需要知道浮点运算是怎么计算的，则需要研究所使用的平台的浮点数的具体实现。
+
+​	DECIMAL类型用于存储精确的小数。在MySQL 5.0和更高版本，DECIMAL类型支持精确计算。MySQL 4.1以及更早版本则使用浮点运算来实现DECIAML的计算，这样做会因为精度损失导致一些奇怪的结果。在这些版本的MySQL中，DECIMAL只是一个“存储类型”。
+
+​	因为CPU不支持对DECIMAL的直接计算，所以在MySQL 5.0以及更高版本中，MySQL服务器自身实现了DECIMAL的高精度计算。相对而言，CPU直接支持原生浮点计算，所以浮点运算明显更快。
+
+​	浮点和DECIMAL类型都可以指定精度。对于DECIMAL列，可以指定小数点前后所允许的最大位数。这会影响列的空间消耗。MySQL 5.0和更高版本将数字打包保存到一个二进制字符串中（每4个字节存9个数字）。例如，DECIMAL（18,9）小数点两边将各存储9个数字，一共使用9个字节：小数点前的数字用4个字节，小数点后的数字用4个字节，小数点本身占1个字节。
+
+​	MySQL 5.0和更高版本中的DECIMAL类型允许最多65个数字。而早期的MySQL版本中这个限制是254个数字，并且保存为未压缩的字符串（每个数字一个字节）。然而，这些（早期）版本实际上并不能在计算中使用这么大的数字，因为DECIMAL只是一种存储格式；在计算中DECIMAL会转换为DOUBLE类型。
+
+​	有多种方法可以指定浮点列所需要的精度，这会使得MySQL悄悄选择不同的数据类型，或者在存储时对值进行取舍。这些精度定义是非标准的，所以我们建议只指定数据类型，不指定精度。
+
+​	浮点类型在存储同样范围的值时，通常比DECIMAL使用更少的空间。FLOAT使用4个字节存储。DOUBLE占用8个字节，相比FLOAT有更高的精度和更大的范围。和整数类型一样，能选择的只是存储类型；MySQL使用DOUBLE作为内部浮点计算的类型。
+
+​	因为需要额外的空间和计算开销，所以应该尽量只在对小数进行精确计算时才使用DECIMAL——例如存储财务数据。但在数据量比较大的时候，可以考虑使用BIGINT代替DECIMAL，将需要存储的货币单位根据小数的位数乘以相应的倍数即可。假设要存储财务数据精确到万分之一分，则可以把所有金额乘以一百万，然后将结果存储在BIGINT里，这样可以同时避免浮点存储计算不精确和DECIMAL精确计算代价高的问题。
+
+### 4.1.3　字符串类型
+
+​	MySQL支持多种字符串类型，每种类型还有很多变种。这些数据类型在4.1和5.0版本发生了很大的变化，使得情况更加复杂。从MySQL 4.1开始，每个字符串列可以定义自己的字符集和排序规则，或者说校对规则（collation）（更多关于这个主题的信息请参考第7章）。这些东西会很大程度上影响性能。
+
+**VARCHAR和CHAR类型**
+
+​	VARCHAR和CHAR是两种最主要的字符串类型。不幸的是，很难精确地解释这些值是怎么存储在磁盘和内存中的，因为这跟存储引擎的具体实现有关。下面的描述假设使用的存储引擎是InnoDB和/或者MyISAM。如果使用的不是这两种存储引擎，请参考所使用的存储引擎的文档。
+
+​	先看看VARCHAR和CHAR值通常在磁盘上怎么存储。请注意，存储引擎存储CHAR或者VARCHAR值的方式在内存中和在磁盘上可能不一样，所以MySQL服务器从存储引擎读出的值可能需要转换为另一种存储格式。下面是关于两种类型的一些比较。
+
+**VARCHAR**
+
+​	VARCHAR类型用于存储可变长字符串，是最常见的字符串数据类型。它比定长类型更节省空间，因为它仅使用必要的空间（例如，越短的字符串使用越少的空间）。有一种情况例外，如果MySQL表使用ROW_FORMAT=FIXED创建的话，每一行都会使用定长存储，这会很浪费空间。
+
+​	VARCHAR需要使用1或2个额外字节记录字符串的长度：如果列的最大长度小于或等于255字节，则只使用1个字节表示，否则使用2个字节。假设采用latin1字符集，一个VARCHAR（10）的列需要11个字节的存储空间。VARCHAR（1000）的列则需要1002个字节，因为需要2个字节存储长度信息。
+
+​	VARCHAR节省了存储空间，所以对性能也有帮助。但是，由于行是变长的，在UPDATE时可能使行变得比原来更长，这就导致需要做额外的工作。如果一个行占用的空间增长，并且在页内没有更多的空间可以存储，在这种情况下，不同的存储引擎的处理方式是不一样的。例如，MyISAM会将行拆成不同的片段存储，InnoDB则需要分裂页来使行可以放进页内。其他一些存储引擎也许从不在原数据位置更新数据。
+
+​	下面这些情况下使用VARCHAR是合适的：字符串列的最大长度比平均长度大很多；列的更新很少，所以碎片不是问题；使用了像UTF-8这样复杂的字符集，每个字符都使用不同的字节数进行存储。
+
+​	在5.0或者更高版本，MySQL在存储和检索时会保留末尾空格。但在4.1或更老的版本，MySQL会剔除末尾空格。
+
+​	InnoDB则更灵活，它可以把过长的VARCHAR存储为BLOB，我们稍后讨论这个问题。
+
+**CHAR**
+
+​	CHAR类型是定长的：MySQL总是根据定义的字符串长度分配足够的空间。当存储CHAR值时，MySQL会删除所有的末尾空格（在MySQL 4.1和更老版本中VARCHAR也是这样实现的——也就是说这些版本中CHAR和VARCHAR在逻辑上是一样的，区别只是在存储格式上）。CHAR值会根据需要采用空格进行填充以方便比较。
+
+​	CHAR适合存储很短的字符串，或者所有值都接近同一个长度。例如，CHAR非常适合存储密码的MD5值，因为这是一个定长的值。对于经常变更的数据，CHAR也比VARCHAR更好，因为定长的CHAR类型不容易产生碎片。对于非常短的列，CHAR比VARCHAR在存储空间上也更有效率。例如用CHAR（1）来存储只有Y和N的值，如果采用单字节字符集[(5)](part0011_split_006.html#ch5)只需要一个字节，但是VARCHAR（1）却需要两个字节，因为还有一个记录长度的额外字节。
+
+![](https://pic.imgdb.cn/item/6159d1df2ab3f51d91a18a6e.jpg)
+
+​	数据如何存储取决于存储引擎，并非所有的存储引擎都会按照相同的方式处理定长和变长的字符串。Memory引擎只支持定长的行，即使有变长字段也会根据最大长度分配最大空间[(7)](part0011_split_006.html#ch7)。不过，填充和截取空格的行为在不同存储引擎都是一样的，因为这是在MySQL服务器层进行处理的。
+
+​	与CHAR和VARCHAR类似的类型还有BINARY和VARBINARY，它们存储的是二进制字符串。二进制字符串跟常规字符串非常相似，但是二进制字符串存储的是字节码而不是字符。填充也不一样：MySQL填充BINARY采用的是\0（零字节）而不是空格，在检索时也不会去掉填充值[(8)](part0011_split_006.html#ch8)。
+
+​	当需要存储二进制数据，并且希望MySQL使用字节码而不是字符进行比较时，这些类型是非常有用的。二进制比较的优势并不仅仅体现在大小写敏感上。MySQL比较BINARY字符串时，每次按一个字节，并且根据该字节的数值进行比较。因此，二进制比较比字符比较简单很多，所以也就更快。
+
+> **慷慨是不明智的**
+>
+> ​	使用VARCHAR（5）和VARCHAR（200）存储’hello’的空间开销是一样的。那么使用更短的列有什么优势吗？
+>
+> ​	事实证明有很大的优势。更长的列会消耗更多的内存，因为MySQL通常会分配固定大小的内存块来保存内部值。尤其是使用内存临时表进行排序或操作时会特别糟糕。在利用磁盘临时表进行排序时也同样糟糕。
+>
+> ​	所以最好的策略是只分配真正需要的空间。
+
+**BLOB和TEXT类型**
+
+​	BLOB和TEXT都是为存储很大的数据而设计的字符串数据类型，分别采用二进制和字符方式存储。
+
+​	实际上，它们分别属于两组不同的数据类型家族：字符类型是TINYTEXT，SMALLTEXT，TEXT，MEDIUMTEXT，LONGTEXT；对应的二进制类型是TINYBLOB，SMALLBLOB，BLOB，MEDIUMBLOB，LONGBLOB。BLOB是SMALLBLOB的同义词，TEXT是SMALLTEXT的同义词。
+
+​	与其他类型不同，MySQL把每个BLOB和TEXT值当作一个独立的对象处理。存储引擎在存储时通常会做特殊处理。当BLOB和TEXT值太大时，InnoDB会使用专门的“外部”存储区域来进行存储，此时每个值在行内需要1～4个字节存储一个指针，然后在外部存储区域存储实际的值。
+
+​	BLOB和TEXT家族之间仅有的不同是BLOB类型存储的是二进制数据，没有排序规则或字符集，而TEXT类型有字符集和排序规则。
+
+​	MySQL对BLOB和TEXT列进行排序与其他类型是不同的：它只对每个列的最前max_sort_length字节而不是整个字符串做排序。如果只需要排序前面一小部分字符，则可以减小max_sort_length的配置，或者使用ORDER BY SUSTRING（*column，length*）。
+
+​	MySQL不能将BLOB和TEXT列全部长度的字符串进行索引，也不能使用这些索引消除排序。（关于这个主题下一章会有更多的信息。）
+
+> **磁盘临时表和文件排序**
+>
+> ​	因为Memory引擎不支持BLOB和TEXT类型，所以，如果查询使用了BLOB或TEXT列并且需要使用隐式临时表，将不得不使用MyISAM磁盘临时表，即使只有几行数据也是如此（Percona Server的Memory引擎支持BLOB和TEXT类型，但直到本书写作之际，同样的场景下还是需要使用磁盘临时表）。
+>
+> ​	这会导致严重的性能开销。即使配置MySQL将临时表存储在内存块设备上（RAM Disk），依然需要许多昂贵的系统调用。
+>
+> ​	最好的解决方案是尽量避免使用BLOB和TEXT类型。如果实在无法避免，有一个技巧是在所有用到BLOB字段的地方都使用SUBSTRING（*column，length*）将列值转换为字符串（在ORDER BY子句中也适用），这样就可以使用内存临时表了。但是要确保截取的子字符串足够短，不会使临时表的大小超过max_heap_table_size或tmp_table_size，超过以后MySQL会将内存临时表转换为MyISAM磁盘临时表。
+>
+> ​	最坏情况下的长度分配对于排序的时候也是一样的，所以这一招对于内存中创建大临时表和文件排序，以及在磁盘上创建大临时表和文件排序这两种情况都很有帮助。
+>
+> ​	例如，假设有一个1000万行的表，占用几个GB的磁盘空间。其中有一个utf8字符集的VARCHAR（1000）列。每个字符最多使用3个字节，最坏情况下需要3000字节的空间。如果在ORDER BY中用到这个列，并且查询扫描整个表，为了排序就需要超过30GB的临时表。
+>
+> ​	如果EXPLAIN执行计划的Extra列包含”Using temporary”，则说明这个查询使用了隐式临时表。
+
+**使用枚举（ENUM）代替字符串类型**
+
+​	有时候可以使用枚举列代替常用的字符串类型。枚举列可以把一些不重复的字符串存储成一个预定义的集合。MySQL在存储枚举时非常紧凑，会根据列表值的数量压缩到一个或者两个字节中。MySQL在内部会将每个值在列表中的位置保存为整数，并且在表的*.frm*文件中保存“数字-字符串”映射关系的“查找表”。下面有一个例子：
+
+```
+    mysql> CREATE TABLE enum_test(
+        -> e ENUM ('fish', 'apple', 'dog') NOT NULL
+        -> );
+    mysql> INSERT INTO enum_test(e) VALUES('fish'), ('dog'), ('apple');
+```
+
+这三行数据实际存储为整数，而不是字符串。可以通过在数字上下文环境检索看到这个双重属性：
+
+![](https://pic.imgdb.cn/item/6159db952ab3f51d91b66c55.jpg)
+
+​	如果在定义时就是按照字母的顺序，就没有必要这么做了。
+
+​	枚举最不好的地方是，字符串列表是固定的，添加或删除字符串必须使用ALTER TABLE。因此，对于一系列未来可能会改变的字符串，使用枚举不是一个好主意，除非能接受只在列表末尾添加元素，这样在MySQL 5.1中就可以不用重建整个表来完成修改。
+
+​	由于MySQL把每个枚举值保存为整数，并且必须进行查找才能转换为字符串，所以枚举列有一些开销。通常枚举的列表都比较小，所以开销还可以控制，但也不能保证一直如此。在特定情况下，把CHAR/VARCHAR列与枚举列进行关联可能会比直接关联CHAR/VARCHAR列更慢。
+
+​	为了说明这个情况，我们对一个应用中的一张表进行了基准测试，看看在MySQL中执行上面说的关联的速度如何。该表有一个很大的主键：
+
+```
+  CREATE TABLE webservicecalls (
+       day date NOT NULL,
+       account smallint NOT NULL,
+       service varchar(10) NOT NULL,
+       method varchar(50) NOT NULL,
+       calls int NOT NULL,
+       items int NOT NULL,
+       time float NOT NULL,
+       cost decimal(9,5) NOT NULL,
+       updated datetime,
+       PRIMARY KEY (day, account, service, method)
+    ) ENGINE=InnoDB;
+```
+
+这个表有11万行数据，只有10MB大小，所以可以完全载入内存。service列包含了5个不同的值，平均长度为4个字符，method列包含了71个值，平均长度为20个字符。
+
+我们复制一下这个表，但是把service和method字段换成枚举类型，表结构如下：
+
+```
+    CREATE TABLE webservicecalls_enum (
+       ... omitted ...
+       service ENUM(...values omitted...) NOT NULL,
+       method ENUM(...values omitted...) NOT NULL,
+       ... omitted ...
+    ) ENGINE=InnoDB;
+```
+
+然后我们用主键列关联这两个表，下面是所使用的查询语句：
+
+```
+    mysql> SELECT SQL_NO_CACHE COUNT(*)
+        -> FROM webservicecalls
+        -> JOIN webservicecalls USING(day, account, service, method);
+```
+
+我们用VARVHAR和ENUM分别测试了这个语句，结果如表4-1所示。
+
+表4-1：连接VARCHAR和ENUM列的速度
+
+| 测试                 | QPS  |
+| -------------------- | ---- |
+| VARCHAR 关联 VARCHAR | 2.6  |
+| VARCHAR 关联 ENUM    | 1.7  |
+| ENUM 关联 VARCHAR    | 1.8  |
+| ENUM 关联 ENUM       | 3.5  |
+
+从上面的结果可以看到，当把列都转换成ENUM以后，关联变得很快。但是当VARCHAR列和ENUM列进行关联时则慢很多。在本例中，如果不是必须和VARCHAR列进行关联，那么转换这些列为ENUM就是个好主意。这是一个通用的设计实践，在“查找表”时采用整数主键而避免采用基于字符串的值进行关联。
+
+然而，转换列为枚举型还有另一个好处。根据SHOW TABLE STATUS命令输出结果中Data_length列的值，把这两列转换为ENUM可以让表的大小缩小1/3。在某些情况下，即使可能出现ENUM和VARCHAR进行关联的情况，这也是值得的[(9)](part0011_split_006.html#ch9)。同样，转换后主键也只有原来的一半大小了。因为这是InnoDB表，如果表上有其他索引，减小主键大小会使非主键索引也变得更小。稍后再解释这个问题。
+
+### 4.1.4　日期和时间类型
+
+MySQL可以使用许多类型来保存日期和时间值，例如YEAR和DATE。MySQL能存储的最小时间粒度为秒（MariaDB支持微秒级别的时间类型）。但是MySQL也可以使用微秒级的粒度进行临时运算，我们会展示怎么绕开这种存储限制。
+
+大部分时间类型都没有替代品，因此没有什么是最佳选择的问题。唯一的问题是保存日期和时间的时候需要做什么。MySQL提供两种相似的日期类型：DATETIME和TIMESTAMP。对于很多应用程序，它们都能工作，但是在某些场景，一个比另一个工作得好。让我们来看一下。
+
+**DATETIME**
+
+​	这个类型能保存大范围的值，从1001年到9999年，精度为秒。它把日期和时间封装到格式为YYYYMMDDHHMMSS的整数中，与时区无关。使用8个字节的存储空间。
+
+​	默认情况下，MySQL以一种可排序的、无歧义的格式显示DATETIME值，例如“2008-01-16 22:37:08”。这是ANSI标准定义的日期和时间表示方法。
+
+**TIMESTAMP**
+
+​	就像它的名字一样，TIMETAMP类型保存了从1970年1月1日午夜（格林尼治标准时间）以来的秒数，它和UNIX时间戳相同。TIMESTAMP只使用4个字节的存储空间，因此它的范围比DATETIME小得多：只能表示从1970年到2038年。MySQL提供了FROM_UNIXTIME()函数把Unix时间戳转换为日期，并提供了UNIX_TIMESTAMP()函数把日期转换为Unix时间戳。
+
+​	MySQL 4.1以及更新的版本按照DATETIME的方式格式化TIMESTAMP的值，但是MySQL 4.0以及更老的版本不会在各个部分之间显示任何标点符号。这仅仅是显示格式上的区别，TIMESTAMP的存储格式在各个版本都是一样的。
+
+​	TIMESTAMP显示的值也依赖于时区。MySQL服务器、操作系统，以及客户端连接都有时区设置。
+
+​	因此，存储值为0的TIMESTAMP在美国东部时区显示为“1969-12-31 19:00:00”，与格林尼治时间差5个小时。有必要强调一下这个区别：如果在多个时区存储或访问数据，TIMESTAMP和DATETIME的行为将很不一样。前者提供的值与时区有关系，后者则保留文本表示的日期和时间。
+
+​	TIMESTAMP也有DATETIME没有的特殊属性。默认情况下，如果插入时没有指定第一个TIMESTAMP列的值，MySQL则设置这个列的值为当前时间[(10)](part0011_split_006.html#ch10)。在插入一行记录时，MySQL默认也会更新第一个TIMESTAMP列的值（除非在UPDATE语句中明确指定了值）。你可以配置任何TIMESTAMP列的插入和更新行为。最后，TIMESTAMP列默认为NOT NULL，这也和其他的数据类型不一样。
+
+​	除了特殊行为之外，通常也应该尽量使用TIMESTAMP，因为它比DATETIME空间效率更高。有时候人们会将Unix时间截存储为整数值，但这不会带来任何收益。用整数保存时间截的格式通常不方便处理，所以我们不推荐这样做。
+
+​	如果需要存储比秒更小粒度的日期和时间值怎么办？MySQL目前没有提供合适的数据类型，但是可以使用自己的存储格式：可以使用BIGINT类型存储微秒级别的时间截，或者使用DOUBLE存储秒之后的小数部分。这两种方式都可以，或者也可以使用MariaDB替代MySQL。
+
+### 4.1.5　位数据类型
+
+​	MySQL有少数几种存储类型使用紧凑的位存储数据。所有这些位类型，不管底层存储格式和处理方式如何，从技术上来说都是字符串类型。
+
+**BIT**
+
+​	在MySQL 5.0之前，BIT是TINYINT的同义词。但是在MySQL 5.0以及更新版本，这是一个特性完全不同的数据类型。下面我们将讨论BIT类型新的行为特性。
+
+​	可以使用BIT列在一列中存储一个或多个true/false值。BIT（1）定义一个包含单个位的字段，BIT（2）存储2个位，依此类推。BIT列的最大长度是64个位。
+
+​	BIT的行为因存储引擎而异。MyISAM会打包存储所有的BIT列，所以17个单独的BIT列只需要17个位存储（假设没有可为NULL的列），这样MyISAM只使用3个字节就能存储这17个BIT列。其他存储引擎例如Memory和InnoDB，为每个BIT列使用一个足够存储的最小整数类型来存放，所以不能节省存储空间。
+
+​	MySQL把BIT当作字符串类型，而不是数字类型。当检索BIT（1）的值时，结果是一个包含二进制0或1值的字符串，而不是ASCII码的“0”或“1”。然而，在数字上下文的场景中检索时，结果将是位字符串转换成的数字。如果需要和另外的值比较结果，一定要记得这一点。例如，如果存储一个值b'00111001'（二进制值等于57）到BIT（8）的列并且检索它，得到的内容是字符码为57的字符串。也就是说得到ASCII码为57的字符“9”。但是在数字上下文场景中，得到的是数字57：
+
+![](https://pic.imgdb.cn/item/6159df272ab3f51d91bc52f2.jpg)
+
+**SET**
+
+​	如果需要保存很多true/false值，可以考虑合并这些列到一个SET数据类型，它在MySQL内部是以一系列打包的位的集合来表示的。这样就有效地利用了存储空间，并且MySQL有像FIND_IN_SET()和FIELD()这样的函数，方便地在查询中使用。它的主要缺点是改变列的定义的代价较高：需要ALTER TABLE，这对大表来说是非常昂贵的操作（但是本章的后面给出了解决办法）。一般来说，也无法在SET列上通过索引查找。
+
+**在整数列上进行按位操作**
+
+​	一种替代SET的方式是使用一个整数包装一系列的位。例如，可以把8个位包装到一个TINYINT中，并且按位操作来使用。可以在应用中为每个位定义名称常量来简化这个工作。
+
+​	比起SET，这种办法主要的好处在于可以不使用ALTER TABLE改变字段代表的“枚举”值，缺点是查询语句更难写，并且更难理解（当第5个bit位被设置时是什么意思？）。一些人非常适应这种方式，也有一些人不适应，所以是否采用这种技术取决于个人的偏好。
+
+​	一个包装位的应用的例子是保存权限的访问控制列表（ACL）。每个位或者SET元素代表一个值，例如CAN_READ、CAN_WRITE，或者CAN_DELETE。如果使用SET列，可以让MySQL在列定义里存储位到值的映射关系；如果使用整数列，则可以在应用代码里存储这个对应关系。这是使用SET列时的查询：
+
+![](https://pic.imgdb.cn/item/6159df802ab3f51d91bcdd45.jpg)
+
