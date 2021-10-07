@@ -65,32 +65,25 @@
 ​	首先，为了方便添加软件源，以及支持devicemapper存储类型，安装如下软件包：
 
 ```sh
-sudo yum update
-sudo yum install -y yum-utils \
-	device-mapper-persistent-data \
-	lvm2
+sudo yum updatesudo yum install -y yum-utils \	device-mapper-persistent-data \	lvm2
 ```
 
 添加Docker稳定版本的yum软件源：
 
 ```sh
-sudo yum-config-manager \
-	--add-repo \
-	https://download.docker.com/linux/centos/docker-ce.repo 
+sudo yum-config-manager \	--add-repo \	https://download.docker.com/linux/centos/docker-ce.repo 
 ```
 
 之后更新yum软件源缓存，并安装Docker：
 
 ```sh
-sudo yum update
-sudo yum install -y docker-ce
+sudo yum updatesudo yum install -y docker-ce
 ```
 
 最后确认Docker服务启动正常
 
 ```sh
-sudo systemctl start docker
-sudo systemctl status docker
+sudo systemctl start dockersudo systemctl status docker
 ```
 
 ## 配置Docker服务
@@ -112,17 +105,13 @@ dockerd -D -H tcp://127.0.0.1:2376
 ​	这些选项可以写入/etc/docker/路径下的daemon.json文件中，由dockerd服务启动时读取：
 
 ```json
-{
-	"debug" : true,
-	"hosts' : ["tcp://127.0.0.1:2376" ]
-}    
+{	"debug" : true,	"hosts' : ["tcp://127.0.0.1:2376" ]}    
 ```
 
 ​	对于CentOS、RedHat等系统，服务通过systemd来管理，配置文件路径为/etc/systemd/system/docker.service.d/docker.conf。更新配置后需要通过systemctl命令来管理Docker服务：
 
 ```
-sudo systemctl daemon-reload
-sudo systemctl start docker.service 
+sudo systemctl daemon-reloadsudo systemctl start docker.service 
 ```
 
 ​	此外，如果服务工作不正常，可以通过查看Docker服务的日志信息来确定问题，例如在RedHat系统上日志文件可能为/var/log/messages，在Ubuntu或CentOS系统上可以执行命令journalctl -u docker.service。
@@ -136,8 +125,7 @@ sudo systemctl start docker.service
 ​	可以使用docker [image] pull命令直接从Docker Hub镜像源来下载镜像。该命令的格式为docker [image] pull NAME[:TAG]。其中，NAME是镜像仓库名称（用来区分镜像）, TAG是镜像的标签（往往用来表示版本信息）。通常情况下，描述一个镜像需要包括“名称+标签”信息。
 
 ```sh
-$ docker pull ubuntu:18.04
-18.04: Pulling from library/ubuntu
+$ docker pull ubuntu:18.0418.04: Pulling from library/ubuntu
 ```
 
 ​	下载过程中可以看出，镜像文件一般由若干层（layer）组成，6c953ac5d795这样的串是层的唯一id（实际上完整的id包括256比特，64个十六进制字符组成）。使用docker pull命令下载中会获取并输出镜像的各层信息。当不同的镜像包括相同的层时，本地仅存储了层的一份内容，减小了存储空间。
@@ -198,21 +186,7 @@ docker tag ubuntu: latest myubuntu: latest
 ​	使用docker[image]inspect命令可以获取该镜像的详细信息，包括制作者、适应架构、各层的数字摘要等：
 
 ```
-docker [images] inspect mysql:latest
-[
-    {
-        "Id": "sha256:0716d6ebcc1a61c5a296fcb187e71f93531e510d4e4400267e2e502103d0194c",
-        "RepoTags": [
-            "mysql:latest"
-        ],
-        "RepoDigests": [
-            "mysql@sha256:99e0989e7e3797cfbdb8d51a19d32c8d286dd8862794d01a547651a896bcf00c"
-        ],
-        "Parent": "",
-        "Comment": "",
-        "Created": "2021-09-03T07:24:57.3195538Z",
-...
-]
+docker [images] inspect mysql:latest[    {        "Id": "sha256:0716d6ebcc1a61c5a296fcb187e71f93531e510d4e4400267e2e502103d0194c",        "RepoTags": [            "mysql:latest"        ],        "RepoDigests": [            "mysql@sha256:99e0989e7e3797cfbdb8d51a19d32c8d286dd8862794d01a547651a896bcf00c"        ],        "Parent": "",        "Comment": "",        "Created": "2021-09-03T07:24:57.3195538Z",...]
 ```
 
 ​	上面代码返回的是一个JSON格式的消息，如果我们只要其中一项内容时，可以使用-f来指定，例如，获取镜像的Architecture：
@@ -226,29 +200,7 @@ docker [images] inspect -f {{".Architecture"}} mysql:latest
 ​	既然镜像文件由多个层组成，那么怎么知道各个层的内容具体是什么呢？这时候可以使用history子命令，该命令将列出各层的创建信息。
 
 ```sh
-docker history mysql:latest
-IMAGE          CREATED      CREATED BY                                      SIZE      COMMENT
-0716d6ebcc1a   3 days ago   /bin/sh -c #(nop)  CMD ["mysqld"]               0B
-<missing>      3 days ago   /bin/sh -c #(nop)  EXPOSE 3306 33060            0B
-<missing>      3 days ago   /bin/sh -c #(nop)  ENTRYPOINT ["docker-entry…   0B
-<missing>      3 days ago   /bin/sh -c ln -s usr/local/bin/docker-entryp…   34B
-<missing>      3 days ago   /bin/sh -c #(nop) COPY file:345a22fe55d3e678…   14.5kB
-<missing>      3 days ago   /bin/sh -c #(nop) COPY dir:2e040acc386ebd23b…   1.12kB
-<missing>      3 days ago   /bin/sh -c #(nop)  VOLUME [/var/lib/mysql]      0B
-<missing>      3 days ago   /bin/sh -c {   echo mysql-community-server m…   378MB
-<missing>      3 days ago   /bin/sh -c echo 'deb http://repo.mysql.com/a…   55B
-<missing>      3 days ago   /bin/sh -c #(nop)  ENV MYSQL_VERSION=8.0.26-…   0B
-<missing>      3 days ago   /bin/sh -c #(nop)  ENV MYSQL_MAJOR=8.0          0B
-<missing>      3 days ago   /bin/sh -c set -ex;  key='A4A9406876FCBD3C45…   1.84kB
-<missing>      3 days ago   /bin/sh -c apt-get update && apt-get install…   52.2MB
-<missing>      3 days ago   /bin/sh -c mkdir /docker-entrypoint-initdb.d    0B
-<missing>      3 days ago   /bin/sh -c set -eux;  savedAptMark="$(apt-ma…   4.17MB
-<missing>      3 days ago   /bin/sh -c #(nop)  ENV GOSU_VERSION=1.12        0B
-<missing>      3 days ago   /bin/sh -c apt-get update && apt-get install…   9.34MB
-<missing>      3 days ago   /bin/sh -c groupadd -r mysql && useradd -r -…   329kB
-<missing>      3 days ago   /bin/sh -c #(nop)  CMD ["bash"]                 0B
-<missing>      3 days ago   /bin/sh -c #(nop) ADD file:4ff85d9f6aa246746…   69.3MB
-
+docker history mysql:latestIMAGE          CREATED      CREATED BY                                      SIZE      COMMENT0716d6ebcc1a   3 days ago   /bin/sh -c #(nop)  CMD ["mysqld"]               0B<missing>      3 days ago   /bin/sh -c #(nop)  EXPOSE 3306 33060            0B<missing>      3 days ago   /bin/sh -c #(nop)  ENTRYPOINT ["docker-entry…   0B<missing>      3 days ago   /bin/sh -c ln -s usr/local/bin/docker-entryp…   34B<missing>      3 days ago   /bin/sh -c #(nop) COPY file:345a22fe55d3e678…   14.5kB<missing>      3 days ago   /bin/sh -c #(nop) COPY dir:2e040acc386ebd23b…   1.12kB<missing>      3 days ago   /bin/sh -c #(nop)  VOLUME [/var/lib/mysql]      0B<missing>      3 days ago   /bin/sh -c {   echo mysql-community-server m…   378MB<missing>      3 days ago   /bin/sh -c echo 'deb http://repo.mysql.com/a…   55B<missing>      3 days ago   /bin/sh -c #(nop)  ENV MYSQL_VERSION=8.0.26-…   0B<missing>      3 days ago   /bin/sh -c #(nop)  ENV MYSQL_MAJOR=8.0          0B<missing>      3 days ago   /bin/sh -c set -ex;  key='A4A9406876FCBD3C45…   1.84kB<missing>      3 days ago   /bin/sh -c apt-get update && apt-get install…   52.2MB<missing>      3 days ago   /bin/sh -c mkdir /docker-entrypoint-initdb.d    0B<missing>      3 days ago   /bin/sh -c set -eux;  savedAptMark="$(apt-ma…   4.17MB<missing>      3 days ago   /bin/sh -c #(nop)  ENV GOSU_VERSION=1.12        0B<missing>      3 days ago   /bin/sh -c apt-get update && apt-get install…   9.34MB<missing>      3 days ago   /bin/sh -c groupadd -r mysql && useradd -r -…   329kB<missing>      3 days ago   /bin/sh -c #(nop)  CMD ["bash"]                 0B<missing>      3 days ago   /bin/sh -c #(nop) ADD file:4ff85d9f6aa246746…   69.3MB
 ```
 
 ​	注意，过长的命令被自动截断了，可以使用前面提到的--no-trunc选项来输出完整命令。
@@ -340,9 +292,9 @@ docker rmi myubuntu:last
 ​	命令格式为docker [container] commit [OPTIONS] CONTAINER [REPOSITORY[:TAG]]，主要选项包括：
 
 *  -a, --author=""：作者信息；
-* -c, --change=[]：提交的时候执行Dockerfile指令，包括CMD|ENTRYPOINT|ENV|EXPOSE|LABEL|ONBUILD|USER|VOLUME|WORKDIR等；
-* -m, --message=""：提交消息；
-* -p, --pause=true：提交时暂停容器运行。
+*  -c, --change=[]：提交的时候执行Dockerfile指令，包括CMD|ENTRYPOINT|ENV|EXPOSE|LABEL|ONBUILD|USER|VOLUME|WORKDIR等；
+*  -m, --message=""：提交消息；
+*  -p, --pause=true：提交时暂停容器运行。
 
 
 
@@ -761,7 +713,7 @@ docker rmi myubuntu:last
 * -cpu-quota int：限制CPU调度器CFS配额，单位为微秒，最小1000；
 * -cpu-rt-period int：限制CPU调度器的实时周期，单位为微秒；
 * -cpu-rt-runtime int：限制CPU调度器的实时运行时，单位为微秒；
-*  -c, -cpu-shares int：限制CPU使用份额；
+* -c, -cpu-shares int：限制CPU使用份额；
 * -cpus decimal：限制CPU个数；
 * -cpuset-cpus string：允许使用的CPU核，如0-3,0,1；
 * -cpuset-mems string：允许使用的内存块，如0-3,0,1；
@@ -1181,7 +1133,7 @@ docker run -d -p 127.0.0.1:5000:5000 training/webapp python app.py
 ​	支持两种格式：
 
 * ENTRYPOINT ["executable", "param1", "param2"]:exec调用执行；
-*  ENTRYPOINT command param1 param2:shell中执行。
+* ENTRYPOINT command param1 param2:shell中执行。
 
 
 
@@ -1246,7 +1198,7 @@ docker run -d -p 127.0.0.1:5000:5000 training/webapp python app.py
 ​	格式有两种：
 
 * HEALTHCHECK [OPTIONS] CMD command：根据所执行命令返回值是否为0来判断；
-*  HEALTHCHECK NONE：禁止基础镜像中的健康检查。
+* HEALTHCHECK NONE：禁止基础镜像中的健康检查。
 
 
 
@@ -1412,17 +1364,15 @@ docker run -d -p 127.0.0.1:5000:5000 training/webapp python app.py
 **获取官方镜像并运行**
 
 ```sh
-docker search busybox
-docker pull busybix:lastest
-docker run -it busybox
+docker search busyboxdocker pull busybix:lastestdocker run -it busybox
 ```
 
 **相关资源**
 
 * BusyBox官网：https://busybox.net/
 * BusyBox官方仓库：https://git.busybox.net/busybox/
-*  BusyBox官方镜像：https://hub.docker.com/_/busybox/
-*  BusyBox官方镜像仓库：https://github.com/docker-library/busybox
+* BusyBox官方镜像：https://hub.docker.com/_/busybox/
+* BusyBox官方镜像仓库：https://github.com/docker-library/busybox
 
 ## 9.2 Alpine
 
@@ -1464,8 +1414,7 @@ docker run -it busybox
 **Debian系统简介及官方镜像使用**
 
 ```sh
-docker search debian
-docker run -it debian bash
+docker search debiandocker run -it debian bash
 ```
 
 ![](https://pic.imgdb.cn/item/614b35292ab3f51d91f3ec1a.jpg)
@@ -1503,8 +1452,7 @@ Ubuntu的相关资源
 ​	首先，获取ubuntu:18.04镜像，并创建一个容器：
 
 ```sh
-docker pull ubuntu:18.04
-docker run -it ubuntu:18.04 bash
+docker pull ubuntu:18.04docker run -it ubuntu:18.04 bash
 ```
 
 **2．配置软件源**
@@ -1530,8 +1478,7 @@ apt-get install openssh-server
 ​	如果需要正常启动SSH服务，则目录 /var/run/sshd必须存在。下面手动创建它，并启动SSH服务：
 
 ```sh
-mkdir -p /var/run/sshd
-/usr/bin/sshd -D &
+mkdir -p /var/run/sshd/usr/bin/sshd -D &
 ```
 
 ![](https://pic.imgdb.cn/item/614b37522ab3f51d91f7e108.jpg)
@@ -1559,9 +1506,7 @@ mkdir -p /var/run/sshd
 首先，创建一个sshd_ubuntu工作目录：
 
 ```sh
-mkdir sshd_ubuntu
-cd sshd_ubuntu/
-touch Dockerfile run.sh
+mkdir sshd_ubuntucd sshd_ubuntu/touch Dockerfile run.sh
 ```
 
 **2．编写run.sh脚本和authorized_keys文件**
@@ -1992,12 +1937,12 @@ Nginx特性如下：
 ​	Docker目前支持的联合文件系统种类包括AUFS、btrfs、Device Mapper、overlay、over-lay2、vfs、zfs等。多种文件系统目前的支持情况总结如下：
 
 *  AUFS：最早支持的文件系统，对Debian/Ubuntu支持好，虽然没有合并到Linux内核中，但成熟度很高；
-* btrfs：参考zfs等特性设计的文件系统，由Linux社区开发，试图未来取代Device Mapper，成熟度有待提高；
-* Device Mapper:RedHat公司和Docker团队一起开发用于支持RHEL的文件系统，内核支持，性能略慢，成熟度高；
-* overlay：类似于AUFS的层次化文件系统，性能更好，从Linux 3.18开始已经合并到内核，但成熟度有待提高；
-* overlay 2:Docker 1.12后推出，原生支持128层，效率比OverlayFS高，较新版本的Docker支持，要求内核大于4.0；
-* vfs：基于普通文件系统（ext、nfs等）的中间层抽象，性能差，比较占用空间，成熟度也一般。
-* zfs：最初设计为Solaris 10上的写时文件系统，拥有不少好的特性，但对Linux支持还不够成熟。
+*  btrfs：参考zfs等特性设计的文件系统，由Linux社区开发，试图未来取代Device Mapper，成熟度有待提高；
+*  Device Mapper:RedHat公司和Docker团队一起开发用于支持RHEL的文件系统，内核支持，性能略慢，成熟度高；
+*  overlay：类似于AUFS的层次化文件系统，性能更好，从Linux 3.18开始已经合并到内核，但成熟度有待提高；
+*  overlay 2:Docker 1.12后推出，原生支持128层，效率比OverlayFS高，较新版本的Docker支持，要求内核大于4.0；
+*  vfs：基于普通文件系统（ext、nfs等）的中间层抽象，性能差，比较占用空间，成熟度也一般。
+*  zfs：最初设计为Solaris 10上的写时文件系统，拥有不少好的特性，但对Linux支持还不够成熟。
 
 
 
@@ -2036,10 +1981,10 @@ Nginx特性如下：
 ​	在使用docker [container] run命令启动容器的时候，可以通过--net参数来指定容器的网络配置。有5个可选值bridge、none、container、host和用户定义的网络：
 
 *  --net=bridge：默认值，在Docker网桥docker0上为容器创建新的网络栈；
-* --net=none：让Docker将新容器放到隔离的网络栈中，但是不进行网络配置。之后，用户可以自行配置；
+*  --net=none：让Docker将新容器放到隔离的网络栈中，但是不进行网络配置。之后，用户可以自行配置；
 *  --net=container:NAME_or_ID：让Docker将新建容器的进程放到一个已存在容器的网络栈中，新容器进程有自己的文件系统、进程列表和资源限制，但会和已存在的容器共享IP地址和端口等网络资源，两者进程可以直接通过lo环回接口通信；
 *  --net=host：告诉Docker不要将容器网络放到隔离的命名空间中，即不要容器化容器内的网络。此时容器使用本地主机的网络，它拥有完全的本地主机接口访问权限。容器进程跟主机其他root进程一样可以打开低范围的端口，可以访问本地网络服务（比如D-bus），还可以让容器做一些影响整个主机系统的事情，比如重启主机。因此使用这个选项的时候要非常小心。如果进一步使用--privileged=true参数，容器甚至会被允许直接配置主机的网络栈；
-* --net=user_defined_network：用户自行用network相关命令创建一个网络，之后将容器连接到指定的已创建网络上去。
+*  --net=user_defined_network：用户自行用network相关命令创建一个网络，之后将容器连接到指定的已创建网络上去。
 
 **3．手动配置网络**
 
@@ -2148,7 +2093,7 @@ Nginx特性如下：
 当启用认证服务时，需要注意以下两个地方：
 
 *  对于Authentication Service, Docker官方目前并没有放出对应的实现方案，需要自行实现对应的服务接口；
-* Registry服务和Authentication服务之间通过证书进行Bearer token的生成和认证，所以要保证两个服务之间证书的匹配。
+*  Registry服务和Authentication服务之间通过证书进行Bearer token的生成和认证，所以要保证两个服务之间证书的匹配。
 
 
 
@@ -2404,7 +2349,7 @@ Nginx特性如下：
 ​	Docker的安全性在生产环境中是十分关键的衡量因素。Docker容器的安全性，在很大程度上依赖于Linux系统自身。目前，在评估Docker的安全性时，主要考虑下面几个方面：
 
 * Linux内核的命名空间机制提供的容器隔离安全；
-*  Linux控制组机制对容器资源的控制能力安全；
+* Linux控制组机制对容器资源的控制能力安全；
 * Linux内核的能力机制所带来的操作权限安全；
 * Docker程序（特别是服务端）本身的抗攻击性；
 * 其他安全增强机制（包括AppArmor、SELinux等）对容器安全性的影响；
@@ -2454,8 +2399,8 @@ Nginx特性如下：
 
 * 完全禁止任何文件挂载操作；
 * 禁止直接访问本地主机的套接字；
-*  禁止访问一些文件系统的操作，比如创建新的设备、修改文件属性等；
-*  禁止模块加载。
+* 禁止访问一些文件系统的操作，比如创建新的设备、修改文件属性等；
+* 禁止模块加载。
 
 
 
@@ -2580,7 +2525,7 @@ Nginx特性如下：
 
 * -h HOSTNAME or --hostname=HOSTNAME：配置容器主机名；
 * -ip=""：指定容器内接口的IP地址；
-*  --link=CONTAINER_NAME:ALIAS：添加到另一个容器的连接；
+* --link=CONTAINER_NAME:ALIAS：添加到另一个容器的连接；
 * --net=bridge|none|container:NAME_or_ID|host|user_defined_network：配置容器的桥接模式；
 * --network-alias：容器在网络中的别名；
 * -p SPEC or --publish=SPEC：映射容器端口到宿主主机；
@@ -2595,4 +2540,204 @@ Nginx特性如下：
 * --net=user_defined_network：用户自行用network相关命令创建一个网络，同一个网络内的容器彼此可见，可以采用更多类型的网络插件。
 
 ## 20.2 配置容器DNS和主机名
+
+​	Docker服务启动后会默认启用一个内嵌的DNS服务，来自动解析同一个网络中的容器主机名和地址，如果无法解析，则通过容器内的DNS相关配置进行解析。用户可以通过命令选项自定义容器的主机名和DNS配置，下面分别介绍。
+
+**1．相关配置文件**
+
+​	容器中主机名和DNS配置信息可以通过三个系统配置文件来管理：/etc/resolv.conf、/etc/hostname和/etc/hosts。
+
+​	启动一个容器，在容器中使用mount命令可以看到这三个文件挂载信息：
+
+![](https://pic.imgdb.cn/item/615ec2782ab3f51d91f14fba.jpg)
+
+​	Docker启动容器时，会从宿主机上复制/etc/resolv.conf文件，并删除掉其中无法连接到的DNS服务器：
+
+![](https://pic.imgdb.cn/item/615ec2942ab3f51d91f1789d.jpg)
+
+​	/etc/hosts文件中默认只记录了容器自身的地址和名称：
+
+![](https://pic.imgdb.cn/item/615ec2a02ab3f51d91f18a89.jpg)
+
+​	/etc/hostname文件则记录了容器的主机名：
+
+![](https://pic.imgdb.cn/item/615ec2ac2ab3f51d91f19bef.jpg)
+
+**2．容器内修改配置文件**
+
+​	容器运行时，可以在运行中的容器里直接编辑/etc/hosts、/etc/hostname和/etc/resolve.conf文件。但是这些修改是临时的，只在运行的容器中保留，容器终止或重启后并不会被保存下来，也不会被docker commit提交。
+
+**3．通过参数指定**
+
+​	如果用户想要自定义容器的配置，可以在创建或启动容器时利用下面的参数指定，注意一般不推荐与-net=host一起使用，会破坏宿主机上的配置信息：
+
+* 指定主机名-h HOSTNAME或者--hostname=HOSTNAME：设定容器的主机名。容器主机名会被写到容器内的/etc/hostname和/etc/hosts。但这个主机名只有容器内能中看到，在容器外部则看不到，既不会在docker ps中显示，也不会在其他容器的/etc/hosts中看到；
+* --link=CONTAINER_NAME:ALIAS：记录其他容器主机名。在创建容器的时候，添加一个所连接容器的主机名到容器内/etc/hosts文件中。这样，新建容器可以直接使用主机名与所连接容器通信；
+* --dns=IP_ADDRESS：指定DNS服务器。添加DNS服务器到容器的/etc/resolv. conf中，容器会用指定的服务器来解析所有不在/etc/hosts中的主机名；
+* --dns-option list：指定DNS相关的选项；
+* --dns-search=DOMAIN：指定DNS搜索域。设定容器的搜索域，当设定搜索域为．example.com时，在搜索一个名为host的主机时，DNS不仅搜索host，还会搜索host.example.com。
+
+## 20.3 容器访问控制
+
+​	容器的访问控制主要通过Linux上的iptables防火墙软件来进行管理和实现。iptables是Linux系统流行的防火墙软件，在大部分发行版中都自带。
+
+**1．容器访问外部网络**
+
+​	从前面的描述中，我们知道容器默认指定了网关为docker0网桥上的docker0内部接口。docker0内部接口同时也是宿主机的一个本地接口。因此，容器默认情况下可以访问到宿主机本地网络。如果容器要想通过宿主机访问到外部网络，则需要宿主机进行辅助转发。
+
+​	在宿主机Linux系统中，检查转发是否打开，代码如下：
+
+![](https://pic.imgdb.cn/item/615ec3472ab3f51d91f272e5.jpg)
+
+**2．容器之间访问**
+
+​	容器之间相互访问需要两方面的支持：
+
+* 网络拓扑是否已经连通。默认情况下，所有容器都会连接到docker0网桥上，这意味着默认情况下拓扑是互通的；
+* 本地系统的防火墙软件iptables是否允许访问通过。这取决于防火墙的默认规则是允许（大部分情况）还是禁止。
+
+
+
+下面分两种情况介绍容器间的访问。
+
+（1）访问所有端口
+
+​	当启动Docker服务时候，默认会添加一条“允许”转发策略到iptables的FORWARD链上。通过配置--icc=true|false（默认值为true）参数可以控制默认的策略。
+
+​	为了安全考虑，可以在Docker配置文件中配置DOCKER_OPTS=--icc=false来默认禁止容器之间的相互访问。
+
+​	同时，如果启动Docker服务时手动指定--iptables=false参数，则不会修改宿主机系统上的iptables规则。
+（2）访问指定端口
+
+​	在通过-icc=false禁止容器间相互访问后，仍可以通过--link=CONTAINER_NAME:ALIAS选项来允许访问指定容器的开放端口。
+
+​	例如，在启动Docker服务时，可以同时使用icc=false --iptables=true参数来配置容器间禁止访问，并允许Docker自动修改系统中的iptables规则。此时，系统中的iptables规则可能是类似如下规则，禁止所有转发流量：
+
+![](https://pic.imgdb.cn/item/615ec9c12ab3f51d91fc2d16.jpg)
+
+​	之后，启动容器（docker [container] run）时使用--link=CONTAINER_NAME:ALIAS选项。Docker会在iptable中为两个互联容器分别添加一条ACCEPT规则，允许相互访问开放的端口（取决于Dockerfile中的EXPOSE行）。
+
+​	此时，iptables的规则可能是类似如下规则：
+
+![](https://pic.imgdb.cn/item/615ec9d32ab3f51d91fc4852.jpg)
+
+## 20.4 映射容器端口到宿主主机的实现
+
+​	默认情况下，容器可以主动访问到外部网络的连接，但是外部网络无法访问到容器。
+
+**1．容器访问外部实现**
+
+​	假设容器内部的网络地址为172.17.0.2，本地网络地址为10.0.2.2。容器要能访问外部网络，源地址不能为172.17.0.2，需要进行源地址映射（Source NAT, SNAT），修改为本地系统的IP地址10.0.2.2。
+
+​	映射是通过iptables的源地址伪装操作实现的。查看主机nat表上POSTROUTING链的规则。该链负责网包要离开主机前，改写其源地址：
+
+![](https://pic.imgdb.cn/item/615ecc362ab3f51d91fff651.jpg)
+
+**2．外部访问容器实现**
+
+​	容器允许外部访问，可以在docker [container] run时候通过-p或-P参数来启用。
+
+​	不管用哪种办法，其实也是在本地的iptable的nat表中添加相应的规则，将访问外部IP地址的包进行目标地址DNAT，将目标地址修改为容器的IP地址。
+
+​	以一个开放80端口的Web容器为例，使用-P时，会自动映射本地49000～49900范围内的随机端口到容器的80端口：
+
+![](https://pic.imgdb.cn/item/615ecc552ab3f51d910029e6.jpg)
+
+​	可以看到，nat表中涉及两条链：PREROUTING链负责包到达网络接口时，改写其目的地址，其中规则将所有流量都转发到DOCKER链；而DOCKER链将所有不是从docker0进来的包（意味着不是本地主机产生），同时目标端口为49153的修改其目标地址为172.17.0.2，目标端口修改为80。
+
+​	使用-p 80:80时，与上面类似，只是本地端口也为80：
+
+![](https://pic.imgdb.cn/item/615ecc6d2ab3f51d9100526b.jpg)
+
+这里有两点需要注意：
+
+* 规则映射地址为0.0.0.0，意味着将接受主机来自所有网络接口上的流量。用户可以通过-pIP:host_port:container_port或-p IP::port来指定绑定的外部网络接口，以制定更严格的访问规则；
+* 如果希望映射绑定到某个固定的宿主机IP地址，可以在Docker配置文件中指定DOCKER_OPTS="--ip=IP_ADDRESS"，之后重启Docker服务即可生效。
+
+## 20.5 配置容器网桥
+
+​	Docker服务默认会创建一个名称为docker0的Linux网桥（其上有一个docker0内部接口），它在内核层连通了其他的物理或虚拟网卡，这就将所有容器和本地主机都放到同一个物理网络。用户使用Docker创建多个自定义网络时可能会出现多个容器网桥。
+
+​	Docker默认指定了docker0接口的IP地址和子网掩码，让主机和容器之间可以通过网桥相互通信，它还给出了MTU（接口允许接收的最大传输单元），通常是1500 B，或宿主主机网络路由上支持的默认值。这些值都可以在服务启动的时候进行配置：
+
+* --bip=CIDR:IP地址加掩码格式，例如192.168.1.5/24；
+* --mtu=BYTES：覆盖默认的Docker mtu配置。
+
+
+
+​	也可以在配置文件中配置DOCKER_OPTS，然后重启服务。由于目前Docker网桥是Linux网桥，用户可以使用brctl show来查看网桥和端口连接信息：
+
+![](https://pic.imgdb.cn/item/615ed15c2ab3f51d910821b7.jpg)
+
+​	每次创建一个新容器的时候，Docker从可用的地址段中选择一个空闲的IP地址分配给容器的eth0端口，并且使用本地主机上docker0接口的IP作为容器的默认网关：
+
+![](https://pic.imgdb.cn/item/615ed2362ab3f51d910993ce.jpg)
+
+​	目前，Docker不支持在启动容器时候指定IP地址。
+
+> 注意
+>
+> 容器默认使用Linux网桥，用户也可以替换为OpenvSwitch等功能更强大的网桥实现，支持更多的软件定义网络特性。
+
+## 20.6 自定义网桥
+
+​	除了默认的docker0网桥，用户也可以指定其他网桥来连接各个容器。在启动Docker服务的时候，可使用-b BRIDGE或--bridge=BRIDGE来指定使用的网桥。
+
+​	如果服务已经运行，就需要先停止服务，并删除旧的网桥：
+
+![](https://pic.imgdb.cn/item/615ed3332ab3f51d910b1580.jpg)
+
+![](https://pic.imgdb.cn/item/615ed3e32ab3f51d910c6c1c.jpg)
+
+## 20.7 使用OpenvSwitch网桥
+
+​	Docker默认使用的是Linux自带的网桥实现，可以替换为使用功能更强大的Openv-Switch虚拟交换机实现。
+
+**1．环境**
+
+​	在debian:stable系统中进行测试。操作流程也适用于RedHat/CentOS系列系统，但少数命令和配置文件可能略有差异。
+
+**2．安装Docker**
+
+​	安装最近版本的Docker并启动服务。默认情况下，Docker服务会创建一个名为docker0的Linux网桥，作为连接容器的本地网桥。
+
+​	可以通过如下命令查看：
+
+![](https://pic.imgdb.cn/item/615ed41f2ab3f51d910ce122.jpg)
+
+**3．安装OpenvSwitch**
+
+![](https://pic.imgdb.cn/item/615ed42e2ab3f51d910d004e.jpg)
+
+**4．配置容器连接到OpenvSwitch网桥**
+
+​	目前OpenvSwitch网桥还不能直接支持挂载容器，需要手动在OpenvSwitch网桥上创建虚拟网口并挂载到容器中。操作方法如下。
+
+（1）创建无网口容器
+
+​	启动一个容器，并指定不创建网络，后面我们手动添加网络。较新版本的Docker默认不允许在容器内修改网络配置，需要在run的时候指定参数-privileged=true：
+
+![](https://pic.imgdb.cn/item/615ed4492ab3f51d910d30f6.jpg)
+
+（2）手动为容器添加网络
+
+![](https://pic.imgdb.cn/item/615ed4582ab3f51d910d4ccc.jpg)
+
+![](https://pic.imgdb.cn/item/615ed4682ab3f51d910d6e29.jpg)
+
+![](https://pic.imgdb.cn/item/615ed4ec2ab3f51d910e61d3.jpg)
+
+![](https://pic.imgdb.cn/item/615ed4f72ab3f51d910e7518.jpg)
+
+## 20.8 创建一个点到点连接
+
+​	在默认情况下，Docker会将所有容器连接到由docker0提供的虚拟网络中。
+
+​	用户有时候需要两个容器之间可以直连通信，而不用通过主机网桥进行桥接。解决办法很简单：创建一对peer接口，分别放到两个容器中，配置成点到点链路类型即可。
+
+​	下面笔者将通过手动操作完成Docker配置容器网络的过程。
+
+![](https://pic.imgdb.cn/item/615ed5222ab3f51d910ebb82.jpg)
+
+![](https://pic.imgdb.cn/item/615ed52d2ab3f51d910ecc41.jpg)
 
