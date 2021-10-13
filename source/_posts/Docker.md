@@ -2743,3 +2743,189 @@ Nginx特性如下：
 
 # 21. libnetwork插件化网络功能
 
+## 21.1 容器网络模型
+
+​	libnetwork中容器网络模型（Container Networking Model,CNM）十分简洁和抽象，可以让其上层使用网络功能的容器最大程度地忽略底层具体实现。
+
+​	容器网络模型的结构如图21-1所示。
+
+![](https://pic.imgdb.cn/item/6166d0dd2ab3f51d91be71e0.jpg)
+
+​	容器网络模型包括三种基本元素：
+
+* 沙盒（Sandbox）：代表一个容器（准确地说，是其网络命名空间）；
+* 接入点（Endpoint）：代表网络上可以挂载容器的接口，会分配IP地址；
+* 网络（Network）：可以连通多个接入点的一个子网。
+
+
+
+​	可见，对于使用CNM的容器管理系统来说，具体底下网络如何实现，不同子网彼此怎么隔离，有没有QoS，都不关心。只要插件能提供网络和接入点，只需把容器给接上或者拔下，剩下的都是插件驱动自己去实现，这样就解耦了容器和网络功能，十分灵活。
+
+​	CNM的典型生命周期如图21-2所示：首先，驱动注册自己到网络控制器，网络控制器使用驱动类型，来创建网络；然后在创建的网络上创建接口；最后把容器连接到接口上即可。销毁过程则正好相反，先把容器从接入口上卸载，然后删除接入口和网络即可。
+
+![](https://pic.imgdb.cn/item/6166d1492ab3f51d91bf20e5.jpg)
+
+​	目前CNM支持的驱动类型有四种：Null、Bridge、Overlay、Remote，简单介绍如下：
+
+* Null：不提供网络服务，容器启动后无网络连接；
+* Bridge：就是Docker传统上默认用Linux网桥和Iptables实现的单机网络；
+* Overlay：是用vxlan隧道实现的跨主机容器网络；
+* Remote：扩展类型，预留给其他外部实现的方案，比如有一套第三方的SDN方案（如OpenStack Neutron）就可以接进来。
+
+
+
+​	从位置上看，libnetwork往上提供容器支持，往下隐藏实现差异，自身处于十分关键的中间层。读者如果熟悉计算机网络协议模型的话，libnetwork可以类比为最核心的TCP/IP层。
+
+​	目前，已有大量的网络方案开始支持libnetwork。包括OpenStack Kuryr项目，使用libnetwork，让Docker可以直接使用Neutron提供的网络功能。Calico等团队也编写了插件支持libnetwork，可以无缝地支持Docker高级网络功能。
+
+## 21.2 Docker网络命令
+
+​	在libnetwork支持下，Docker网络相关操作都作为network的子命令出现。
+
+​	围绕着CNM生命周期的管理，主要包括以下命令：
+
+* create：创建一个网络；
+* connect：将容器接入到网络；
+* disconnect：把容器从网络上断开；
+* inspect：查看网络的详细信息。
+* ls：列出所有的网络；
+*  rm：删除一个网络。
+
+**1．创建网络**
+
+​	creat命令用于创建一个新的容器网络。Docker内置了bridge（默认使用）和overlay两种驱动，分别支持单主机和多主机场景。Docker服务在启动后，会默认创建一个bridge类型的网桥bridge。不同网络之间默认相互隔离。
+
+​	创建网络命令格式为docker network create [OPTIONS]NETWORK。
+
+​	支持参数包括：
+
+* -attachable[=false]：支持手动容器挂载；
+* -aux-address=map[]：辅助的IP地址；
+* -config-from=""：从某个网络复制配置数据；
+* -config-only[=false]：启用仅可配置模式；
+*  -d, -driver="bridge"：网络驱动类型，如bridge或overlay；
+* -gateway=[]：网关地址；
+* -ingress[=false]：创建一个Swarm可路由的网状网络用于负载均衡，可将对某个服务的请求自动转发给一个合适的副本；
+* -internal[=false]：内部模式，禁止外部对所创建网络的访问；
+* -ip-range=[]：指定分配IP地址范围；
+*  -ipam-driver="default":IP地址管理的插件类型；
+* -ipam-opt=map[]:IP地址管理插件的选项；
+* -ipv6[=false]：支持IPv6地址；
+* -label value：为网络添加元标签信息；
+* -o, -opt=map[]：网络驱动所支持的选项；
+* -scope=""：指定网络范围；
+* -subnet=[]：网络地址段，CIDR格式，如172.17.0.0/16。
+
+**2．接入网络**
+
+​	connect命令将一个容器连接到一个已存在的网络上。连接到网络上的容器可以跟同一网络中其他容器互通，同一个容器可以同时接入多个网络。也可以在执行docker run命令时候通过-net参数指定容器启动后自动接入的网络。
+
+​	接入网络命令格式为docker network connect [OPTIONS]NETWORK CONTAINER。
+
+​	支持参数包括：
+
+* -alias=[]：为容器添加一个别名，此别名仅在所添加网络上可见；
+* -ip=""：指定IP地址，需要注意不能跟已接入的容器地址冲突；
+* -ip6=""：指定IPv6地址；
+* -link value：添加链接到另外一个容器；
+* -link-local-ip=[]：为容器添加一个链接地址。
+
+**3．断开网络**
+
+​	disconnect命令将一个连接到网络上的容器从网络上断开连接。
+
+​	命令格式为docker network disconnect [OPTIONS]NETWORK CONTAINER。
+
+​	支持参数包括-f, -force：强制把容器从网络上移除。
+
+**4．查看网络信息**
+
+​	inspect命令用于查看一个网络的具体信息（JSON格式），包括接入的容器、网络配置信息等。
+
+​	命令格式为docker network inspect [OPTIONS] NETWORK[NETWORK...]。
+
+​	支持参数包括：
+
+* -f, -format=""：给定一个Golang模板字符串，对输出结果进行格式化，如只查看地址配置可以用-f'{{.IPAM.Config}}'；
+* -v, -verbose[=false]：输出调试信息。
+
+**5．列出网络**
+
+​	ls命令用于列出网络。命令格式为docker network ls[OPTIONS]，其中支持的选项主要有：
+
+*  -f, -filter=""：指定输出过滤器，如driver=bridge；
+* -format=""：给定一个golang模板字符串，对输出结果进行格式化；
+* -no-trunc[=false]：不截断地输出内容；
+* -q, -quiet[=false]：安静模式，只打印网络的ID。
+
+
+
+​	实际上，在不执行额外网络命令的情况下，用户执行dockernetwork ls命令，一般情况下可以看到已创建的三个网络：
+
+![](https://pic.imgdb.cn/item/6166d5e02ab3f51d91c61369.jpg)
+
+**6．清理无用网络**
+
+​	prune命令用于清理已经没有容器使用的网络。
+
+​	命令格式为docker network prune [OPTIONS] [flags]，支持参数包括：
+
+* -filter=""：指定选择过滤器；
+* -f, -force：强制清理资源。
+
+**7．删除网络**
+
+​	rm命令用于删除指定的网络。当网络上没有容器连接上时，才会成功删除。
+
+​	命令格式为docker network rm NETWORK [NETWORK...]。
+
+## 21.3 构建跨主机容器网络
+
+​	在这里，笔者将演示使用libnetwork自带的Overlay类型驱动来轻松实现跨主机的网络通信。Overlay驱动默认采用VXLAN协议，在IP地址可以互相访问的多个主机之间搭建隧道，让容器可以互相访问。
+
+**1．配置网络信息管理数据库**
+
+​	我们知道，在现实世界中，要连通不同的主机，需要交换机或路由器（跨子网时需要）这样的互联设备。这些设备一方面是在物理上起到连接作用，但更重要的是起到了网络管理的功能。例如，主机位置在什么地方，地址是多少等信息，都需要网络管理平面来维护。
+
+​	在libnetwork的网络方案中，要实现跨主机容器网络，也需要类似的一个网络信息管理机制，只不过这个机制简单得多，只是一个键值数据库而已，如Consul、Etcd、ZooKeeper等工具都可以满足需求。
+
+​	以Consul为例，启动一个progrium/consul容器，并映射服务到本地的8500端口，代码如下：
+
+![](https://pic.imgdb.cn/item/6166d6652ab3f51d91c6cc66.jpg)
+
+**2．配置Docker主机**
+
+​	启动两台Docker主机n1和n2，分别安装好最新的Docker-engine（1.7.0+）。确保这两台主机之间可以通过IP地址互相访问，另外，都能访问到数据库节点的8500端口。
+
+​	配置主机的Docker服务启动选项如下：
+
+![](https://pic.imgdb.cn/item/6166d68c2ab3f51d91c70038.jpg)
+
+**3．创建网络**
+
+​	分别在n1和n2上查看现有的Docker网络，包括三个默认网络：分别为bridge、host和none类型：
+
+![](https://pic.imgdb.cn/item/6166d6a22ab3f51d91c71e9e.jpg)
+
+![](https://pic.imgdb.cn/item/6166d6b02ab3f51d91c7344d.jpg)
+
+![](https://pic.imgdb.cn/item/6166d6c02ab3f51d91c74a94.jpg)
+
+**4．测试网络**
+
+​	在n1上启动一个容器c1，通过--net选项指定连接到multi网络上。
+
+​	查看网络信息，其中一个接口eth0已经连接到了multi网络上：
+
+![](https://pic.imgdb.cn/item/6166d6e22ab3f51d91c77a0e.jpg)
+
+​	在n2上启动一个容器c2，同样连接到multi网络上。
+
+​	通过ping c1进行测试，可以访问到另外一台主机n1上的容器c1：
+
+![](https://pic.imgdb.cn/item/6166d6ff2ab3f51d91c7a462.jpg)
+
+## 21.4 小结
+
+​	略。
+
