@@ -2789,7 +2789,7 @@ Nginx特性如下：
 * disconnect：把容器从网络上断开；
 * inspect：查看网络的详细信息。
 * ls：列出所有的网络；
-*  rm：删除一个网络。
+* rm：删除一个网络。
 
 **1．创建网络**
 
@@ -2803,12 +2803,12 @@ Nginx特性如下：
 * -aux-address=map[]：辅助的IP地址；
 * -config-from=""：从某个网络复制配置数据；
 * -config-only[=false]：启用仅可配置模式；
-*  -d, -driver="bridge"：网络驱动类型，如bridge或overlay；
+* -d, -driver="bridge"：网络驱动类型，如bridge或overlay；
 * -gateway=[]：网关地址；
 * -ingress[=false]：创建一个Swarm可路由的网状网络用于负载均衡，可将对某个服务的请求自动转发给一个合适的副本；
 * -internal[=false]：内部模式，禁止外部对所创建网络的访问；
 * -ip-range=[]：指定分配IP地址范围；
-*  -ipam-driver="default":IP地址管理的插件类型；
+* -ipam-driver="default":IP地址管理的插件类型；
 * -ipam-opt=map[]:IP地址管理插件的选项；
 * -ipv6[=false]：支持IPv6地址；
 * -label value：为网络添加元标签信息；
@@ -2854,9 +2854,9 @@ Nginx特性如下：
 ​	ls命令用于列出网络。命令格式为docker network ls[OPTIONS]，其中支持的选项主要有：
 
 *  -f, -filter=""：指定输出过滤器，如driver=bridge；
-* -format=""：给定一个golang模板字符串，对输出结果进行格式化；
-* -no-trunc[=false]：不截断地输出内容；
-* -q, -quiet[=false]：安静模式，只打印网络的ID。
+*  -format=""：给定一个golang模板字符串，对输出结果进行格式化；
+*  -no-trunc[=false]：不截断地输出内容；
+*  -q, -quiet[=false]：安静模式，只打印网络的ID。
 
 
 
@@ -2928,4 +2928,175 @@ Nginx特性如下：
 ## 21.4 小结
 
 ​	略。
+
+# 22. Etcd——高可用的键值数据库
+
+## 22.1 Etcd简介
+
+​	Etcd是CoreOS团队于2013年6月发起的开源项目，它的目标是构建一个高可用的分布式键值（key-value）仓库，遵循Apache v2许可，基于Go语言实现。
+
+​	接触过分布式系统的读者应该知道，分布式系统中最基本的问题之一就是实现信息的共识，在此基础上才能实现对服务配置信息的管理、服务的发现、更新、同步，等等。而要解决这些问题，往往需要利用一套能保证一致性的分布式数据库系统，比如经典的Apache ZooKeeper项目[插图]，采用了Paxos算法来实现数据的强一致性。
+
+​	Etcd专门为集群环境设计，采用了更为简洁的Raft共识算法[插图]，同样可以实现数据强一致性，并支持集群节点状态管理和服务自动发现等。
+
+​	Etcd目前在github.com/coreos/etcd进行维护，最新为3.x系列版本。
+
+​	受到Apache ZooKeeper项目和doozer项目（doozer是一个一致性分布式数据库实现，主要面向少量数据，更多信息可以参考https://github.com/ha/doozerd）的启发，Etcd在进行设计的时候重点考虑了下面四个要素：
+
+* 简单：支持RESTful API和gRPC API；
+* 安全：基于TLS方式实现安全连接访问；
+* 快速：支持每秒一万次的并发写操作，超时控制在毫秒量级；
+* 可靠：支持分布式结构，基于Raft算法实现一致性。
+
+
+
+​	通常情况下，用户使用Etcd可以在多个节点上启动多个实例，并将它们添加为一个集群。同一个集群中的Etcd实例将会自动保持彼此信息的一致性，这意味着分布在各个节点上的应用也将获取到一致的信息。
+
+## 22.2 安装和使用Etcd
+
+​	Etcd基于Go语言实现，因此，用户可以从项目主页：https://github.com/coreos/etcd下载源代码自行编译（最新版本需要Go 1.9以上版本），也可以下载编译好的二进制文件，甚至直接使用制作好的Docker镜像文件来体验。
+
+​	下面分别讲解基于二进制文件和Docker镜像两种方式，步骤都十分简单。
+
+**1．二进制文件方式**
+
+（1）下载和安装
+
+​	编译好的二进制文件都在github.com/coreos/etcd/releases页面，用户可以选择需要的版本，或通过下载工具下载。
+
+​	例如，下面的命令使用curl工具下载压缩包，并解压到本地：
+
+![](https://pic.imgdb.cn/item/6167f9e12ab3f51d9139b4d0.jpg)
+
+​	其中etcd是服务主文件，etcdctl是提供给用户的命令客户端，其他都是文档文件。
+
+> **注意**
+>
+> ​	某些版本中还含有etcd-migrate二进制文件，可以协助进行旧版本的迁移。
+
+​	通过下面的命令将所需要的二进制文件都放到系统可执行路径/usr/local/bin/下：
+
+![](https://pic.imgdb.cn/item/6167fa152ab3f51d913a10e7.jpg)
+
+​	Etcd安装到此完成。
+
+（2）使用Etcd
+
+​	下面将先以单节点模式为例讲解Etcd支持的功能和操作。
+
+​	可通过如下命令查看etcd的版本信息：
+
+![](https://pic.imgdb.cn/item/6167fa342ab3f51d913a3e61.jpg)
+
+​	接下来，直接执行Etcd命令，将启动一个服务节点，监听在本地的2379（客户端请求端口）和2380（其他节点连接端口）。
+
+​	显示类似如下的信息：
+
+![](https://pic.imgdb.cn/item/6167fa4f2ab3f51d913a6d6f.jpg)
+
+​	此时，可以通过REST API直接查看集群健康状态：
+
+![](https://pic.imgdb.cn/item/6167fa602ab3f51d913a8a20.jpg)
+
+​	当然，也可以使用自带的etcdctl命令进行查看（实际上是封装了REST API调用）：
+
+![](https://pic.imgdb.cn/item/6167fa712ab3f51d913aab3e.jpg)
+
+​	通过etcdctl设置和获取键值也十分方便，例如设置键值对testkey: "helloworld"：
+
+​	![](https://pic.imgdb.cn/item/6167fa842ab3f51d913ace6e.jpg)
+
+​	说明键值对已经设置成功了。
+
+​	当然，除了etcdctl命令外，也可以直接通过HTTP访问本地2379端口的方式来进行操作，例如查看testkey的值：
+
+![](https://pic.imgdb.cn/item/6167fa9f2ab3f51d913b0129.jpg)
+
+​	注意目前API版本为v2，将来出了新版本后，API路径中则对应为新版本号。
+
+**2. Docker镜像方式下载**
+
+​	以Etcd 3.3.1为例，镜像名称为quay.io/coreos/etcd:v3.3.1，可以通过下面的命令启动etcd服务监听到本地的2379和2380端口：
+
+![](https://pic.imgdb.cn/item/6167fabf2ab3f51d913b3e87.jpg)
+
+**3．数据目录**
+
+​	作为数据库，最重要的自然是数据存放位置。Etcd默认创建的本地数据目录为${name}. etcd，其中${name}为节点别名。默认情况下本地数据路径为default.etcd。
+
+​	用户也可以通过--data-dir选项来指定本地数据存放的位置，下面命令指定Etcd节点别名为test，数据存放目录为test.etcd：
+
+![](https://pic.imgdb.cn/item/6167fada2ab3f51d913b76e3.jpg)
+
+​	其中，snap目录下将定期记录节点的状态快照信息，wal目录下则记录数据库的操作日志信息（可以通过--wal-dir参数来指定存放到特定目录）。
+
+**4．服务启动参数**
+
+​	Etcd服务启动的时候支持一些参数，用户可以通过这些参数来调整服务和集群的行为。
+
+​	另外，参数可以通过环境变量形式传入，命名全部为大写并且加ETCD_前缀，例如ETCD_NAME='etcd-cluster'。主要参数包括：通用参数、节点参数、集群参数、代理参数、安全参数。
+
+​	（1）通用参数
+
+​	这些参数主要跟节点自身配置相关，参见表22-1。
+
+![](https://pic.imgdb.cn/item/6167fb752ab3f51d913c82eb.jpg)
+
+（2）节点参数
+
+​	这些参数跟节点行为有关，参见表22-2。
+
+![](https://pic.imgdb.cn/item/6167fb8c2ab3f51d913cb660.jpg)!
+
+（3）集群参数
+
+​	这些参数跟集群行为有关，参见表22-3。
+
+![](https://pic.imgdb.cn/item/6167fbab2ab3f51d913ceead.jpg)
+
+（4）代理参数
+
+​	这些参数主要是当Etcd服务自身仅作为代理模式时候使用，即转发来自客户端的请求到指定的Etcd集群。此时，Etcd服务本身并不参与集群中去，不保存数据和参加选举。其中的参数参见表22-4。
+
+![](https://pic.imgdb.cn/item/6167fbc02ab3f51d913d1528.jpg)
+
+（5）安全参数
+
+![](https://pic.imgdb.cn/item/6167fbd72ab3f51d913d3e99.jpg)
+
+## 22.3 使用客户端命令
+
+​	etcdctl是Etcd官方提供的命令行客户端，它支持一些基于HTTP API封装好的命令，供用户直接跟Etcd服务打交道，而无须基于API的方式。当然，这些命令跟API实际上是对应的，最终效果上并无不同之处。
+
+​	某些情况下使用etcdctl十分方便。例如用户需要对Etcd服务进行简单测试或者手动来修改数据库少量内容；也推荐在刚接触Etcd时通过etcdctl命令来熟悉服务相关功能。
+
+​	Etcd项目二进制发行包中已经包含了etcdctl工具，没有的话，可以从github.com/coreos/etcd/releases手动下载。
+
+​	etcdctl的命令格式为：
+
+![](https://pic.imgdb.cn/item/6167fc542ab3f51d913e2e62.jpg)
+
+
+
+![](https://pic.imgdb.cn/item/6167fc622ab3f51d913e3f7e.jpg)
+
+​	支持的命令大体上分为：数据类操作和非数据类操作。
+
+​	Etcd作为一个分布式数据库，与ZooKeeper类似，采用了类似文件目录的结构，数据类操作基本围绕对文件（即某个键）或目录进行。大家可以对比Linux的文件和目录操作命令，可以发现两者之间的相似性。
+
+​	数据类操作命令见表22-7。
+
+![](https://pic.imgdb.cn/item/6167fc802ab3f51d913e6adc.jpg)
+
+
+
+​	后续暂略。
+
+## 22.4 Etcd集群管理
+
+​	Etcd的集群也采用了典型的“主-从”模型，通过Raft协议来保证在一段时间内有一个节点为主节点，其他节点为从节点。一旦主节点发生故障，其他节点可以自动再重新选举出新的主节点。
+
+​	与其他分布式系统类似，集群中节点个数推荐为奇数个，最少为3个，此时quorum为2，越多节点个数自然能提供更多的冗余性，但同时会带来写数据性能的下降。
+
+​	后续略。
 
