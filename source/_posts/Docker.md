@@ -3100,3 +3100,188 @@ Nginx特性如下：
 
 ​	后续略。
 
+# 23. Docker三剑客之Machine
+
+​	Docker Machine是Docker官方三剑客项目之一，负责使用Docker容器的第一步：在多种平台上快速安装和维护Docker运行环境。它支持多种平台，让用户可以在很短时间内在本地或云环境中搭建一套Docker主机集群。
+
+## 23.1 Machine简介
+
+​	Machine项目是Docker官方的开源项目，负责实现对Docker运行环境进行安装和管理，特别在管理多个Docker环境时，使用Machine要比手动管理高效得多。
+
+​	Machine的定位是“在本地或者云环境中创建Docker主机”。其代码在https://github.com/docker/machine上开源，遵循Apache-2.0许可。
+
+其基本功能包括：
+
+* 在指定节点或平台上安装Docker引擎，配置其为可使用的Docker环境；
+* 集中管理（包括启动、查看等）所安装的Docker环境。
+
+
+
+​	Machine连接不同类型的操作平台是通过对应驱动来实现的，目前已经集成了包括AWS、IBM、Google，以及OpenStack、VirtualBox、vSphere等多种云平台的支持。
+
+## 23.2 安装Machine
+
+​	Docker Machine可以在多种操作系统平台上安装，包括Linux、Mac OS以及Windows，下面分别介绍。
+
+**1. Linux平台上的安装**
+
+​	在Linux平台上的安装十分简单，推荐从官方Release库（https://github.com/docker/ma-chine/releases）直接下载编译好的二进制文件即可。
+
+![](https://pic.imgdb.cn/item/6169b01f2ab3f51d91a4f166.jpg)
+
+![](https://pic.imgdb.cn/item/6169b02b2ab3f51d91a5051b.jpg)
+
+**2. Mac OS系统上的安装**
+
+​	Mac OS平台上的安装跟Linux平台十分类似，唯一不同的是下载二进制文件的路径不同。例如，同样是0.13.0版本，Mac OS平台上的安装命令为：
+
+![](https://pic.imgdb.cn/item/6169b03c2ab3f51d91a51fdd.jpg)
+
+**3. Windows系统上的安装**
+
+​	略。
+
+## 23.3 使用Machine
+
+​	Docker Machine通过多种后端驱动来管理不同的资源，包括虚拟机、本地主机和云平台等。通过-d选项可以选择支持的驱动类型。
+
+**1．虚拟机**
+
+​	可以通过virtualbox驱动支持本地（需要已安装virtualbox）启动一个虚拟机环境，并配置为Docker主机：
+
+![](https://pic.imgdb.cn/item/6169b0652ab3f51d91a5677f.jpg)
+
+​	安装成功后，可以通过docker-machine env命令查看访问所创建Docker环境所需要的配置信息：
+
+![](https://pic.imgdb.cn/item/6169b07a2ab3f51d91a58d9d.jpg)
+
+![](https://pic.imgdb.cn/item/6169b0862ab3f51d91a5a3be.jpg)
+
+**2．本地主机**
+
+​	这种驱动适合主机操作系统和SSH服务都已经安装好，需要对其安装Docker引擎。
+
+​	首先确保本地主机可以通过user账号的key直接ssh到目标主机。使用generic类型的驱动，注册一台Docker主机，命名为test：
+
+![](https://pic.imgdb.cn/item/6169b1302ab3f51d91a6c68b.jpg)
+
+​	从命令输出上可以看到，Machine通过SSH连接到指定节点，并在上面安装Docker引擎。
+
+​	创建主机成功后，可以通过docker-machine ls命令来查看注册到本地管理列表中的Docker主机：
+
+![](https://pic.imgdb.cn/item/6169b14a2ab3f51d91a6f072.jpg)
+
+**3．云平台驱动**
+
+​	![](https://pic.imgdb.cn/item/6169b15b2ab3f51d91a70ca9.jpg)
+
+**4．客户端配置**
+
+​	默认情况下，所有的客户端配置数据都会自动存放在~/.docker/machine/machines/路径下。用户可以定期备份这一目录以避免出现客户端连接配置丢失。
+
+​	当然，该路径下内容仅为客户端侧的配置和数据，删除其下内容并不会影响到已经创建的Docker环境。
+
+## 23.4 Machine命令
+
+​	Machine提供了一系列的子命令，每个命令都带有一系列参数，可以通过如下命令查看具体用法：
+
+![](https://pic.imgdb.cn/item/6169b1962ab3f51d91a76932.jpg)
+
+![](https://pic.imgdb.cn/item/6169b1ef2ab3f51d91a7f553.jpg)
+
+​	下面具体介绍部分命令的用法。
+
+**1. active**
+
+​	格式为docker-machine active [arg...]。
+
+​	支持-timeout, -t "10"选项，代表超时时间，默认为10s。查看当前激活状态的Docker主机。激活状态意味着当前的DOCKER_HOST环境变量指向该主机。例如，下面命令列出当前激活主机为dev主机：
+
+![](https://pic.imgdb.cn/item/6169b20a2ab3f51d91a821be.jpg)
+
+**2. config**
+
+​	格式为`docker-machine config [OPTIONS][arg...]`。
+
+​	支持-swarm参数，表示打印Swarm集群信息，而不是Docker信息。查看到Docker主机的连接配置信息。例如，下面显示dev主机的连接信息：
+
+![](https://pic.imgdb.cn/item/6169b24c2ab3f51d91a8874e.jpg)
+
+**3. create**
+
+​	格式为`docker-machine create [OPTIONS][arg...]`。创建一个Docker主机环境。支持的选项包括：
+
+* -driver, -d "virtualbox"：指定驱动类型；
+* -engine-install-url"https://get.docker.com"：配置Docker主机时的安装URL；
+* -engine-opt option：以键值对格式指定所创建Docker引擎的参数；
+* -engine-insecure-registry option：以键值对格式指定所创建Docker引擎允许访问的不支持认证的注册仓库服务；
+* -engine-label option：为所创建的Docker引擎添加标签；
+* -engine-storage-driver：存储后端驱动类型；
+*  -engine-env option：指定环境变量；
+* -swarm：配置Docker主机加入到Swarm集群中；
+* -swarm-image "swarm:latest"：使用Swarm时候采用的镜像；
+* -swarm-master：配置机器作为Swarm集群的master节点；
+*  -swarm-discovery:Swarm集群的服务发现机制参数；
+* -swarm-strategy “spread”:Swarm默认调度策略；
+* -swarm-opt option：任意传递给Swarm的参数；
+* -swarm-host "tcp://0.0.0.0:3376"：指定地址将监听Swarm master节点请求；
+* -swarm-addr：从指定地址发送广播加入Swarm集群服务。
+
+
+
+​	例如，通过如下命令可以创建一个Docker主机的虚拟机镜像：
+
+![](https://pic.imgdb.cn/item/6169b4b12ab3f51d91ace52c.jpg)
+
+所创建Docker主机虚拟机中的Docker引擎将：
+
+* 使用overlay类型的存储驱动；
+* 带有name=testmachine和year=2015两个标签；
+* 引擎采用8.8.8.8作为默认DNS；
+* 环境变量中指定HTTP代理服务http://proxy.com:3128。
+* 允许使用不带验证的注册仓库服务registry.private.com。
+
+**4. env**
+
+​	格式为`docker-machine env [OPTIONS][arg...]`。
+
+​	显示连接到某个主机需要的环境变量。支持的选项包括：
+
+* -swarm：显示Swarm集群配置；
+* -shell：指定所面向的Shell环境，默认为当前自动探测；
+* -unset, -u：取消对应的环境变量；
+* -no-proxy：添加对象主机地址到NO_PROXY环境变量。
+
+
+
+​	例如，显示连接到default主机所需要的环境变量：
+
+![](https://pic.imgdb.cn/item/6169b8772ab3f51d91b3a965.jpg)
+
+**5. inspect**
+
+​	格式为`docker-machine inspect [OPTIONS][arg...]`。
+
+​	以json格式输出指定Docker主机的详细信息。支持-format, -f选项使用指定的Go模板格式化输出。例如：
+
+![](https://pic.imgdb.cn/item/6169b8a72ab3f51d91b3eef8.jpg)
+
+**6. ip**
+
+​	获取指定Docker主机地址。例如，获取default主机的地址，可以用如下命令：
+
+![](https://pic.imgdb.cn/item/6169b8b72ab3f51d91b4068d.jpg)
+
+**7. kill**
+
+​	直接杀死指定的Docker主机。
+
+​	指定Docker主机会强行停止。
+
+**8. ls**
+
+​	![](https://pic.imgdb.cn/item/6169bad22ab3f51d91b71e35.jpg)
+
+​	可以通过--filter只输出某些Docker主机，支持过滤器包括名称正则表达式、驱动类型、Swarm管理节点名称、状态等。例如：
+
+![](https://pic.imgdb.cn/item/6169bb1a2ab3f51d91b7844f.jpg)
