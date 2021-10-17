@@ -3285,3 +3285,165 @@ Nginx特性如下：
 ​	可以通过--filter只输出某些Docker主机，支持过滤器包括名称正则表达式、驱动类型、Swarm管理节点名称、状态等。例如：
 
 ![](https://pic.imgdb.cn/item/6169bb1a2ab3f51d91b7844f.jpg)
+
+# 24. Docker三剑客之Compose
+
+## 24.2 安装与卸载
+
+​	Compose可以通过Python的pip工具进行安装，可以直接下载编译好的二进制文件使用，甚至直接运行在Docker容器中。前两种方式是传统方式，适合本地环境下安装使用；最后一种方式则不破坏系统环境，更适合云计算场景。
+
+**1. pip安装**
+
+​	![](https://pic.imgdb.cn/item/616c2b672ab3f51d91d9b4bf.jpg)
+
+​	之后，可以添加bash补全命令：
+
+![](https://pic.imgdb.cn/item/616c2b7f2ab3f51d91d9d3ad.jpg)
+
+**2．二进制包**
+
+​	官方定义编译好二进制包，供大家使用。这些发布的二进制包可以在https://github.com/docker/compose/releases页面找到。
+
+​	将这些二进制文件下载后直接放到执行路径下，并添加执行权限即可。例如，在Linux平台上：
+
+![](https://pic.imgdb.cn/item/616c2b972ab3f51d91d9f4ad.jpg)
+
+**3．容器中执行**
+
+![](https://pic.imgdb.cn/item/616c2bae2ab3f51d91da152c.jpg)
+
+​	它其实是下载了docker/compose镜像并运行。
+
+**4．卸载**
+
+![](https://pic.imgdb.cn/item/616c2bcf2ab3f51d91da42ff.jpg)
+
+## 24.3 Compose模板文件
+
+​	默认的模板文件名称为docker-compose.yml，格式为YAML格式，目前最新的版本为v3。
+
+​	版本1的Compose文件结构十分简单，每个顶级元素为服务名称，次级元素为服务容器的配置信息，例如：
+
+![](https://pic.imgdb.cn/item/616c2c4a2ab3f51d91daead8.jpg)
+
+​	版本2和3扩展了Compose的语法，同时尽量保持跟旧版本的兼容，除了可以声明网络和存储信息外，最大的不同一是添加了版本信息，另一个是需要将所有的服务放到services根下面。
+
+​	例如，上面例子改写为版本3，并启用资源限制，内容如下：
+
+![](https://pic.imgdb.cn/item/616c2c612ab3f51d91db0bac.jpg)
+
+​	注意每个服务都必须通过image指令指定镜像或build指令（需要Dockerfile）等来自动构建生成镜像。
+
+​	如果使用build指令，在Dockerfile中设置的选项（例如：CMD、EXPOSE、VOLUME、ENV等）将会自动被获取，无须在docker-compose.yml中再次设置。
+
+**表24-1 Compose模板文件主要命令**
+
+![](https://pic.imgdb.cn/item/616c2c832ab3f51d91db547f.jpg)
+
+**1. build**
+
+​	指定Dockerfile所在文件夹的路径（可以是绝对路径，或者相对docker-compose.yml文件的路径）。Compose将会利用它自动构建应用镜像，然后使用这个镜像，例如：
+
+![](https://pic.imgdb.cn/item/616c2cc32ab3f51d91dbb39d.jpg)
+
+![](https://pic.imgdb.cn/item/616c2cd02ab3f51d91dbc793.jpg)
+
+**2. cap_add, cap_drop**
+
+![](https://pic.imgdb.cn/item/616c2ce42ab3f51d91dbe8e0.jpg)
+
+**3. command**
+
+![](https://pic.imgdb.cn/item/616c2cf22ab3f51d91dbffd2.jpg)
+
+**4. configs**
+
+![](https://pic.imgdb.cn/item/616c2d022ab3f51d91dc1887.jpg)
+
+**5. cgroup_parent**
+
+![](https://pic.imgdb.cn/item/616c2d102ab3f51d91dc30ac.jpg)
+
+**6. container_name**
+
+![](https://pic.imgdb.cn/item/616c2d1c2ab3f51d91dc463c.jpg)
+
+**7. devices**
+
+![](https://pic.imgdb.cn/item/616c2d2d2ab3f51d91dc628b.jpg)
+
+**8. depends_on**
+
+![](https://pic.imgdb.cn/item/616c2d3a2ab3f51d91dc79ec.jpg)
+
+**9. dns**
+
+![](https://pic.imgdb.cn/item/616c2d462ab3f51d91dc8cca.jpg)
+
+**10. dns_search**
+
+![](https://pic.imgdb.cn/item/616c2d512ab3f51d91dca0a3.jpg)
+
+**11. dockerfile**
+
+![](https://pic.imgdb.cn/item/616c2d602ab3f51d91dcb7b8.jpg)
+
+**12. entrypoint**
+
+![](https://pic.imgdb.cn/item/616c2d8a2ab3f51d91dcfa01.jpg)
+
+**13. env_file**
+
+![](https://pic.imgdb.cn/item/616c2d992ab3f51d91dd10c9.jpg)
+
+![](https://pic.imgdb.cn/item/616c2da72ab3f51d91dd2510.jpg)
+
+**14. environment**
+
+![](https://pic.imgdb.cn/item/616c2dbe2ab3f51d91dd46b8.jpg)
+
+​	注意，如果变量名称或者值中用到true|false,yes|no等表达布尔含义的词汇，最好放到引号里，避免YAML自动解析某些内容为对应的布尔语义：
+
+![](https://pic.imgdb.cn/item/616c2dce2ab3f51d91dd5da1.jpg)
+
+**15. expose**
+
+![](https://pic.imgdb.cn/item/616c2ddf2ab3f51d91dd775d.jpg)
+
+**16. extends**
+
+![](https://pic.imgdb.cn/item/616c2df32ab3f51d91dd9466.jpg)
+
+![](https://pic.imgdb.cn/item/616c2e042ab3f51d91ddacb2.jpg)
+
+​	后者会自动继承common.yml中的webapp服务及环境变量定义。使用extends需要注意以下两点：
+
+* 要避免出现循环依赖，例如A依赖B, B依赖C, C反过来依赖A的情况。
+* extends不会继承links和volumes_from中定义的容器和数据卷资源。
+
+
+
+​	一般情况下，推荐在基础模板中只定义一些可以共享的镜像和环境变量，在扩展模板中具体指定应用变量、链接、数据卷等信息。
+
+**17. external_links**
+
+![](https://pic.imgdb.cn/item/616c2e2d2ab3f51d91dddfd9.jpg)
+
+**18. extra_hosts**
+
+![](https://pic.imgdb.cn/item/616c2e432ab3f51d91ddfa8a.jpg)
+
+​	其他 略。
+
+# 25. Docker三剑客之Swarm
+
+​	Docker Swarm是Docker官方三剑客项目之一，提供Docker容器集群服务，是Docker官方对容器云生态进行支持的核心方案。使用它，用户可以将多个Docker主机抽象为大规模的虚拟Docker服务，快速打造一套容器云平台。
+
+# 26. Mesos——**优秀的集群资源调度平台**
+
+​	Mesos项目是源自UC Berkeley的对集群资源进行抽象和管理的开源项目，类似于操作系统内核，使用它可以很容易地实现分布式应用的自动化调度。同时，Mesos自身也很好地结合和主持了Docker等相关容器技术，基于Mesos已有的大量应用框架，可以实现用户应用的快速上线。本章将介绍Mesos项目的安装、使用、配置、核心原理和实现。
+
+# 27. Kubernetes——生产级容器集群平台
+
+​	Kubernetes是Google团队发起并维护的开源容器集群管理系统，底层基于Docker、rkt等容器技术，提供强大的应用管理和资源调度能力。Kubernetes已经成为目前容器云领域影响力最大的开源平台，使用Kubernetes，用户可以轻松搭建和管理一个可扩展的生产级别容器云。
+
