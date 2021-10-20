@@ -43,3 +43,15 @@ Bean1级缓存
 
 DeafaultSingletonBeanFactory
 
+# SpringApplication
+
+* Create an appropriate ApplicationContext instance (depending on your classpath)
+* Register a CommandLinePropertySource to expose command line arguments as Spring properties
+* Refresh the application context, loading all singleton beans
+* Trigger any CommandLineRunner beans
+
+# AbstractApplicationContext::refresh
+
+* Prepare this context for refreshing.
+* Tell the subclass to refresh the internal bean factory.
+* 
