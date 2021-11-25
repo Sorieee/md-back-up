@@ -320,3 +320,113 @@ CONSTANT_InvokeDynamic_info {
 
 ​	第一部分为tag，值固定为18；第二部分为bootstrap_method_attr_index，是指向引导方法表bootstrap_methods[]数组的索引。第三部分为name_and_type_index，是指向索引类常量池里的CONSTANT_NameAndType_info的索引，表示方法描述符。以下面的代码清单1-4为例。
 
+```java
+public void foo() {
+    new Thread (()-> {
+        System.out.println("hello");
+    }).start();
+}
+
+javap 输出的常量池的部分如下：
+
+Constant pool:
+   #3 = InvokeDynamic      #0:#25         // #0:run:()Ljava/lang/Runnable;
+   ...
+  #25 = NameAndType        #37:#38        // run:()Ljava/lang/Runnable;
+
+BootstrapMethods:
+  0: #22 invokestatic java/lang/invoke/LambdaMetafactory.metafactory:(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;
+    Method arguments:
+      #23 ()V
+      #24 invokestatic HelloWorldMain.lambda$foo$0:()V
+      #23 ()V
+```
+
+​	整体的结构如图1-22所示。
+
+![](https://pic.imgdb.cn/item/619f04db2ab3f51d91f35699.jpg)
+
+### 1.2.4 AccessFlags
+
+​	紧随常量池之后的区域是访问标记（Access flags），用来标识一个类为final、abstract等，由两个字节表示，总共有16个标记位可供使用，目前只使用了其中的8个，如图1-23所示。
+
+​	完整的访问标记含义如表1-3所示。
+
+![](https://pic.imgdb.cn/item/619f05222ab3f51d91f3755f.jpg)
+
+​	这些访问标记并不是可以随意组合的，比如ACC_PUBLIC、ACC_PRIVATE、ACC_PROTECTED不能同时设置，ACC_FINAL和ACC_ABSTRACT也不能同时设置，否则会违背语义。更多的规则可以在javac源码的com.sun.tools.javac.comp.Check.java文件中找到。
+
+### 1.2.5 this_class、super_name、interfaces
+
+​	这三部分用来确定类的继承关系，this_class表示类索引，super_name表示直接父类的索引，interfaces表示类或者接口的直接父接口。
+
+```java
+public class Hello {
+    public static void main(String[] args) {
+    }
+}
+
+Constant pool:
+   // ...
+   #2 = Class              #13            // Hello
+   // ...
+  #13 = Utf8               Hello
+```
+
+​	本例中this_class为0x0002，指向常量池中下标为2的元素，这个元素是CONSTANT_Class_info类型，它的name_index指向常量池中下标为13、类型为CONSTANT_Utf8_info的元素，表示类名为“Hello”，如图1-25所示。
+
+![](https://pic.imgdb.cn/item/619f05f82ab3f51d91f3c958.jpg)
+
+### 1.2.6 字段表
+
+​	紧随接口索引表之后的是字段表（fields），类中定义的字段会被存储到这个集合中，包括静态和非静态的字段，它的结构可以用下面的伪代码表示。
+
+```c
+{
+    u2             fields_count;
+    field_info     fields[fields_count];
+}
+```
+
+​	字段表也是一个变长的结构，fields_count表示field的数量，接下来的fields表示字段集合，共有fields_count个，每一个字段用field_info结构表示，稍后会进行介绍。
+
+**1.字段field_info结构**
+
+​	每个字段field_info的格式如下所示。
+
+```c
+field_info {
+    u2             access_flags; 
+    u2             name_index;
+    u2             descriptor_index;
+    u2             attributes_count;
+    attribute_info attributes[attributes_count];
+}
+```
+
+​	字段结构分为4个部分：第一部分access_flags表示字段的访问标记，用来标识是public、private还是protected，是否是static，是否是final等；第二部分name_index用来表示字段名，指向常量池的字符串常量；第三部分descriptor_index是字段描述符的索引，指向常量池的字符串常量；最后的attributes_count、attribute_info表示属性的个数和属性集合。如图1-26所示。
+
+![](https://pic.imgdb.cn/item/619f08df2ab3f51d91f5449c.jpg)
+
+**2.字段访问标记**
+
+![](https://pic.imgdb.cn/item/619f09192ab3f51d91f5668d.jpg)
+
+​	如果在类中定义了字段public static final int DEFAULT_SIZE=128，编译后DEFAULT_SIZE字段在类文件中存储的访问标记值为0x0019，则它的访问标记为ACC_PUBLIC|ACC_STATIC|ACC_FINAL，表示它是一个public static final类型的变量，如图1-27所示。
+
+![](https://pic.imgdb.cn/item/619f09712ab3f51d91f5b45d.jpg)
+
+**3.字段描述符**
+
+	字段描述符（field descriptor）用来表示某个field的类型，在JVM中定义一个int类型的字段时，类文件中存储的类型并不是字符串int，而是更精简的字母I。
+根据类型的不同，字段描述符分为三大类。
+	1）原始类型，byte、int、char、float等这些简单类型使用一个字符来表示，比如J对应long类型，B对应byte类型。
+	2）引用类型使用L；的方式来表示，为了防止多个连续的引用类型描述符出现混淆，引用类型描述符最后都加了一个“；”作为结束，比如字符串类型String的描述符为“Ljava/lang/String；”。
+	3）JVM使用一个前置的“[”来表示数组类型，如int[]类型的描述符为“[I”，字符串数组String[]的描述符为“[Ljava/lang/String；”。而多维数组描述符只是多加了几个“[”而已，比如`Object[][][]`类型的描述符为“[[[Ljava/lang/Object；”。
+	完整的字段类型描述符映射表如表1-5所示。
+
+![](https://pic.imgdb.cn/item/619f0a0e2ab3f51d91f640a1.jpg)
+
+**4.字段属性**
+
+​	与字段相关的属性包括ConstantValue、Synthetic、Signature、Deprecated、Runtime-Visible-Annotations和RuntimeInvisibleAnnotations这6个，比较常见的是ConstantValue属性，用来表示一个常量字段的值，具体将在1.2.8节展开介绍。
