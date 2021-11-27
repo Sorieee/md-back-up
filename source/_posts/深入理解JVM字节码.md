@@ -950,7 +950,7 @@ pop(Type t) {
 
 ​	有了栈帧的概念，接下来理解字节码指令就容易很多了，从下一节开始，我们将分类型讲解字节码指令。
 
-### 2.3 字节码指令
+## 2.3 字节码指令
 
 ### 2.3.1　加载和存储指令
 
@@ -1049,4 +1049,203 @@ public int incAndGetId();
 ​	第8行：putfield#2将栈顶的两个元素this和43出栈，现在栈中元素只剩下栈顶的[43]，最后的ireturn指令将栈顶的43出栈返回。
 
 ![](https://pic.imgdb.cn/item/619f5bbc2ab3f51d9124b287.jpg)
+
+### 2.3.3 运算和类型转换指令
+
+![](https://pic.imgdb.cn/item/61a1b6a52ab3f51d9105b82b.jpg)
+
+​	如果需要进行运算的数据类型不一样，会涉及类型转换（cast），比如下面的浮点数1.0与整数1相加的运算。
+
+```java
+1.0 + 1
+```
+
+​	按照直观的想法，加法操作对应的字节码指令如下所示。
+
+```java
+fconst_1 // 将 1.0 入栈
+iconst_1 // 将 1 入栈
+fadd
+```
+
+​	但fadd指令值只支持对两个float类型的数据做相加操作，为了支持这种运算，JVM会先把两个数据类型转换为一样，但精度可能出问题。为了能将1.0和1相加，int型数据需要转为float型数据，然后调用fadd指令进行相加，如下面的代码所示。
+
+```java
+fconst_1 // 将 1.0 入栈
+iconst_1 // 将 1 入栈
+i2f      // 将栈顶的 1 的 int 转为 float
+fadd     // 两个 float 值相加
+```
+
+​	虽然在Java语言层面，boolean、char、byte、short是不同的数据类型，但是在JVM层面它们都被当作int来处理，不需要显式转为int，字节码指令上也没有对应转换的指令。
+
+​	有多种类型数据混合运算时，系统会自动将数据转为范围更大的数据类型，这种转换被称为宽化类型转换（widening）或自动类型转换，如图2-11所示。
+
+![](https://pic.imgdb.cn/item/61a1b70b2ab3f51d9105d4c2.jpg)
+
+​	自动类型转换并不意味着不丢失精度，比如下面代码中将int值“123456789”转为float就出现了精度丢失的情况。
+
+```java
+int n = 123456789;
+float f = n; // f = 1.23456792E8
+```
+
+​	相对的，如果把大范围数据类型的数据强制转换为小范围数据类型，这种转换称为窄化类型转换（narrowing），比如把long转为int，double转为float，如图2-12所示。
+
+![](https://pic.imgdb.cn/item/61a1b7382ab3f51d9105e034.jpg)
+
+![](https://pic.imgdb.cn/item/61a1b7422ab3f51d9105e2f3.jpg)
+
+### 2.3.4 控制转移指令
+
+​	控制转移指令用于有条件和无条件的分支跳转，常见的if-then-else、三目表达式、for循环、异常处理等都属于这个范畴。对应的指令集包括：
+
+* 条件转移：ifeq、iflt、ifle、ifne、ifgt、ifge、ifnull、ifnonnull、if_icmpeq、if_icmpne、if_icmplt，if_icmpgt、if_icmple、if_icmpge、if_acmpeq和if_acmpne。
+* 复合条件转移：tableswitch、lookupswitch。
+* 无条件转移：goto、goto_w、jsr、jsr_w、ret。
+
+下面代码中的isPositive方法为例，它的作用是判断一个整数是否为正数。
+
+```java
+public int isPositive(int n) {
+    if (n > 0) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+```
+
+​	对应的字节码如下所示。
+
+```java
+0: iload_1
+1: ifle 6
+4: iconst_1  
+5: ireturn  
+6: iconst_0 
+7: ireturn
+```
+
+​	根据我们之前的分析，isPositive方法局部变量表的大小为2，第一个元素是this，第二个元素是参数n，接下来逐行解释上面的字节码。
+
+​	第0行：iload_1的作用是将局部变量表中下标为1的整型变量加载到操作数栈上，也就是加载参数n。其中iload_1中的i表示要加载的变量是一个int类型。同时注意到iload_1后面跟了一个数字1，它们的作用都是把栈顶元素存入局部变量表的下标为1的位置，它属于iload_<i>指令组，其中i只能是0、1、2、3。其实把iload_1写成iload 1也能获取正确的结果，但是编译的字节码会变长，在字节码执行时也需要获取和解析1这个额外的操作数。
+​	第1行：ifle指令的作用是将操作数栈顶元素出栈跟0进行比较，如果小于等于0则跳转到特定的字节码处，如果大于0则继续执行接下来的字节码。ifle可以看作“if less or equal”的缩写，比较的值是0。如果想要比较的值不是0，需要用新的指令if_icmple表示“if int compare less or equal xx”。
+​	第4～5行：对应代码“return 1；”，iconst_1指令的作用是把常量1加载到操作数栈上，ireturn指令的作用是将栈顶的整数1出栈返回，方法调用结束。
+​	第6～7行：对应代码“return 0；”，第6行iconst_0指令的作用是将常量0加载到操作数栈上，ireturn指令的作用是将栈顶的整数1出栈返回，方法调用结束。
+假设n等于20，调用isPositive方法操作数栈的变化情况如图2-13所示。
+​	控制转移指令完整的列表如表2-6所示。
+
+![](https://pic.imgdb.cn/item/61a1b8622ab3f51d910633fd.jpg)
+
+![](https://pic.imgdb.cn/item/61a1b89f2ab3f51d9106491a.jpg)
+
+### 2.3.5　for语句的字节码原理
+
+​	纵观所有的字节码指令，并没有与for名字相关的指令，那for循环是如何实现的呢？接下来以sum相加求和的例子来看for循环的实现细节，代码如下所示。
+
+```java
+public int sum(int[] numbers) {
+    int sum = 0;
+    for (int number : numbers) {
+        sum += number;
+    }
+    return sum;
+}
+```
+
+```java
+ 0: iconst_0
+ 1: istore_2
+ 2: aload_1
+ 3: astore_3
+ 4: aload_3
+ 5: arraylength
+ 6: istore        4
+ 8: iconst_0
+ 9: istore        5
+11: iload         5
+13: iload         4
+15: if_icmpge     35
+18: aload_3
+19: iload         5
+21: iaload
+22: istore        6
+24: iload_2
+25: iload         6
+27: iadd
+28: istore_2
+29: iinc          5, 1
+32: goto          11
+35: iload_2
+36: ireturn
+```
+
+![](https://pic.imgdb.cn/item/61a1b9b82ab3f51d9106acf3.jpg)
+
+​	第0～1行：把常量0加载到操作数栈上，随后通过istore_2指令将0出栈赋值给局部变量表下标为2的元素，也就是给局部变量sum赋值为0，如图2-15所示。
+
+![](https://pic.imgdb.cn/item/61a1b9e92ab3f51d9106bb22.jpg)
+
+​	第2～3行：aload_1指令的作用是加载局部变量表中下标为1的变量（参数numbers），astore_3指令的作用是将栈顶元素存储到局部变量下标为3的位置上，记为$array，如图2-16所示。
+
+![](https://pic.imgdb.cn/item/61a1ba7e2ab3f51d9106f70f.jpg)
+
+​	第4～6行：计算数组的长度，astore_3加载`$array`到栈顶，调用arraylength指令获取数组长度存储到栈顶，随后调用istore 4将数组长度存储到局部变量表的第4个位置，这个变量是表示数组的长度值，记为`$len`，过程如图2-17所示。
+
+![](https://pic.imgdb.cn/item/61a1bab22ab3f51d91070669.jpg)
+
+​	第8～9行：初始化数组遍历的下标初始值。iconst_0将0加载到操作数栈上，随后istore 5将栈顶的0存储到局部变量表中的第5个位置，这个局部变量是数组遍历的下标初始值，记为$i，如图2-18所示。
+
+![](https://pic.imgdb.cn/item/61a1bacd2ab3f51d91070c5f.jpg)
+
+​	11～32行是真正的循环体，详细介绍如下。
+
+​	第11～15行的作用是判断循环能否继续。这部分的字节码如下所示。
+
+```java
+11: iload         5
+13: iload         4
+15: if_icmpge     35
+```
+
+​	首先通过iload 5和iload 4指令加载$i和$len到栈顶，然后调用if_icmpge进行比较，如果$i>=$len，直接跳转到第35行指令处，for循环结束；如果$i<$len则继续往下执行循环体，可以用如下伪代码表示。
+
+```java
+if ($i >= $len) goto 35;
+```
+
+​	过程如图2-19所示。
+
+![](https://pic.imgdb.cn/item/61a1bb502ab3f51d91073a55.jpg)	第18～22行的作用是把$array[$i]赋值给number。aload_3加载$array到栈上，iload 5加载$i到栈上，然后iaload指令把下标为$i的数组元素加载到操作数栈上，随后istore 6将栈顶元素存储到局部变量表下标为6的位置上，过程如图2-20所示。
+
+![](https://pic.imgdb.cn/item/61a1bb9d2ab3f51d9107556f.jpg)
+
+​	第24～28行：iload_2和iload 6指令把sum和number值加载到操作数栈上，然后执行iadd指令进行整数相加，过程如图2-21所示。
+​	第29行：“iinc 5，1”指令对执行循环后的$i加一。iinc指令比较特殊，之前介绍的指令都是基于操作数栈来实现功能，它则是直接对局部变量进行自增，不用先入栈、执行加一操作，再将结果出栈存储到局部变量表，因此效率非常高，适合循环结构，如图2-22所示。
+​	第32行：goto 11指令的作用是跳转到第11行继续进行循环条件的判断。
+
+![](https://pic.imgdb.cn/item/61a1bbb82ab3f51d910762bf.jpg)
+
+![](https://pic.imgdb.cn/item/61a1bbda2ab3f51d91076e59.jpg)
+
+```java
+@start: if ($i >= $len) return;
+$item = $array[$i];
+sum += $item;
+++ $i
+goto @start
+```
+
+​	整段代码的逻辑看起来非常熟悉，可以用下面的Java代码表示。
+
+```java
+int sum = 0;
+for (int i = 0; i < numbers.length; i++) {
+    sum += numbers[i];
+}
+return sum;
+```
+
+​	由此可见，for（item：array）就是一个语法糖，字节码会让它现出原形，回归它的本质。
 
