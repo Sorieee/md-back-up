@@ -1249,3 +1249,738 @@ return sum;
 
 ​	由此可见，for（item：array）就是一个语法糖，字节码会让它现出原形，回归它的本质。
 
+### 2.3.6　switch-case底层实现原理
+
+​	如果让我们来实现一个switch-case语法，会如何做呢？是通过一个个if-else语句来判断吗？这样明显效率非常低。通过分析switch-case的字节码，可以知道编译器使用了tableswitch和lookupswitch两条指令来生成switch语句的编译代码。为什么会有两条指令呢？这是基于效率的考量，接下来进行详细分析。代码示例如下。
+
+```java
+int chooseNear(int i) {
+    switch (i) {
+        case 100: return 0;
+        case 101: return 1;
+        case 104: return 4;
+        default: return -1;
+    }
+}
+```
+
+对应的字节码如下所示。
+
+```java
+: iload_1
+1: tableswitch   { // 100 to 104
+         100: 36
+         101: 38
+         102: 42
+         103: 42
+         104: 40
+     default: 42
+}
+
+42: iconst_m1
+43: i
+```
+
+​	细心的同学会发现，代码的case中并没有出现102、103，但字节码中却出现了。原因是编译器会对case的值做分析，如果case的值比较“紧凑”，中间有少量断层或者没有断层，会采用tableswitch来实现switch-case；如果case值有大量断层，会生成一些虚假的case帮忙补齐，这样可以实现O（1）时间复杂度的查找。case值已经被补齐为连续的值，通过下标就可以一次找到，这部分伪代码如下所示。
+
+```java
+int val = pop();                // pop an int from the stack
+if (val < low || val > high) {  // if its less than <low> or greater than <high>,
+    pc += default;              // branch to default 
+} else {                        // otherwise
+    pc += table[val - low];     // branch to entry in table
+}
+```
+
+​	再来看一个case值断层严重的例子，代码如下所示。
+
+```java
+0: iload_1
+1: lookupswitch  { // 3
+           1: 36
+          10: 38
+         100: 41
+     default: 44
+}
+```
+
+​	如果还是采用前面tableswitch补齐的方式，就会生成上百个假case项，class文件会爆炸式增长，这种做法显然不合理。为了解决这个问题，可以使用lookupswitch指令，它的键值都是经过排序的，在查找上可以采用二分查找的方式，时间复杂度为O（log n）。
+
+​	从上面的介绍可以知道，switch-case语句在case比较“稀疏”的情况下，编译器会使用lookupswitch指令来实现，反之，编译器会使用tableswitch来实现。我们在第4章会介绍编译器是如何来判断case值的稀疏程度的。
+
+### 2.3.7　String的switch-case实现的字节码原理
+
+​	前面我们已经知道switch-case依据case值的稀疏程度，分别由两个指令——tableswitch和lookupswitch实现，但这两个指令都只支持整型值，那编译器是如何让String类型的值也支持switch-case的呢？本节我们将介绍这背后的实现细节，以下面的代码为例。
+
+```java
+public int test(String name) {
+    switch (name) {
+        case "Java":
+            return 100;
+        case "Kotlin":
+            return 200;
+        default:
+            return -1;
+    }
+}
+```
+
+​	对应的字节码如下所示。
+
+```java
+ 0: aload_1
+ 1: astore_2
+ 2: iconst_m1
+ 3: istore_3
+ 
+ 4: aload_2
+ 5: invokevirtual #2                  // Method java/lang/String.hashCode:()I
+ 8: lookupswitch  { // 2
+     -2041707231: 50 // 对应 "Kotlin".hashCode()
+         2301506: 36 // 对应 "Java".hashCode()
+         default: 61
+    }
+    
+36: aload_2
+37: ldc           #3                  // String Java
+39: invokevirtual #4                  // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+42: ifeq          61
+45: iconst_0
+46: istore_3
+47: goto          61
+
+50: aload_2
+51: ldc           #5                  // String Kotlin
+53: invokevirtual #4                  // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+56: ifeq          61
+59: iconst_1
+60: istore_3
+
+61: iload_3
+62: lookupswitch  { // 2
+               0: 88
+               1: 91
+         default: 95
+    }
+    
+// 88 ~ 90
+88: bipush        100
+90: ireturn
+
+91: sipush        200
+94: ireturn
+
+95: iconst_m1
+96: ireturn
+```
+
+​	为了方便理解，这里先画出了局部变量表的布局图，如图2-23所示。
+​	第0～3行：做初始化操作，把入参name赋值给局部变量表下标为2的变量，记为tmpName，初始化局部变量表中位置为3的变量为-1，记为matchIndex。
+
+![](https://pic.imgdb.cn/item/61a61dc62ab3f51d910d0d15.jpg)
+
+​	第4～8行：调用tmpName的hashCode方法，得到一个整型值。因为哈希值一般都比较离散，所以没有选用tableswitch而是用lookupswitch来作为switch-case的实现。
+
+​	第36～47行：如果hashCode等于字符串"Java"的hashCode会跳转到第36行继续执行。首先调用字符串的equals方法进行比较，看是否相等。判断是否相等使用的指令是ifeq，它的含义是如果等于0则跳转到对应字节码行处，实际上是等于false时跳转。这里如果相等则把matchIndex赋值为0。
+
+​	第61～96行：进行最后的case分支执行。这一段比较好理解，不再继续分析。
+
+​	结合上面的字节码解读，可以推演出对应的Java代码实现，如代码清单2-1所示。
+
+​	代码清单2-1　String的switch-case等价实现代码
+
+```java
+public int test_translate(String name) {
+    String tmpName = name;
+    int matchIndex = -1;
+    switch (tmpName.hashCode()) {
+        case -2041707231:
+            if (tmpName.equals("Kotlin")) {
+                matchIndex = 1;
+            }
+            break;
+        case 2301506:
+            if (tmpName.equals("Java")) {
+                matchIndex = 0;
+            }
+            break;
+        default:
+            break;
+    }
+    switch (matchIndex) {
+        case 0:
+            return 100;
+        case 1:
+            return 200;
+        default:
+            return -1;
+    }
+}
+```
+
+​	看到这里细心的读者可能会问，字符串的hashCode冲突时要怎样处理，比如“Aa”和“BB”的hashCode都是2112。以下面的代码为例，学习case值hashCode相同时编译器是如何处理的。
+
+```java
+public int testSameHash(String name) {
+    switch (name) {
+        case "Aa":
+            return 100;
+        case "BB":
+            return 200;
+        default:
+            return -1;
+    }
+}
+```
+
+对应的字节码如代码清单2-2所示。
+代码清单2-2　相同hashCode值的String switch-case字节码
+
+```java
+public int testSameHash(java.lang.String);
+descriptor: (Ljava/lang/String;)I
+flags: ACC_PUBLIC
+Code:
+  stack=2, locals=4, args_size=2
+     0: aload_1
+     1: astore_2
+     2: iconst_m1
+     3: istore_3
+     
+     4: aload_2
+     5: invokevirtual #2         // Method java/lang/String.hashCode:()I
+     8: lookupswitch  { // 1
+                2112: 28
+             default: 53
+        }
+        
+    28: aload_2
+    29: ldc           #3         // String BB
+    31: invokevirtual #4         // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+    34: ifeq          42
+    37: iconst_1
+    38: istore_3
+    39: goto          53
+    
+    42: aload_2
+    43: ldc           #5         // String Aa
+    45: invokevirtual #4         // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+    48: ifeq          53
+    51: iconst_0
+    52: istore_3
+    
+    53: iload_3
+    54: lookupswitch  { // 2
+                   0: 80
+                   1: 83
+             default: 87
+        }
+    80: bipush        100
+    82: ireturn
+    83: sipush        200
+    86: ireturn
+    87: iconst_m1
+    88: ireturn
+```
+
+​	可以看到34行在hashCode冲突的情况下，编译器的处理不过是多一次调用字符串equals判断相等的比较。与BB不相等的情况，会继续判断是否等于Aa，翻译为Java源代码如代码清单2-3所示。
+
+```java
+public int testSameHash_translate(String name) {
+    String tmpName = name;
+    int matchIndex = -1;
+
+    switch (tmpName.hashCode()) {
+        case 2112:
+            if (tmpName.equals("BB")) {
+                matchIndex = 1;
+            } else if (tmpName.equals("Aa")) {
+                matchIndex = 0;
+            }
+            break;
+        default:
+            break;
+    }
+
+    switch (matchIndex) {
+        case 0:
+            return 100;
+        case 1:
+            return 200;
+        default:
+            return -1;
+    }
+}
+```
+
+​	前面介绍了String的swich-case实现，里面用到了字符串的hashCode方法，那如何快速构造两个hashCode相同的字符串呢？这要从hashCode的源码说起，String类hashCode的代码如代码清单2-4所示。
+
+​	代码清单2-4　String的hashCode源码
+
+```java
+public int hashCode() {
+    int h = hash;
+    if (h == 0 && value.length > 0) {
+        char val[] = value;
+
+        for (int i = 0; i < value.length; i++) {
+            h = 31 * h + val[i];
+        }
+        hash = h;
+    }
+    return h;
+}
+```
+
+​	假设要构造的字符串只有两个字符，用“ab”和“cd”，上面的代码就变成了如果两个hashCode相等，则满足下面的公式。
+
+```java
+a * 31 + b = c * 31 + d
+31*(a-c)=d-b
+```
+
+​	其中一个特殊解是a-c=1，d-b=31，也就是只有两个字符的字符串“ab”与“cd”满足a-c=1，d-b=31，这两个字符串的hashCode就一定相等，比如“Aa”和“BB”，“Ba”和“CB”，“Ca”和“DB”，依次类推。
+
+### 2.3.8 ++i和i++的字节码原理
+
+​	在面试中经常会被问到++i与i++相关的陷阱题，关于i++和++i的区别，我自己在刚学编程时是比较困惑的，下面我们从字节码的角度来看++i与i++到底是如何实现的。
+​	首先来看一段i++的陷阱题，如代码清单2-5所示。
+​	代码清单2-5　i++代码示例
+
+```java
+public static void foo() {
+    int i = 0;
+    for (int j = 0; j < 50; j++) {
+        i = i++;
+    }
+    System.out.println(i);
+}
+```
+
+​	执行上述代码输出结果是0，而不是50，源码“i=i++；”对应的字节码如下所示。
+
+```java
+...
+10: iload_0
+11: iinc          0, 1
+14: istore_0
+...
+```
+
+​	第10行：iload_0把局部变量表slot=0的变量（i）加载到操作数栈上。
+​	第11行：“iinc 0，1”对局部变量表slot=0的变量（i）直接加1，但是这时候栈顶的元素没有变化，还是0。
+​	第14行：istore_0将栈顶元素出栈赋值给局部变量表slot=0的变量，也就是i。此时，局部变量i又被赋值为0，前面的iinc指令对i的加一操作被覆盖，如图2-24所示。
+
+![](https://pic.imgdb.cn/item/61a621ae2ab3f51d910fdecb.jpg)
+
+可以用下面的伪代码来表示i=i++的执行过程。
+
+```java
+tmp = i;
+i = i + 1;
+i = tmp;
+```
+
+​	因此可以得知，“j=i++；”在字节码层面是先把i的值加载到操作数栈上，随后才对局部变量i执行加一操作，留在操作数栈顶的还是i的旧值。如果把栈顶值赋值给j，则这个变量得到的是i加一之前的值。
+​	把上面的代码稍作修改，将i++改为++i，如代码清单2-6所示。
+​	代码清单2-6　++i代码示例
+
+```java
+public static void foo() {
+    int i = 0;
+    for (int j = 0; j < 50; j++)
+        i = ++i;
+    System.out.println(i);
+}
+```
+
+代码对应的字节码如下所示。
+
+```java
+...
+10: iinc          0, 1
+13: iload_0
+14: istore_0
+...
+```
+
+​	i=++i对应的字节码还是第10～14行，可以看出“i=++i；”先对局部变量表下标为0的变量加1，然后才把它加载到操作
+
+​	数栈上，随后又从操作数栈上出栈赋值给局部变量表中下标为0的变量。
+
+​	整个过程的局部变量表和操作数栈的变化如图2-25所示。
+
+![](https://pic.imgdb.cn/item/61a621fa2ab3f51d911020b4.jpg)
+
+​	i=++i可以用下面的伪代码来表示。
+
+```java
+i = i + 1;
+tmp = i;
+i = tmp;
+```
+
+​	因此可以得知，“j=++i；”实际上是对局部变量i做了加一操作，然后才把最新的i值加载到操作数上，随后赋值给变量j。
+
+​	再来看一道难一点的题目，完整的代码如下所示。
+
+```java
+public static void bar() {
+    int i = 0;
+    i = i++ + ++i;
+    System.out.println("i=" + i);
+}
+```
+
+​	对应的字节码如下。
+
+```java
+ 0: iconst_0
+ 1: istore_0
+ 
+ 2: iload_0
+ 3: iinc          0, 1
+ 
+ 6: iinc          0, 1
+ 9: iload_0
+10: iadd
+11: istore_0
+```
+
+![](https://pic.imgdb.cn/item/61a623202ab3f51d91110f07.jpg)
+
+​	整个过程可以用下面的伪代码来表示。
+
+```java
+i = 0;
+
+tmp1 = i;
+i = i + 1;
+
+i = i + 1
+tmp2 = i;
+
+tmpSum = tmp1 + tmp2;
+
+i = tmpSum;
+```
+
+### 2.3.9 try-catch-finally的字节码原理
+
+​	Java中有一个非常重要的内容是try-catch-finally的执行顺序和返回值问题，大部分书里说过finally一定会执行，但是为什么是这样？下面来看看try-catch-finally这个语法糖背后的实现原理。
+
+**1.try-catch字节码分析**
+
+​	下面是一个简单的try-catch的例子。
+
+```java
+public class TryCatchFinallyDemo {
+    public void foo() {
+        try {
+            tryItOut1();
+        } catch (MyException1 e) {
+            handleException(e);
+        }
+    }
+}
+```
+
+​	对应的字节码如下所示。
+
+```java
+ 0: aload_0
+ 1: invokevirtual #2        // Method tryItOut1:()V
+ 4: goto          13
+ 7: astore_1
+ 8: aload_0
+ 9: aload_1
+10: invokevirtual #4        // Method handleException:(Ljava/lang/Exception;)V
+13: return
+Exception table:
+ from    to  target type
+     0     4     7   Class MyException1
+```
+
+​	第0～1行：aload_0指令加载this，随后使用invokevirtual指令调用tryItOut1方法，关于invokevirtual的详细用法在第3章会介绍，这里只需要知道invokevirtual是方法调用指令即可。
+
+​	第4行：goto语句是如果tryItOut1方法不抛出异常就会跳转到第13行继续执行return指令，方法调用结束。如果有异常抛出，将如何处理呢？
+
+​	从第1章的内容可以知道，当方法包含try-catch语句时，在编译单元生成的方法的Code属性中会生成一个异常表（Exception table），每个异常表项表示一个异常处理器，由from指针、to指针、target指针、所捕获的异常类型type四部分组成。这些指针的值是字节码索引，用于定位字节码。其含义是在[from，to）字节码范围内，如果抛出了异常类型为type的异常，就会跳转到target指针表示的字节码处继续执行。
+
+​	上面例子中的Exception table表示，在0到4之间（不包含4）如果抛出了类型为MyException1或其子类异常，就跳转到7继续执行。
+
+​	值得注意的是，当抛出异常时，Java虚拟机会自动将异常对象加载到操作数栈栈顶。
+​	第7行：astore_1将栈顶的异常对象存储到局部变量表中下标为1的位置。
+​	第8～10行：aload_0和aload_1分别加载this和异常对象到栈上，最后执行invokevirtual#4指令调用handleException方法。
+​	异常处理逻辑的操作数栈和局部变量表变化过程如图2-27所示。
+​	下面我们来看在有多个catch语句的情况下，虚拟机是如何处理的，以代码清单2-7为例。
+
+```java
+public void foo() {
+    try {
+        tryItOut2();
+    } catch (MyException1 e) {
+        handleException1(e);
+    } catch (MyException2 e) {
+        handleException2(e);
+    }
+}
+```
+
+​	对应字节码如下。
+
+```java
+ 0: aload_0
+ 1: invokevirtual #5 // Method tryItOut2:()V
+ 4: goto          22
+ // 第一个 catch 部分内容
+ 7: astore_1
+ 8: aload_0
+ 9: aload_1
+10: invokevirtual #6 // Method handleException1:(Ljava/lang/Exception;)V
+13: goto          22
+// 第二个 catch 部分内容
+16: astore_1
+17: aload_0
+18: aload_1
+19: invokevirtual #8 // Method handleException2:(Ljava/lang/Exception;)V
+22: return
+
+Exception table:
+from    to  target type
+   0     4     7   Class MyException1
+   0     4    16   Class MyException2
+```
+
+​	可以看到，多一个catch语句处理分支，异常表里面就会多一条记录，当程序出现异常时，Java虚拟机会从上至下遍历异常表中所有的条目。当触发异常的字节码索引值在某个异常条目的[from，to）范围内，则会判断抛出的异常是否是想捕获的异常或其子类。
+
+​	如果异常匹配，Java虚拟机会将控制流跳转到target指向的字节码继续执行；如果不匹配，则继续遍历异常表。如果遍历完所有的异常表还未找到匹配的异常处理器，那么该异常将继续抛到调用方（caller）中重复上述的操作。
+
+![](https://pic.imgdb.cn/item/61a623e72ab3f51d91117bee.jpg)
+
+**2.finally字节码分析**
+
+​	很多Java学习资料中都有写：finally语句块保证一定会执行。这一句简单的规则背后却不简单，之前我一直以为finally的实现是用简单的跳转来实现的，实际上并非如此。接下来我们一步步分析finally语句的底层原理，以代码清单2-8为例。
+
+​	代码清单2-8　finally语句示例
+
+```java
+public void foo() {
+    try {
+        tryItOut1();
+    } catch (MyException1 e) {
+        handleException(e);
+    } finally {
+        handleFinally();
+    }
+}
+```
+
+​	对应的字节码如下所示。
+
+```java
+ 0: aload_0
+ 1: invokevirtual #2 // Method tryItOut1:()V
+ //  添加 finally 语句块
+ 4: aload_0
+ 5: invokevirtual #9 // Method handleFinally:()V
+ 8: goto          31
+ ---
+11: astore_1
+12: aload_0
+13: aload_1
+14: invokevirtual #4 // Method handleException:(Ljava/lang/Exception;)V
+//  添加 finally 语句块
+17: aload_0
+18: invokevirtual #9 // Method handleFinally:()V
+21: goto          31
+---
+24: astore_2
+25: aload_0
+26: invokevirtual #9 // Method handleFinally:()V
+29: aload_2
+30: athrow
+31: return
+Exception table:
+  from    to  target type
+     0     4    11   Class MyException1
+     0     4    24   any
+    11    17    24   any
+```
+
+​	可以看到字节码中出现了三次调用handleFinally方法的invokevirtual#9，都是在程序正常return和异常throw之前，其中两处在try-catch语句调用return之前，一处是在异常抛出throw之前。
+​	第0～3行：执行tryItOut1方法。如果没有异常，就继续执行handleFinally方法；如果有异常，则根据异常表的映射关系跳转到对应的字节码处执行。
+​	第11~14行：执行catch语句块中的handleException方法，如果没有异常就继续执行handleFinally方法，如果有异常则跳转到第24行继续执行。
+​	第24～30行：负责处理tryItOut1方法抛出的非MyException1异常和handleException方法抛出的异常。
+​	不用finally语句，只用try-catch语句实现的等价代码如代码清单2-9所示。
+​	代码清单2-9　finally语句等价实现
+
+```java
+public void foo() {
+    try {
+        tryItOut1();
+        handleFinally();
+    } catch (MyException1 e) {
+        try {
+            handleException(e);
+        } catch (Throwable e2) {
+            handleFinally();
+            throw e2;
+        }
+    } catch (Throwable e) {
+        handleFinally();
+        throw e;
+    }
+}
+```
+
+​	由代码可知，现在的Java编译器采用复制finally代码块的方式，并将其内容插入到try和catch代码块中所有正常退出和异常退出之前。这样就解释了我们一直以来被灌输的观点，finally语句块一定会执行。
+
+​	有了上面的基础，就很容易理解在finally语句块中有return语句会发生什么。因为finally语句块插入在try和catch返回指令之前，finally语句块中的return语句会“覆盖”其他的返回（包括异常），以代码清单2-10为例。
+​	代码清单2-10　finally语句块中有return语句的情况
+
+```java
+public int foo() {
+    try {
+        int a = 1 / 0;
+        return 0;
+    } catch (Exception e) {
+        int b = 1 / 0;
+        return 1;
+    } finally {
+        return 2;
+    }
+}
+```
+
+```java
+...
+ 8: astore_1
+ 9: iconst_1
+10: iconst_0
+11: idiv
+12: istore_2
+13: iconst_1
+14: istore_3
+15: iconst_2
+16: ireturn
+...
+
+Exception table:
+ from    to  target type
+     0     6     8   Class java/lang/Exception
+     0     6    17   any
+     8    15    17   any
+    17    19    17   any
+```
+
+​	第8～12行字节码相当于源码中的“int b=1/0；”，第13行字节码iconst_1将整型常量值1加载到栈上，第14行字节码istore_3将栈顶的数值1暂存到局部变量中下标为3的元素中，第15行字节码iconst_2将整型常量2加载到栈上，第16行随后调用ireturn将其出栈值返回，方法调用结束。
+​	可以看到，受finally语句return的影响，虽然catch语句中有“return 1；”，在字节码层面只是将1暂存到临时变量中，没有机会执行返回，本例中foo方法的返回值为2。
+​	上面的代码在语义上与下面的代码清单2-11等价。
+​	代码清单2-11　finally语句包含return的等价实现
+
+```java
+public int foo() {
+    try {
+        int a = 1 / 0;
+        int tmp = 0;
+        return 2;
+    } catch (Exception e) {
+        try {
+            int b = 1 / 0;
+            int tmp = 1;
+            return 2;
+        } catch (Throwable e1) {
+            return 2;
+        }
+    } catch (Throwable e) {
+        return 2;
+    }
+}
+```
+
+​	接下来看看，在finally语句中修改return的值会发生什么，可以想想代码清单2-12中foo方法返回值是100还是101。
+​	代码清单2-12　finally语句修改了return值
+
+```java
+public int foo() {
+    int i = 100;
+    try {
+        return i;
+    } finally {
+        ++i;
+    }
+}
+```
+
+​	前面介绍过，在finally语句中包含return语句时，会将返回值暂存到临时变量中，这个finally语句中的++i操作只会影响i的值，不会影响已经暂存的临时变量的值。foo返回值为100。foo方法对应的字节码如下所示。
+
+```java
+ 0: bipush        100
+ 2: istore_1
+ 3: iload_1
+ 4: istore_2
+ 5: iinc          1, 1
+ 8: iload_2
+ 9: ireturn
+10: astore_3
+11: iinc          1, 1
+14: aload_3
+15: athrow
+
+Exception table:
+ from    to  target type
+     3     5    10   any
+```
+
+​	第0～2行的作用是初始化i值为100，bipush 100的作用是将整数100加载到操作数栈上。第3～4行的作用是加载i值并将其存储到局部变量表中位置为2的变量中，这个变量在源代码中是没有出现的，是return之前的暂存值，记为tmpReturn，此时tmpReturn的值为100。第5行的作用是对局部变量表中i直接自增加一，这次自增并不会影响局部变量tmpReturn的值。第8～9行加载tmpReturn的值并返回，方法调用结束。第10～15行是第3～4行抛出异常时执行的分支。
+
+​	整个过程如图2-28所示。
+
+![](https://pic.imgdb.cn/item/61a626042ab3f51d911291e9.jpg)
+
+类似的陷阱题如代码清单2-13所示。
+代码清单2-13　finally陷阱题
+
+```java
+public String foo() {
+    String s = "hello";
+    try {
+        return s;
+    } finally {
+        s = null;
+    }
+}
+```
+
+对应的字节码如下所示。
+
+```java
+ 0: ldc           #2                  // String hello
+ 2: astore_1
+ 3: aload_1
+ 4: astore_2
+ 5: ldc           #3                  // String xyz
+ 7: astore_1
+ 8: aload_2
+ 9: areturn
+10: astore_3
+11: ldc           #3                  // String xyz
+13: astore_1
+14: aload_3
+15: athrow
+```
+
+​	可以看到，第0～2行字节码加载字符串常量“hello”的引用赋值给局部变量s。第3～4行将局部变量s的引用加载到栈上，随后赋值给局部变量表中位置为2的元素，这个变量在代码中并不存在，是一个临时变量，这里记为tmp。第5～7行将字符串常量“xyz”的引用加载到栈上，随后赋值给局部变量s。第8~9行加载局部变量tmp到栈顶，tmp指向的依旧是字符串“hello”，随后areturn将栈顶元素返回。上述过程如图2-29所示。
+
+![](https://pic.imgdb.cn/item/61a6263f2ab3f51d9112b07d.jpg)
+
+```java
+public String foo() {
+    String s = "hello";
+    String tmp = s;
+    s = "xyz";
+    return tmp;
+}
+```
+
