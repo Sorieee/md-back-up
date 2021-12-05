@@ -1984,3 +1984,1344 @@ public String foo() {
 }
 ```
 
+### 2.3.10 try-with-resources的字节码原理
+
+​	try-with-resources是Java7 Project Coin提案中引入的新的资源释放机制，Project Coin的提交者声称JDK源码中close用法在释放资源时存在bug。try-with-resources的出现既可以减少代码出错的概率，也可以使代码更加简洁。下面以代码清单2-14为例开始介绍这一小节的内容。
+
+```java
+public static void foo() throws IOException {
+    try (FileOutputStream in = new FileOutputStream("test.txt")) {
+        in.write(1);
+    }
+}
+```
+
+​	在不用try-with-resources的情况下，我们很容易写出下面这种try-finally包裹起来的看似等价的代码。
+
+​	看起来好像没有什么问题，但是仔细想一下，如果in.write（）抛出了异常，in.close（）也抛出了异常，调用者会收到哪个呢？我们回顾一下Java基础中try-catch-finally的内容，以代码清单2-15中的bar方法为例。
+
+```java
+public static void bar() {
+    try {
+        throw new RuntimeException("in try");
+    } finally {
+        throw new RuntimeException("in finally");
+    }
+}
+```
+
+​	调用bar（）方法会抛出的异常如下所示。
+
+```java
+Exception in thread "main" java.lang.RuntimeException: in finally
+```
+
+​	也就是说，try中抛出的异常被finally抛出的异常淹没了，这也很好理解，从上一节介绍的内容可知finally中的代码块会在try抛出异常之前插入，即try抛出的异常被finally抛出的异常捷足先登先返回了
+
+​	因此在上面foo方法中in.write（）和in.close（）都抛出异常的情况下，调用方收到的是in.close（）抛出的异常，in.write（）抛出的重要异常消失了，这往往不是我们想要的，那么怎样在抛出try中的异常同时又不丢掉finally中的异常呢？
+
+​	接下来，我们来学习try-with-resources是怎么解决这个问题的。使用javap查看foo方法的字节码，部分输出如代码清单2-16所示。
+
+​	代码清单2-16　try-with-resources字节码
+
+```java
+...
+17: aload_0
+18: invokeinterface #4,  1  // InterfaceMethod java/lang/AutoCloseable.close:()V
+23: goto          86
+...
+26: astore_2
+27: aload_1
+28: aload_2
+29: invokevirtual #6     // Method java/lang/Throwable.addSuppressed:(Ljava/lang/Throwable;)V
+32: goto          86
+...
+86: return
+Exception table:
+    from    to  target  type
+      17    23    26    Class java/lang/Throwable
+       6     9    44    Class java/lang/Throwable
+       6     9    49    any
+      58    64    67    Class java/lang/Throwable
+      44    50    49    any
+```
+
+​	可以看到，第29行出现了一个源代码中并没有出现的Throwable.addSuppressed方法调用，接下来我们来看这里面的玄机。
+
+​	Java 7中为Throwable类增加了addSuppressed方法。当一个异常被抛出的时候，可能有其他异常因为该异常而被抑制，从而无法正常抛出，这时可以通过addSuppressed方法把被抑制的异常记录下来，这些异常会出现在抛出的异常的堆栈信息中；也可以通过getSuppressed方法来获取这些异常。这样做的好处是不会丢失任何异常，方便开发人员进行调试。
+​	根据上述概念，对代码进行再次改写，如代码清单2-17所示。
+
+```java
+public static void foo() throws Exception {
+    FileOutputStream in = null;
+    Exception tmpException = null;
+    try {
+        in = new FileOutputStream("test.txt");
+        in.write(1);
+    } catch (Exception e) {
+        tmpException = e;
+        throw e;
+    } finally {
+        if (in != null) {
+            if (tmpException != null) {
+                try {
+                    in.close();
+                } catch (Exception e) {
+                    tmpException.addSuppressed(e);
+                }
+            } else {
+                in.close();
+            }
+        }
+    }
+}
+```
+
+​	上面的代码中如果in.close（）发生异常，这个异常不会覆盖原来的异常，只是放到原异常的Suppressed异常中。
+
+​	本节介绍了try-with-resources语句块的底层字节码实现，一起来回顾一下要点：第一，try-with-resources语法并不是简单地在finally中加入closable.close（）方法，因为finally中的close方法如果抛出了异常会淹没真正的异常；第二，引入了Suppressed异常，既可以抛出真正的异常又可以调用addSuppressed附带上suppressed的异常。
+
+### 2.3.11 对象相关的字节码指令
+
+**`1.<init>方法`**
+
+​	`<init>`方法是对象初始化方法，类的构造方法、非静态变量的初始化、对象初始化代码块都会被编译进这个方法中。比如：
+
+```java
+ public class Initializer {
+    // 初始化变量
+    private int a = 10; 
+    // 构造器方法
+    public Initializer() {
+        int c = 30;
+    }
+    // 对象初始化代码块
+    {
+        int b = 20;
+    }
+}
+```
+
+​	对应的字节码为：
+
+```java
+public Initializer();
+descriptor: ()V
+flags: ACC_PUBLIC
+Code:
+  stack=2, locals=2, args_size=1
+     0: aload_0
+     1: invokespecial #1          // Method java/lang/Object."<init>":()V
+     4: aload_0
+     5: bipush        10
+     7: putfield      #2          // Field a:I
+    10: bipush        20
+    12: istore_1
+    13: bipush        30
+    15: istore_1
+    16: return
+```
+
+​	javap输出的字节码中Initializer（）方法对应`<init>`对象初始化方法，其中5～7行将成员变量a赋值为10，10～12行将b赋值为10，13～15行将c赋值为30。
+
+​	可以看到，虽然Java语法上允许我们把成员变量初始化和初始化语句块写在构造器方法之外，最终在编译以后都会统一编译进`<init>`方法。为了加深印象，可以来看一个在变量初始化可能抛出异常的情况，如下面的代码所示。
+
+```java
+public class Hello {
+    private FileOutputStream outputStream = new FileOutputStream("test.txt");
+
+    public Hello()  {
+    }
+}
+```
+
+​	编译上面的代码会报如下的错误。
+
+```java
+javac Hello.java 
+Hello.java:8: error: unreported exception FileNotFoundException; must be caught or declared to be thrown
+    private FileOutputStream outputStream = new FileOutputStream("test.txt");
+                                            ^
+```
+
+​	为了能使上面的代码编译通过，需要在默认构造器方法抛出FileNotFoundException异常，如下面的代码所示。
+
+```java
+public class Hello {
+    private FileOutputStream outputStream = new FileOutputStream("test.txt");
+
+    public Hello() throws FileNotFoundException {
+    }
+}
+```
+
+**2.new、dup、invokespecial对象创建三条指令**
+
+​		在Java中new是一个关键字，在字节码中也有一个叫new的指令，但是两者不是一回事。当我们创建一个对象时，背后发生了哪些事情呢？以下面的代码为例。
+
+```java
+ScoreCalculator calculator = new ScoreCalculator();
+```
+
+​	对应的字节码如下所示。
+
+```java
+0: new           #2                  // class ScoreCalculator
+3: dup
+4: invokespecial #3                  // Method ScoreCalculator."<init>":()V
+7: astore_1
+```
+
+​	一个对象创建需要三条指令，new、dup、`<init>`方法的invokespecial调用。在JVM中，类的实例初始化方法是`<init>`，调用new指令时，只是创建了一个类实例引用，将这个引用压入操作数栈顶，此时还没有调用初始化方法。使用invokespecial调用`<init>`方法后才真正调用了构造器方法，那中间的dup指令的作用是什么？
+
+​	invokespecial会消耗操作数栈顶的类实例引用，如果想要在invokespecial调用以后栈顶还有指向新建类对象实例的引用，就需要在调用invokespecial之前复制一份类对象实例的引用，否则调用完`<init>`方法以后，类实例引用出栈以后，就再也找不回刚刚创建的对象引用了。有了栈顶的新建对象的引用，就可以使用astore指令将对象引用存储到局部变量表，如图2-30所示。
+
+![](https://pic.imgdb.cn/item/61aac4e62ab3f51d91060590.jpg)
+
+​	从本质上来理解导致必须要有dup指令的原因是`<init>`方法没有返回值，如果`<init>`方法把新建的引用对象作为返回值，也不会存在这个问题。
+
+**3.`<clinit>`方法**
+
+```java
+public class Initializer {
+    private static int a = 0;
+
+    static {
+        System.out.println("static");
+    }
+}
+```
+
+​	对应的字节码如下所示。
+
+```java
+static {};
+descriptor: ()V
+flags: ACC_STATIC
+Code:
+  stack=2, locals=0, args_size=0
+     0: iconst_0
+     1: putstatic     #2     // Field a:I
+     4: getstatic     #3     // Field java/lang/System.out:Ljava/io/PrintStream;
+     7: ldc           #4     // String static
+     9: invokevirtual #5     // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+    12: return
+```
+
+​	javap输出字节码中的static{}表示`<clinit>`方法。``<clinit>``不会直接被调用，它在四个指令触发时被调用（new、getstatic、putstatic和invokestatic），比如下面的场景：
+
+* 创建类对象的实例，比如new、反射、反序列化等；
+* 访问类的静态变量或者静态方法；
+* 访问类的静态字段或者对静态字段赋值（final的字段除外）；
+* 初始化某个类的子类。
+
+# 3. 字节码进阶
+
+​	上一章我们介绍了常见的字节码指令，这一章我们来探究字节码的进阶知识，通过阅读本章你会学到以下内容。
+
+* 5条方法调用指令的联系和区别
+* JVM方法分派机制与vtable、itable原理
+* 通过HSDB来查看JVM运行时数据
+* invokedynamic指令的介绍及在Lambda表达式中的作用
+* 从字节码角度理解泛型擦除
+* 反射的底层实现原理
+
+## 3.1 方法调用指令
+
+​	JVM的方法调用指令都以invoke开头，这5条指令如下所示。
+
+* invokestatic：用于调用静态方法。
+* invokespecial：用于调用私有实例方法、构造器方法以及使用super关键字调用父类的实例方法等。
+* invokevirtual：用于调用非私有实例方法。
+* invokeinterface：用于调用接口方法。
+* invokedynamic：用于调用动态方法。
+
+
+
+### 3.1.1 invokestatic指令
+
+​	invokestatic用来调用静态方法，也就是使用static关键字修饰的方法。它要调用的方法在编译期间确定，且运行期不会修改，属于静态绑定。调用invokestatic不需要将对象加载到操作数栈，只需要将所需要的参数入栈就可以执行invokestatic指令了。例如Integer.valueOf（"42"）对应字节码如下所示。
+
+```java
+0: ldc           #2      // String 42
+2: invokestatic  #3      // Method java/lang/Integer.valueOf:(Ljava/lang/String;) Ljava/lang/Integer;
+```
+
+### 3.1.2 invokevirtual指令
+
+​	invokevirtual指令用于调用普通实例方法，它调用的目标方法在运行时才能根据对象实际的类型确定，在编译期无法知道，类似于C++中的虚方法。
+
+​	在调用invokevirtual指令之前，需要将对象引用、方法参数入栈，调用结束对象引用、方法参数都会出栈，如果方法有返回值，返回值会入栈到栈顶。比如file.toString（）对应的字节码如下所示。
+
+```java
+10: aload_1
+11: invokevirtual #5      // Method java/io/File.toString:()Ljava/lang/String;
+```
+
+​	下面以一个实际的例子来讲解invokevirtual指令的用法，如代码清单3-1所示。
+​	代码清单3-1　invokevirtual示例
+
+```java
+package invoketest;
+class Color {
+    public void printColorName()  {
+        System.out.println("Color name from parent");
+    }
+}
+class Red extends Color {
+    @Override
+    public void printColorName() {
+        System.out.println("Color name is Red");
+    }
+}
+class Yellow extends Color {
+    @Override
+    public void printColorName() {
+        System.out.println("Color name is Yellow");
+    }
+}
+public class InvokeVirtualTest {
+    public static void main(String[] args) {
+        Color yellowColor = new Yellow();
+        Color redColor = new Red();
+        printColorName(yellowColor);
+        printColorName(redColor);
+    }
+    public static void foo(Color color) {
+        color.printColorName();
+    }
+}
+```
+
+​	foo方法的字节码如下所示。
+
+```java
+0: aload_0
+1: invokevirtual #7        // Method invoketest/Color.printColorName:()V
+4: return
+```
+
+​	foo方法使用invokevirtual指令调用Color类的printColorName方法，但它们最终调用的目标方法却不同，可能是Yellow类的printColorName方法，也有可能是Red类的printColorName方法。invokevirtual根据对象的实际类型进行分派（虚方法分派），在运行时动态选择执行具体子类的实现方法。
+
+### 3.1.3 invokespecial指令
+
+​	invokespecial，顾名思义，它用来调用“特殊”的实例方法，包括如下三种：
+
+* 实例构造器方法`<init>`；
+* private修饰的私有实例方法；
+* 使用super关键字调用的父类方法。
+
+
+
+​	比如new File（"test.txt"）对应的字节码如下所示，invokespecial用来调用File类的构造器方法`<init>`。
+
+```java
+0: new           #2     // class java/io/File
+3: dup
+4: ldc           #3     // String test.txt
+6: invokespecial #4     // Method java/io/File."<init>":(Ljava/lang/String;)V
+```
+
+​	看到这里细心的读者可能会想为什么有了invokevirtual指令还需要invokespecial指令呢？这是出于效率的考虑，invokespecial调用的方法可以在编译期间确定，在JDK 1.0.2之前，invokespecial指令曾被命名为invokenonvirtual，以区别于invokevirtual。例如private方法不会因为继承被子类覆写，在编译期间就可以确定，所以private方法的调用使用invokespecial指令。
+
+### 3.1.4 invokeinterface指令
+
+​	invokeinterface用于调用接口方法，同invokevirtual一样，也是需要在运行时根据对象的类型确定目标方法，以下面的代码为例。
+
+```java
+private AutoCloseable autoCloseable;
+public void foo() throws Exception {
+    autoCloseable.close();
+}
+```
+
+​	foo方法对应的字节码如下所示。
+
+```java
+0: aload_0
+1: getfield      #2       // Field autoCloseable:Ljava/lang/AutoCloseable;
+4: invokeinterface #3,  1 // InterfaceMethod java/lang/AutoCloseable.close:()V
+```
+
+​	那它与invokevirtual有什么区别，为什么不用invokevirtual来实现接口方法的调用呢？这就要说到Java方法分派的实现原理。
+
+**1.方法分派原理**
+
+​	Java的设计受到很多C++的影响，方法分派的思路参考了C++的实现，下面我们先来看C++中虚方法的实现。
+
+​	当C++类中包含虚方法时，编译器会为这个类生成一个虚方法表（vtable），每个类都有一个指向虚方法表的指针vptr。虚方法表是方法指针的数组，用来实现多态。这里先来看看C++单继承的场景，新建一个main.cpp文件，如代码清单3-2所示。
+
+```c++
+class A {
+ public:
+  virtual void method1();
+  virtual void method2();
+  virtual void method3();
+};
+
+void A::method1() { std::cout << "method1 in A" << std::endl; }
+void A::method2() { std::cout << "method2 in A" << std::endl; }
+void A::method3() { std::cout << "method3 in A" << std::endl; }
+
+class B : public A {
+ public:
+  void method2() override;
+  virtual void method4();
+  void method5();
+};
+void B::method2() { std::cout << "method2 in B" << std::endl; }
+void B::method4() { std::cout << "method4 in B" << std::endl; }
+void B::method5() { std::cout << "method5 in B" << std::endl; }
+```
+
+​	在命令行中使用g++-std=c++11-fdump-class-hierarchy test.cpp会输出A和B的虚方法表，输出结果如下所示。
+
+```c++
+Vtable for A
+A::_ZTV1A: 5u entries
+0     (int (*)(...))0
+8     (int (*)(...))(& _ZTI1A)
+16    (int (*)(...))A::method1
+24    (int (*)(...))A::method2
+32    (int (*)(...))A::method3
+
+Vtable for B
+B::_ZTV1B: 6u entries
+0     (int (*)(...))0
+8     (int (*)(...))(& _ZTI1B)
+16    (int (*)(...))A::method1
+24    (int (*)(...))B::method2
+32    (int (*)(...))A::method3
+40    (int (*)(...))B::method4
+```
+
+​	vtable除了包含虚方法以外，还包含了两个额外元素，这里暂时不用关心。重点看offset 16开始的虚方法。可以看到在单继承的情况下，子类B的虚方法的顺序与父类A保持一致，B类虚方法表中覆写方法method2指向B的实现，B新增的方法method4按顺序添加到虚方法表的末尾。
+
+​	单继承的方法分派非常简单，比如有对象A*a调用method2方法时，如下所示。
+
+```java
+A *a
+a->method2
+```
+
+​	我们并不知道a指针所指向对象的真正类型，不确定它是A类还是B类抑或是其他A的子类，但可以确定每个method2方法都被放在虚函数表的offset为24的位置上，不会随类型的影响而不同。
+
+​	在C++的单继承中，这种虚函数的方式实现非常高效。Java类只支持单继承，在实现上与C++的虚方法表非常类似，也是使用了一个名为vtable的结构，如代码清单3-3所示。
+
+```java
+class A {
+    public void method1() { }
+    public void method2() { }
+    public void method3() { }
+}
+
+class B extends A {
+    public void method2() { } // overridden from BaseClass
+    public void method4() { }
+}
+```
+
+![](https://pic.imgdb.cn/item/61aacb0c2ab3f51d9109dafb.jpg)
+
+​	可以看到B类的虚方法表保留了父类A中虚方法表的顺序，只是覆盖了method2指向的方法链接和新增了method4。假设这时需要调用method2方法，invokevirtual只需要直接去找虚方法表位置为2的方法引用就可以了。
+
+​	Java的单继承看起来是规避了C++多继承带来的复杂性，但支持实现多个接口与多继承没有本质上的区别，下面来看看Java是如何实现的。
+
+​	除了虚方法表vtable，JVM提供了名为itable（interface method table）的结构来支持多接口实现，itable由偏移量表（offset table）和方法表（method table）两部分组成。itable组成结构在hotspot源码的注释如下所示。
+
+```java
+// Format of an itable
+//
+//    ---- offset table ---
+//    Klass* of interface 1             \
+//    offset to vtable from start of oop  / offset table entry
+//    ...
+//    Klass* of interface n             \
+//    offset to vtable from start of oop  / offset table entry
+//    --- vtable for interface 1 ---
+//    Method*                             \
+//    compiler entry point                / method table entry
+//    ...
+//    Method*                             \
+//    compiler entry point                / method table entry
+//    -- vtable for interface 2 ---
+//    ...
+//
+```
+
+​	在需要调用某个接口方法时，虚拟机会在itable的offset table中查找到对应的方法表位置和方法位置，随后在method table中查找具体的方法实现。hotspot这部分源代码如代码清单3-4所示。
+
+![](https://pic.imgdb.cn/item/61aacb512ab3f51d910a0e28.jpg)
+
+```c++
+InstanceKlass* int2 = (InstanceKlass*) rcvr->klass();
+itableOffsetEntry* ki = (itableOffsetEntry*) int2->start_of_itable();
+int i;
+for ( i = 0 ; i < int2->itable_length() ; i++, ki++ ) {
+    if (ki->interface_klass() == iclass) break;
+}
+// If the interface isn't found, this class doesn't implement this
+// interface.  The link resolver checks this but only for the first
+// time this interface is called.
+if (i == int2->itable_length()) {
+  VM_JAVA_ERROR(vmSymbols::java_lang_IncompatibleClassChangeError(), "");
+}
+int mindex = cache->f2_as_index();
+itableMethodEntry* im = ki->first_method_entry(rcvr->klass());
+callee = im[mindex].method();
+if (callee == NULL) {
+  VM_JAVA_ERROR(vmSymbols::java_lang_AbstractMethodError(), "");
+}
+
+istate->set_callee(callee);
+istate->set_callee_entry_point(callee->from_interpreted_entry());
+```
+
+​	有了itable的知识，接下来看看invokevirtual和invokeinterface指令的区别。前面介绍过invokevirtual的实现依赖于Java的单继承特性，子类的虚方法表保留了父类虚方法表的顺序，但是因为Java的多接口实现，这一特性无法使用。以下面的代码清单3-5为例。
+
+​	代码清单3-5　invokeinterface示例
+
+```java
+interface A {
+    void method1();
+    void method2();
+}
+interface B {
+    void method3();
+}
+class D implements A, B {
+    @Override
+    public void method1() { }
+    @Override
+    public void method2() { }
+    @Override
+    public void method3() { }
+}
+class E implements B {
+    @Override
+    public void method3() { }
+}
+```
+
+![](https://pic.imgdb.cn/item/61aacba92ab3f51d910a53fd.jpg)
+
+​	当有下面这样的调用时：
+
+```java
+public void foo(B b) {
+    b.method3();
+}
+```
+
+​	D类中method3在itable的第三个位置，E类中method3在itable的第一个位置，如果要用invokevirtual调用method3就不能直接从固定的索引位置取得对应的方法。只能搜索整个itable来找到对应方法，使用invokeinterface指令进行调用。
+
+**2.使用HSDB探究多态的原理**
+
+​	HSDB全称是Hotspot Debugger，它是一个内置的JVM工具，可以用来深入分析JVM运行时的内部状态。HSDB位于JDK安装目录下的lib/sa-jdi.jar中，启动HSDB的方式如下所示。
+
+```java
+sudo java -cp sa-jdi.jar sun.jvm.hotspot.HSDB
+```
+
+​	执行上面的命令会弹出如图3-4的界面。
+
+![](https://pic.imgdb.cn/item/61aacc5a2ab3f51d910ad0d0.jpg)
+
+​	在File菜单中可以选择“attach到一个Hotspot JVM进程”“打开一个core文件”或者“连接到一个远程的debug server”。“attach到一个JVM进程”是最常用的选项。获取进程号可以用系统自带的ps命令，也可以用jps命令。在弹出的输入框中输入进程号以后默认展示当前线程列表，如图3-5所示。
+
+![](https://pic.imgdb.cn/item/61aacc732ab3f51d910ae0bf.jpg)
+
+![](https://pic.imgdb.cn/item/61aacc802ab3f51d910aea7a.jpg)
+
+```java
+public abstract class A {
+    public void printMe() {
+        System.out.println("I love vim");
+    }
+    public abstract void sayHello();
+}
+public class B extends A {
+    @Override
+    public void sayHello() {
+        System.out.println("hello, i am child B");
+    }
+}
+
+public class MyTest {
+    public static void main(String[] args) throws IOException {
+        A obj = new B();
+        System.in.read()
+        System.out.println(obj);
+    }
+}
+```
+
+​	运行MyTest，在命令行中执行jps找到MyTest的进程ID，这里为97169。
+
+```java
+jps
+97169 MyTest
+```
+
+​	在HSDB的界面中选择File→Attach to Hotspot process，输入进程号，然后选择Tools→Class Browser可以找到对象列表，其中B对象的内存指针地址如下所示。
+
+​	B@0x00000007c0060418
+
+​	随后选择Tools→Inspector输入B的内存指针地址，可以显示B类的对象布局，如图3-7所示。
+
+​	可以看到它的vtable的长度为7。有5个是上帝类Object的5个可以被继承的方法，1个是B覆写的sayHello方法，1个是继承A的printMe方法，接下来我们来验证这个结论。
+
+​	vtable分配在instanceKlass对象实例的内存末尾，instanceKlass在64位系统的大小为0x1B8，因此vtable的起始地址等于instanceKlass的内存首地址加上0x1B8等于0x00000007C00605D0，如下所示。
+
+```java
+0x00000007c0060418 + 0x1B8 = 0x00000007C00605D0
+```
+
+![](https://pic.imgdb.cn/item/61aacd7f2ab3f51d910b9a07.jpg)
+
+​	在HSDB的console输入mem查看实际的内存分布。mem命令需要两个参数，一个是起始地址，另一个是长度。输入mem 0x7C00605D0 7可以查看vtable内存起始地址开始的7个方法指针地址，如图3-8所示。
+
+![](https://pic.imgdb.cn/item/61aacd912ab3f51d910ba4d0.jpg)
+
+​	可以看到vtable的前5条与java.lang.Object下面的这5个方法一一对应，vtable里存储的是指向方法内存的指针。
+
+```java
+void finalize()
+boolean equals(java.lang.Object) 
+java.lang.String toString()
+int hashCode()
+java.lang.Object clone()
+```
+
+​	我们继续看剩下的两个方法地址，如图3-9所示
+
+![](https://pic.imgdb.cn/item/61aacdc62ab3f51d910bc602.jpg)
+
+
+
+* vtable、itable机制是实现Java多态的基础。
+* 子类会继承父类的vtable。因为Java类都会继承Object类，Object中有5个方法可以被继承，所以一个空Java类的vtable的大小也等于5。
+* 被final和static修饰的方法不会出现在vtable中，因为没有办法被继承重写，同理可以知道private修饰的方法也不会出现在vtable中。
+* 接口方法的调用使用invokeinterface指令，Java使用itable来支持多接口实现，itable由offset table和method table两部分组成。在调用接口方法时，会先在offset table中查找method table的偏移量位置，随后在method table查找具体的接口实现。
+
+![](https://pic.imgdb.cn/item/61aace102ab3f51d910bf2d0.jpg)
+
+
+
+### 3.1.5 invokedynamic指令
+
+​	Java虚拟机的指令集从1.0开始到JDK7之间的十余年间没有新增任何指令，这期间基于JVM的语言百花齐放，出现了JRuby、Groovy、Scala等很多运行在JVM的语言。因为JVM有诸多的限制，大部分情况下这些非Java的语言需要很多额外的调教才能在JVM上高效运行。随着JDK7的发布，字节码指令集新增了一个重量级指令invokedynamic，这个指令为多语言在JVM上的实现提供了技术支撑。这个小节我们来介绍invokedynamic指令背后的原理。
+
+​	JDK7虽然在指令集中新增了这个指令，但是javac并不会生成invokedynamic指令，直到JDK8 Lambda表达式的出现，在Java中才第一次用上了这个指令。
+
+​	对于JVM而言，不管是什么语言都是强类型语言，它会在编译时检查传入参数的类型和返回值的类型，比如下面这段代码。
+
+```java
+obj.println("hello world"); 
+```
+
+​	Java语言中，对应字节码如下所示。
+
+```java
+Constant pool:
+#1 = Methodref      #6.#15      // java/lang/Object."<init>":()V
+#4 = Methodref      #19.#20     // java/io/PrintStream.println:(Ljava/lang/String;)V
+   
+0: getstatic     #2             // Field java/lang/System.out:Ljava/io/PrintStream;
+3: ldc           #3             // String Hello World
+5: invokevirtual #4       // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+```
+
+​	可以看到println方法要求如下。
+
+* 要调用的对象类需要是java.io.PrintStream
+* 方法名必须是println
+* 方法参数必须是（String）
+* 函数返回值必须是void
+
+
+
+​	如果当前类找不到符合条件的函数，会在其父类中继续查找，如果obj所属的类与PrintStream没有继承关系，就算obj所属的类有符合条件的函数，上述调用也不会成功，因为类型检查不会通过。
+
+​	但相同的代码在Groovy或者JavaScript等语言中表现不一样，无论obj是何种类型，只要所属类包含函数名为println，函数参数为（String）的函数，那么上述调用就会成功。这也是我们下面要讲到的鸭子类型。
+
+​	鸭子类型概念的名字来源于由James Whitcomb Riley提出的鸭子测试，可以这样表述：当看到一只鸟走起来像鸭子、游泳起来像鸭子、叫起来也像鸭子，那么这只鸟就可以被称为鸭子。在鸭子类型中，关注点在于对象的行为，能做什么，而不是关注对象所属的类型，不关注对象的继承关系。
+
+​	以下面这段Groovy脚本为例。
+
+```java
+class Duck {
+    void fly() { println "duck flying" }
+}
+
+
+class Airplane {
+    void fly() { println "airplane flying" }
+}
+
+class Whale {
+    void swim() { println "Whale swim" }
+}
+
+def liftOff(entity) { entity.fly() }
+
+liftOff(new Duck())
+liftOff(new Airplane())
+liftOff(new Whale())
+```
+
+​	输出如下所示：
+
+```java
+duck flying
+airplane flying
+groovy.lang.MissingMethodException: No signature of method: Whale.fly() is applicable for argument types: () values: []
+```
+
+​	可以看到liftOff方法调用了一个传入对象的fly方法，但是它并不知道这个对象的类型，也不知道这个对象是否包含了fly方法。
+
+​	开始讲解invokedynamic之前需要先介绍一个核心的概念方法句柄（MethodHandle）。MethodHandle又称为方法句柄或方法指针，是java.lang.invoke包中的一个类，它的出现使得Java可以像其他语言一样把函数当作参数进行传递。MethodHandle类似于反射中的Method类，但它比Method类要更加灵活和轻量级。下面以一个实际的例子来看MethodHandle的用法，如下所示。
+
+```java
+public class Foo {
+    public void print(String s) {
+        System.out.println("hello, " + s);
+    }
+    public static void main(String[] args) throws Throwable {
+        Foo foo = new Foo();
+
+        MethodType methodType = MethodType.methodType(void.class, String.class);
+        MethodHandle methodHandle = MethodHandles.lookup().findVirtual(Foo.class, "print", methodType);
+        methodHandle.invokeExact(foo, "world");
+    }
+}
+```
+
+​	可以看到liftOff方法调用了一个传入对象的fly方法，但是它并不知道这个对象的类型，也不知道这个对象是否包含了fly方法
+
+​	开始讲解invokedynamic之前需要先介绍一个核心的概念方法句柄（MethodHandle）。MethodHandle又称为方法句柄或方法指针，是java.lang.invoke包中的一个类，它的出现使得Java可以像其他语言一样把函数当作参数进行传递。MethodHandle类似于反射中的Method类，但它比Method类要更加灵活和轻量级。下面以一个实际的例子来看MethodHandle的用法，如下所示。
+
+```java
+public class Foo {
+    public void print(String s) {
+        System.out.println("hello, " + s);
+    }
+    public static void main(String[] args) throws Throwable {
+        Foo foo = new Foo();
+
+        MethodType methodType = MethodType.methodType(void.class, String.class);
+        MethodHandle methodHandle = MethodHandles.lookup().findVirtual(Foo.class, "print", methodType);
+        methodHandle.invokeExact(foo, "world");
+    }
+}
+```
+
+​	运行上面的代码就可以看到输出了“hello，world”。使用MethodHandle方法的步骤如下所示。
+
+​	1）创建MethodType对象，MethodType用来表示方法签名，每个MethodHandle都有一个MethodType实例，用来指定方法的返回值类型和各个参数类型。
+
+​	2）调用MethodHandles.lookup静态方法返回MethodHandles.Lookup对象，这个对象表示查找的上下文，根据方法的不同类型通过findStatic、findSpecial、findVirtual等方法查找方法签名为MethodType的方法句柄。
+
+​	3）拿到方法句柄以后就可以调用具体的方法了，通过传入目标方法的参数，使用invoke或者invokeExact进行方法的调用。
+
+​	前面介绍的4条invoke*指令的方法分派规则固化在虚拟机中，invokedynamic则把如何查找目标方法的决定权从虚拟机下放到具体的用户代码中。JRuby作者就给invokedynamic下过一个定义：“Invokedynamic is a user-definable bytecode，You decide how the JVM implements it”，说的也是这个道理。
+
+​	invokedynamic指令的调用流程如下。
+
+* JVM首次执行invokedynamic指令时会调用引导方法（Bootstrap Method）。
+* 引导方法返回一个CallSite对象，CallSite内部根据方法签名进行目标方法查找。它的getTarget方法返回方法句柄（MethodHandle）对象。
+* 在CallSite没有变化的情况下，MethodHandle可以一直被调用，如果CallSite有变化，重新查找即可。以def add（a，b）{a+b}为例，如果在代码中一开始使用两个int入参进行调用，那么极有可能后面很多次调用还会继续使用两个int，这样就不用每次都重新选择目标方法了。
+
+
+
+​	它们之间的关系如图3-12所示。
+
+![](https://pic.imgdb.cn/item/61aad17e2ab3f51d910e1d4f.jpg)
+
+​	接下来我们来介绍invokedynamic在Groovy语言上的应用，新建一个Test.groovy文件，源码如下所示。
+
+```java
+def add(a, b) {
+    new Exception().printStackTrace()
+    return a + b
+}
+
+add("hello", "world")
+```
+
+​	默认情况下invokedynamic在Groovy中并未启用，需要加上--indy选项启用。使用groovy--indy Test.groovy编译上面的groovy代码，会生成Test.class文件，它对应的字节码如代码清单3-7所示。
+
+```java
+public java.lang.Object run();
+descriptor: ()Ljava/lang/Object;
+flags: ACC_PUBLIC
+Code:
+  stack=3, locals=1, args_size=1
+     0: aload_0
+     1: ldc           #44                 // String hello
+     3: ldc           #46                 // String world
+     5: invokedynamic #52,  0             // InvokeDynamic #1:invoke:(LTest;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;
+    10: areturn
+------------------  
+Constant pool:
+#1 = Utf8               Test
+...省略掉部分字节码...
+#52 = InvokeDynamic      #1:#51     // #1:invoke:(LTest;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;
+------------------    
+BootstrapMethods:
+...省略掉部分字节码...
+1: #34 invokestatic org/codehaus/groovy/vmplugin/v7/IndyInterface.bootstrap: (Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;I)Ljava/lang/invoke/CallSite;
+Method arguments:
+  #48 add
+  #49 2
+```
+
+​	可以看到add（"hello"，"world"）调用被翻译为了invokedynamic指令，第一个参数是常量池中的#52，这个条目又指向了BootstrapMethods中的#1的元素，调用静态方IndyInterface.bootstrap，返回值是一个CallSite对象，这个函数签名如下所示。
+
+```java
+public static CallSite bootstrap(
+    Lookup caller, // the caller
+    String callType, // the type of the call
+    MethodType type, // the MethodType
+    String name, // the real method name
+    int flags // call flags
+    ) {
+}
+```
+
+​	其中callType为调用类型，是枚举类CALL_TYPES的一种，这里为CALL_TYPES.METHOD（"invoke"），name为实际调用的方法名，这里为“add”。这个方法内部调用了realBootstrap方法，realBootstrap方法的返回值为CallSite对象，而CallSite的目标方法句柄（MethodHandle）真正调用了selectMethod方法，这个方法在运行期选择合适的方式进行调用，如图3-13所示。
+
+​	简化上述过程为伪代码如代码清单3-8所示。
+
+![](https://pic.imgdb.cn/item/61aad1e92ab3f51d910e6ff0.jpg)
+
+​	Groovy采用invokedynamic指令有哪些好处呢？第一是标准化，使用Bootstrap Method、CallSite、MethodHandle机制使得动态调用的方式得到统一。第二是保持了字节码层的统一和向后兼容，把动态方法的分派逻辑下放到语言实现层，未来版本可以很方便地进行优化、修改。第三是高性能，拥有接近原生Java调用的性能，也可以享受到JIT优化等。
+
+​	invokedynamic指令并不是只能用在动态语言上，它是一种方法动态分派的方式，除了用于动态语言还有很多其他用途，比如下面我们要介绍的Lambda表达式。
+
+​	代码清单3-8　MethodHandle示例
+
+```java
+public static void main(String[] args) throws Throwable {
+    MethodHandles.Lookup lookup = MethodHandles.lookup();
+    MethodType mt = MethodType.methodType(Object.class,
+            Object.class, Object.class);
+    CallSite callSite =
+            IndyInterface.bootstrap(lookup, "invoke", mt, "add", 0);
+    MethodHandle mh = callSite.getTarget();
+    
+    mh.invokeExact(obj, "hello", "world");
+}
+```
+
+## 3.2 Lambda表达式的原理
+
+```java
+public static void main(String[] args) {   
+    Runnable r1 = new Runnable() {
+        @Override
+        public void run() {
+            System.out.println("hello, inner class");
+        }
+    };
+    r1.run();
+}
+```
+
+​	使用javac编译Test.java会生成两个class文件，Test.class和Test$1.class，反编译以后的代码如下所示。
+
+```java
+static final class Test$1 implements Runnable {
+    @Override
+    public void run() {
+        System.out.println("hello, inner class");
+    }
+}
+public class Test {
+    public static void main(String[] args) {
+        Runnable r1 = new Test$1();
+        r1.run();
+    }
+}
+```
+
+​	可以看到匿名内部类是在编译期间生成新的class文件来实现的。接下来我们来看Lambda表达式的实现原理，修改上面的代码为如下的Lambda表达式方式。
+
+```java
+public static void main(String[] args) {
+    Runnable r = ()->{
+        System.out.println("hello, lambda");
+    };
+    r.run();
+}
+```
+
+​	使用javac编译上面的代码会发现只生成了一个Test.class类文件，并没有生成匿名内部类，使用javap查看对应字节码如下所示。
+
+```java
+public static void main(java.lang.String[]);
+descriptor: ([Ljava/lang/String;)V
+flags: ACC_PUBLIC, ACC_STATIC
+Code:
+  stack=1, locals=2, args_size=1
+     0: invokedynamic #2,  0       // InvokeDynamic #0:run:()Ljava/lang/Runnable;
+     5: astore_1
+     6: aload_1
+     7: invokeinterface #3,  1    // InterfaceMethod java/lang/Runnable.run:()V
+    12: return
+
+private static void lambda$main$0();
+Code:
+     0: getstatic     #4      // Field java/lang/System.out:Ljava/io/PrintStream;
+     3: ldc           #5      // String hello, lambda
+     5: invokevirtual #6      // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+     8: return
+```
+
+​	字节码中出现了一个名为lambda$main$0的静态方法，这段字节码比较简单，翻译为源码如下。
+
+```java
+private static void lambda$main$0() {
+    System.out.println("hello, lambda");
+}
+```
+
+​	这里main方法中出现了invokedynamic指令，第0行中#2表示常量池中#2的元素，这个元素又指向了#0：#23。Test类的部分常量池如下所示。
+
+```java
+Constant pool:
+   #1 = Methodref          #8.#18         // java/lang/Object."<init>":()V
+   #2 = InvokeDynamic      #0:#23         // #0:run:()Ljava/lang/Runnable;
+   ...
+   #23 = NameAndType        #35:#36        // run:()Ljava/lang/Runnable;
+
+BootstrapMethods:
+  0: #20 invokestatic java/lang/invoke/LambdaMetafactory.metafactory:(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;
+    Method arguments:
+      #21 ()V
+      #22 invokestatic Test.lambda$main$0:()V
+      #21 ()V
+```
+
+​	其中#0是一个特殊的查找，对应BootstrapMethods中的0行，可以看到这是对静态方法LambdaMetafactory.metafactory（）的调用，它的返回值是java.lang.invoke.CallSite对象，这个对象的getTarget方法返回了目标方法句柄。核心的metafactory方法定义如下所示。
+
+```java
+public static CallSite metafactory(
+    MethodHandles.Lookup caller,
+    String invokedName,
+    MethodType invokedType,
+    MethodType samMethodType,
+    MethodHandle implMethod,
+    MethodType instantiatedMethodType
+)
+```
+
+​	接下来介绍各个参数的含义。
+
+* caller：表示JVM提供的查找上下文。
+* invokedName：表示调用函数名，在本例中invokedName为“run”。
+* samMethodType：表示函数式接口定义的方法签名（参数类型和返回值类型），本例中run方法的签名为“（）void”。
+* implMethod：表示编译时生成的Lambda表达式对应的静态方法invokestatic Test.lambda$main$0。
+* instantiatedMethodType：一般和samMethodType是一样或是它的一个特例，在本例中是“（）void”。
+
+
+
+​	metafactory方法的内部细节是整个Lambda表达式最复杂的地方。它的源码如图3-14所示。
+
+![](https://pic.imgdb.cn/item/61aad5042ab3f51d911075b6.jpg)
+
+![](https://pic.imgdb.cn/item/61aad5112ab3f51d91107c52.jpg)
+
+​	使用打印的方式看一下具体生成的类名。
+
+```java
+Runnable r = ()->{
+    System.out.println("hello, lambda");
+};
+
+System.out.println(r.getClass().getName());
+```
+
+​	输出结果如下所示。
+
+```java
+Test$$Lambda$1/1108411398
+```
+
+​	其中斜杠/后面的数字1108411398是类对象的hashcode值。
+​	InnerClassLambdaMetafactory这个类有一个静态初始化方法块，里面有一个开关可以选择是否把生成的类dump到文件中，这部分代码如下所示。
+
+```java
+// For dumping generated classes to disk, for debugging purposes
+private static final ProxyClassesDumper dumper;
+static {
+    final String key = "jdk.internal.lambda.dumpProxyClasses";
+    String path = AccessController.doPrivileged(
+            new GetPropertyAction(key), null,
+            new PropertyPermission(key , "read"));
+    dumper = (null == path) ? null : ProxyClassesDumper.getInstance(path);
+}
+```
+
+​	使用java-Djdk.internal.lambda.dumpProxyClasses=.Test运行Test类会发现在运行期间生成了一个新的内部类Test$$Lambda$1.class。这个类正是由InnerClassLambdaMetafactory使用ASM字节码技术动态生成的。它实现了Runnable接口，并在run方法里调用了Test类的静态方法lambda$main$0（），如下面的代码所示。
+
+```java
+final class Test$$Lambda$1 implements Runnable {
+    @Override
+    public void run() {
+        Test.lambda$main$0();
+    }
+}
+```
+
+​	这部分的内容总结如下。
+
+* Lambda表达式声明的地方会生成一个invokedynamic指令，同时编译器生成一个对应的引导方法（Bootstrap Method）。
+* 第一次执行invokedynamic指令时，会调用对应的引导方法（Bootstrap Method），该引导方法会调用LambdaMetafactory.metafactory方法动态生成内部类。
+* 引导方法会返回一个动态调用CallSite对象，这个CallSite会最终调用实现了Runnable接口的内部类。
+* Lambda表达式中的内容会被编译成静态方法，前面动态生成的内部类会直接调用该静态方法。
+* 真正执行lambda调用的还是用invokeinterface指令。
+
+
+
+​	为什么Java 8的Lambda表达式要基于invokedynamic指令来实现呢？Oracle的开发者专门写了一篇文章介绍了Java 8 Lambda设计时的考虑以及实现方法。文中提到Lambda表达式可以通过内部类、method handle、dynamic proxies等方式实现，但是这些方法各有优劣。实现Lambda表达式需要达成两个目标，为未来的优化提供最大的灵活性，且能保持类文件字节码格式的稳定。使用invokedynamic可以很好地兼顾这两个目标。invokedynamic与之前四个invoke指令最大的不同就在于它把方法分派的逻辑从虚拟机层面下放到程序语言。
+
+​	Lambda表达式采用的方式并不是在编译期间生成匿名内部类，而是提供一个稳定的字节码二进制表示规范，对用户而言看到的只有invokedynamic这样一个非常简单的指令。用invokedynamic来实现把方法翻译的逻辑隐藏在JDK的实现中，后续想替换实现方式非常简单，只用修改LambdaMetafactory.metafactory里面的逻辑就可以了。这种方法把Lambda翻译的策略由编译期间推迟到运行时，未来的JDK会怎样实现Lambda表达式可能还会有变化。
+
+## 3.3 泛型与字节码
+
+​	Java泛型是JDK5引进的新特性，对于泛型的引入社区褒贬不一，好的地方是泛型可以在编译期帮我们发现一些明显的问题，不好的地方是泛型在设计上因为考虑兼容性等原因，留下了不少缺陷。Java泛型更像是一个语法糖，接下来我们将从字节码的角度分析泛型，以下面的泛型类Pair为例。
+
+```java
+public class Pair<T> {
+
+    public T first;
+    public T second;
+
+    public Pair(T first, T second) {
+        this.first = first;
+        this.second = second;
+    }
+}
+
+public void foo(Pair<String> pair) {
+    String left = pair.left;
+}
+```
+
+​	foo方法对应的字节码如下所示。
+
+```java
+0: aload_1
+1: getfield      #2                  // Field left:Ljava/lang/Object;
+4: checkcast     #4                  // class java/lang/String
+7: astore_2
+8: return
+```
+
+​	上面的字节码解释如下。
+
+* 第0行：加载参数pair到操作数栈上。
+* 第1行：调用getfield指令把left值加载到操作栈上，可以看到left字段的字段类型为Object，并不是String。
+* 第4行：checkcast指令用来检查对象是否符合给定类型，这里是判断left值是否是java/lang/String类型。如果类型不匹配，checkcast指令会抛出java.lang.ClassCastException异常。
+* 第7行：将栈顶值left存储到局部变量left中。
+
+
+
+​	接下来我们来看看当泛型遇到方法重载时会发生什么，以下面的代码为例。
+
+```java
+public void print(List<String> list)  { }
+public void print(List<Integer> list) { }
+```
+
+​	上面的代码编译时会报错，提示“name clash：`print（List<Integer>）and print（List<String>）have the same erasure`”，这两个方法编译后对应的字节码一样，如下所示。
+
+```java
+descriptor: (Ljava/util/List;)V
+Code:
+  stack=0, locals=2, args_size=2
+     0: return
+  LocalVariableTable:
+    Start  Length  Slot  Name   Signature
+        0       1     0  this   LMyClass;
+        0       1     1  list   Ljava/util/List;
+}
+```
+
+​	理解泛型概念的最重要的是理解类型擦除。Java的泛型是在javac编译器中实现的，在生成的字节码中，已经不包含泛型信息。这种在泛型使用时加上类型参数，在编译时再抹掉的过程被称为泛型擦除。
+
+​	比如在代码中类型`List<String>`与`List<Integer>`在编译以后都变成了List，而JVM不允许相同签名的方法在一个类中同时存在，所以上面代码编译会失败。
+
+​	由泛型附加的类型信息对JVM来说是不可见的，Java编译器会在编译时尽可能地发现可能出错的地方，但也不是万能的。很多奇怪的泛型语法规定都与类型擦除有关，比如下面这些。
+
+​	1）泛型类并没有自己独有的Class类对象，比如并不存在`List<String>.class`或是`List<Integer>.class`，而只有List.class。
+
+​	2）泛型不能用primary原始类型来实例化类型参数，比如在Java中不能出现`ArrayList<int>`，只有`ArrayList<Integer>`。因为泛型类型会被擦除为Object，而原始类型int不能存储到对象类型Object中。
+
+​	3）Java也不能捕获泛型异常，以下面的代码为例。
+
+```java
+public <T extends Throwable> void foo() {
+    try {
+    } catch (T e) {
+    }
+}
+```
+
+​	因为JVM的异常处理是通过异常表来实现的，如果要捕获的异常在编译期无法确定，就无法生成对应的异常表。
+
+```java
+Pair<Integer>[] t = new Pair<Integer>[10];
+error: generic array creation
+```
+
+​	在Java中，Object[]数组可以是任何数组的父类，假设我们可以创建泛型数组，上面代码中的t的类型`Pair<Integer>[]`在编译以后被擦除为Pair[]，可以被转换赋值为类型为Object[]的变量objArray，在语法上可以往objArray中存放任意类型的数据。这样原本定义只能存储元素类型为`Pair<Integer>`的数组，结果却可以存放任意类型的数据，如下所示。
+
+```java
+Pair<Integer>[] t = new Pair<Integer>[10];
+Object[] objArray = t;
+objArray[0] = new Thread();
+```
+
+​	泛型的内容到这里就告一段落了，接下来我们来看看synchronized关键字的实现原理。
+
+## 3.4 synchronized的实现原理
+
+​	synchronized是Java中的关键字，用于定义一个临界区（critical section）。临界区是指一次只能被一个线程执行的代码片段。synchronized保证方法和代码块在同一时刻只有一个线程可以进入临界区。本节将深入分析synchronized关键字在字节码层面的实现原理。以下面的代码为例。
+
+```java
+public class Counter {
+    private int count = 0;
+    public void increase() {
+        ++count;
+    }
+    public int getCount() {
+        return count;
+    }
+}
+```
+
+​	Counter类的increase方法并非线程安全，这个方法对应的字节码如下所示。
+
+```java
+ 0: aload_0
+ 1: dup
+ 2: getfield      #2                  // Field count:I
+ 5: iconst_1
+ 6: iadd
+ 7: putfield      #2                  // Field count:I
+10: return
+```
+
+​	重点看第2～7行，getfield#2指令获取字段count的值，iconst_1和iadd将取出的值加一，putfield#2指令将更新之后的值写回到字段count中，这是一个典型的read-modify-write的模式。
+
+​	如果有两个线程同时调用了increase方法，各自通过getfield#2获得了count的值，随后执行了加1，最后各自将更新以后的值写回count中，count就只被加1，丢失了一次加1操作。
+
+​	一个简单的解决办法就是给increase方法增加synchronized关键字修饰。
+
+```java
+public synchronized void increase() {
+    ++count;
+}
+```
+
+​	JVM不会使用特殊的字节码指令来处理同步方法，JVM会解析方法的访问标记，判断方法是不是同步的，也就是检查方法ACC_SYNCHRONIZED标记位是否被设置为1。如果方法有ACC_SYNCHRONIZED修饰，执行线程会先尝试获取锁。如果是实例方法，JVM会把当前实例对象this作为隐式的监视器。如果是类方法，JVM会把当前类的类对象作为隐式的监视器。在同步方法完成以后，不管是正常返回还是异常返回，都会释放锁。上面的代码在功能上等价于下面的代码。
+
+```java
+public void increase() {
+    synchronized (this) {
+        ++count;
+    }
+}
+```
+
+​	它对应的字节码如下所示。
+
+```java
+ 0: aload_0
+ 1: dup
+ 2: astore_1
+ 3: monitorenter
+ 4: aload_0
+ 5: dup
+ 6: getfield      #2                  // Field count:I
+ 9: iconst_1
+10: iadd
+11: putfield      #2                  // Field count:I
+14: aload_1
+15: monitorexit
+16: goto          24
+19: astore_2
+20: aload_1
+21: monitorexit
+22: aload_2
+23: athrow
+24: return
+Exception table:
+ from    to  target type
+     4    16    19   any
+    19    22    19   any
+```
+
+​	逐行介绍上面的代码如下。
+
+* 第0～2行：将this对象引用入栈，使用dup指令复制栈顶元素，并将它存入局部变量表位置为1的地方，现在栈上还剩下一个this对象引用。
+* 第3行：monitorenter指令尝试获取栈顶this对象的监视器锁，如果成功则继续往下执行，如果已经有其他线程的线程持有，则进入等待状态。
+* 第4～11行：执行++count。
+* 第14～15行：将this对象入栈，调用monitorexit释放锁。
+* 第19～23行：执行异常处理，我们代码中本来没有try-catch的代码，为什么字节码会加上这段逻辑呢？我们稍后再来讲解。
+
+
+
+​	每个Java对象都可以作为一个实现同步的锁，这些锁被称为监视器锁（Monitor），有三种不同的表现形态。
+
+* synchronized修饰的非静态方法，监视器锁是当前对象。
+* 用synchronized修饰的静态方法，监视器锁是当前类的类对象。
+* synchronized（lock）{}同步代码块，监视器锁是lock对象。
+
+
+
+​	Java虚拟机保证一个monitor一次最多只能被一个线程占有。monitorenter和monitorexit是两个与监视器相关的字节码指令。当线程执行到monitorenter指令时，会尝试获取栈顶对象对应监视器（monitor）的所有权，也就是尝试获取对象的锁。如果此时monitor没有其他线程占有，当前线程会成功获取锁，monitor计数器置为1。如果当前线程已经拥有了monitor的所有权，monitorenter指令也会顺利执行，monitor计数器加1。如果其他线程拥有了monitor的所有权，当前线程会阻塞，直到monitor计数器变为0。
+
+​	当线程执行monitorexit时，会将监视器计数器减1，计时器值等于0时，锁被释放，其他等待这个锁的线程可以尝试去获取monitor的所有权。
+
+​	编译器必须保证无论同步代码块中的代码以何种方式结束（正常退出或异常退出），代码中每次调用monitorenter必须执行对应的monitorexit指令。如果执行了monitorenter指令但没有执行monitorexit指令，monitor一直被占有，则其他线程没有办法获取锁。如果执行monitorexit的线程原本并没有这个monitor的所有权，那monitorexit指令在执行时将抛出IllegalMonitorStateException异常。
+
+​	为了保证这一点，编译器会自动生成一个异常处理器，这个异常处理器确保了方法正常退出和异常退出都能正常释放锁。可理解为下面这样的一段Java代码。
+
+```java
+public void _foo() throws Throwable {
+    monitorenter(lock);
+    try {
+        bar();
+    } finally {
+        monitorexit(lock);
+    }
+}
+```
+
+​	根据之前介绍的try-catch-finally的字节码实现原理，finally语句块会被编译器复制到方法正常退出和异常退出的地方，从语义上等价于下面的代码。
+
+```java
+public void _foo() throws Throwable {
+    monitorenter(lock);
+    try {
+        bar();
+        monitorexit(lock);
+    } catch (Throwable e) {
+        monitorexit(lock);
+        throw e;
+    }
+}
+```
+
+​	这就是我们在上面字节码中看到只有一个monitorenter指令却有两个monitorexit的原因。
+
+## 3.5　反射的实现原理
+
+​	反射是Java的核心特性之一，很多框架都大量使用反射来实现强大的功能，比如Spring、Mybatis等。Java的反射机制允许我们运行时动态地调用某个对象的方法、新建对象实例、获取对象的属性等。接下来我们来看看反射背后的实现原理，以下面的代码清单3-10为例。
+
+```java
+public class ReflectionTest {
+    private static int count = 0;
+    public static void foo() {
+        new Exception("test#" + (count++)).printStackTrace();
+    }
+    public static void main(String[] args) throws Exception {
+        Class<?> clz = Class.forName("ReflectionTest");
+        Method method = clz.getMethod("foo");
+        for (int i = 0; i < 20; i++) {
+            method.invoke(null);
+        }
+    }
+}
+```
+
+![](https://pic.imgdb.cn/item/61aadbde2ab3f51d911584db.jpg)
+
+​	可以看到同一段代码，运行的堆栈结果与执行次数有关，在第0～15次时调用方式为sun.reflect.NativeMethodAccessorImpl.invoke0，从第16次开始调用方式变为了sun.reflect.GeneratedMethodAccessor1.invoke。接下来看看这背后的原理。
+
+### 3.5.1　反射方法源码分析
+
+![](https://pic.imgdb.cn/item/61aadc0e2ab3f51d9115a9ab.jpg)
+
+​	Method.invoke方法调用了MethodAccessor.invoke方法，MethodAccessor是一个接口，它的源码如下所示。
+
+```java
+public interface MethodAccessor {
+    public Object invoke(Object obj, Object[] args)
+        throws IllegalArgumentException, InvocationTargetException;
+}
+```
+
+​	从输出的堆栈可以看到MethodAccessor的实现类是委托类DelegatingMethodAcDelegatingMethodAccessorImpl，它的invoke方法非常简单，就是把调用委托给了真正的MethodAccessorImpl实现类。
+
+```java
+class DelegatingMethodAccessorImpl extends MethodAccessorImpl {
+    private MethodAccessorImpl delegate;
+    public Object invoke(Object obj, Object[] args)
+        throws IllegalArgumentException, InvocationTargetException
+    {
+        return delegate.invoke(obj, args);
+    }
+```
+
+​	通过堆栈可以看到在第0～15次调用中，实现类是NativeMethodAccessorImpl，从第16次调用开始，实现类是GeneratedMethodAccessor1，玄机就在NativeMethodAccessor-Impl的invoke方法中，如图3-18所示。
+
+![](https://pic.imgdb.cn/item/61aadd6b2ab3f51d9116cd2d.jpg)
+
+​	前0～15次都会调用invoke0，这是一个native的函数，代码如下所示。
+
+```java
+private static native Object invoke0(Method m, Object obj, Object[] args);
+```
+
+​	15次调用以后会使用新的逻辑，利用GeneratedMethodAccessor1来调用反射的方法。MethodAccessorGenerator的作用是通过ASM生成新的类sun.reflect.GeneratedMethod-Accessor1。为了查看生成的类的内容，可以使用阿里的arthas工具。修改上面的代码，在main函数的最后加上“System.in.read（）；”让JVM进程不要退出。执行arthas工具中的./as.sh，会要求输入JVM进程，如图3-19所示。
+
+![![](https://pic.imgdb.cn/item/61aaddb02ab3f51d91170c0e.jpg)](https://pic.imgdb.cn/item/61aadda12ab3f51d91170130.jpg)
+
+![](https://pic.imgdb.cn/item/61aaddb02ab3f51d91170c0e.jpg)
+
+​	翻译上面这段字节码，忽略掉异常处理以后的代码如下所示。
+
+```java
+public class GeneratedMethodAccessor1 extends MethodAccessorImpl {
+    @Override
+    public Object invoke(Object obj, Object[] args)
+            throws IllegalArgumentException, InvocationTargetException {
+        ReflectionTest.foo();
+        return null;
+    }
+}
+```
+
+​	为什么要设置为0～15次使用native方式来调用，15次以后使用ASM新生成的类来处理反射的调用呢？
+
+​	这是基于性能的考虑，JNI native调用的方式要比动态生成类调用的方式慢20倍左右，但是由于第一次字节码生成的过程比较慢，如果反射仅调用一次的话，采用生成字节码的方式反而比native调用的方式慢3~4倍。为了权衡这两种方式的利弊，Java引入了inflation机制，接下来我们来看看inflation的细节。
+
+### 3.5.2　反射的inflation机制
+
+​	很多情况下，反射只会调用一两次，JVM于是想了一个办法，设置了一个sun.reflect.inflationThreshold阈值，默认等于15。当反射方法调用超过15次时（从0开始计算），会使用ASM生成新类，保证后面的调用比native要快。调用次数小于15次的情况下，直接用native的方式来调用，没有额外类的生成、校验、加载的开销。这种方式被称为inflation机制。
+
+​	JVM与inflation相关的属性有两个，一个是刚提到的阈值sun.reflect.inflationThreshold，还有一个是是否禁用inflation的属性sun.reflect.noInflation，默认值为false。如果把sun.reflect.noInflation这个值设置成true，那么从第0次开始就使用动态生成类的方式来调用反射方法了，而不会使用native的方式。增加noInflation选项重新执行上述Java代码，如下所示。
+
+```java
+java -cp . -Dsun.reflect.noInflation=true ReflectionTest
+```
+
+```java
+java.lang.Exception: test#0
+        at ReflectionTest.foo(ReflectionTest.java:10)
+        at sun.reflect.GeneratedMethodAccessor1.invoke(Unknown Source)
+        at java.lang.reflect.Method.invoke(Method.java:497)
+        at ReflectionTest.main(ReflectionTest.java:18)
+java.lang.Exception: test#1
+        at ReflectionTest.foo(ReflectionTest.java:10)
+        at sun.reflect.GeneratedMethodAccessor1.invoke(Unknown Source)
+        at java.lang.reflect.Method.invoke(Method.java:497)
+        at ReflectionTest.main(ReflectionTest.java:18)
+```
+
+​	可以看到，从第0次开始就已经没有使用native方法来调用反射方法了。
+
