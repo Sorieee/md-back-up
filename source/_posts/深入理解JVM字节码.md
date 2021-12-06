@@ -3325,3 +3325,740 @@ java.lang.Exception: test#1
 
 ​	可以看到，从第0次开始就已经没有使用native方法来调用反射方法了。
 
+# 4. javac编译原理简介
+
+​	编译原理中，源代码到机器指令的过程如图4-1所示。
+
+![](https://pic.imgdb.cn/item/61adcbc12ab3f51d91cb8b1b.jpg)
+
+​	javac这种将源文件转为字节码的过程在编译原理上属于前端编译，不涉及目标机器码相关的代码的生成和优化。JDK中的javac本身是用Java语言编写的，在某种意义上实现了javac语言的自举。javac没有使用类似YACC、Lex这样的生成器工具，所有的词法分析、语法分析等功能都是自己实现，代码比较精简和高效。
+
+​	javac的源码比较复杂，如果没有扎实的编译原理基础，阅读起来就会比较吃力，调试源码是一个比较好的方式，可以帮助我们更好地理解实现细节。下面先来看看如何在IDEA中调试javac的源码。
+
+## 4.1 javac源码调试
+
+1）首先下载并导入javac的源码。从OpenJDK的网站下载javac的源码，导入IntelliJ IDEA中。
+
+2）找到javac主函数入口，代码在src/com/sun/tools/javac/Main.java。运行main方法，正常情况下应该会在控制台输出如图4-2所示的内容。
+
+![](https://pic.imgdb.cn/item/61adcc312ab3f51d91cbc957.jpg)
+
+​	新建一个空的HelloWorld.java文件，在启动配置的Program arguments里加入HelloWorld.java的绝对路径，如图4-3所示。
+​	再次运行Main.java，可以看到在HelloWorld.java的同级目录生成了HelloWorld.class文件。
+
+3）打开Project Structure页面（File→Project Structure），选择Dependencies选项卡，把`<Moudle source>`顺序调整到项目JDK上面，如图4-4所示。
+
+![](https://pic.imgdb.cn/item/61adcd402ab3f51d91cc7b64.jpg)
+
+![](https://pic.imgdb.cn/item/61adcd972ab3f51d91ccc197.jpg)
+
+​	在Main.java中打上断点，开始调试就可以进入项目源码中的断点处了。接下来看一个实际的例子，以int整型常量加载指令的选择过程为例，测试代码如下所示。
+
+```java
+public static void foo() {
+    int a = 0;
+    int b = 6;
+    int c = 130;
+    int d = 33000;
+}
+```
+
+在com/sun/tools/javac/jvm/Items.java的load（）方法加上断点，如图4-5所示。
+
+![](https://pic.imgdb.cn/item/61adcdc52ab3f51d91cce55b.jpg)
+
+* -1～5，选择iconst_x指令。
+* -128～127，选择bipush指令。
+* -32768～32767，选择sipush指令。
+* 其他范围，选择ldc指令。
+
+## 4.2　javac的七个阶段
+
+![](https://pic.imgdb.cn/item/61adcdec2ab3f51d91cd06d5.jpg)
+
+### 4.2.1 parse阶段
+
+​	parse阶段的主要作用是读取.java源文件并做词法分析和语法分析。
+
+​	词法分析（lexical analyze）将源代码拆分为一个个词法记号（Token），这个过程又被称为扫描（scan），比如代码i=1+2在词法分析时会被拆分为五部分：i、=、1、+、2。这个过程会将空格、空行、注释等对程序执行没有意义的部分排除。词法分析与我们理解英语的过程类似，比如英语句子“you are handsome”在我们大脑中会被拆分为you、are、handsome三个单词。
+
+​	javac中的词法分析由com.sun.tools.javac.parser.Scanner实现，以语句“int k=i+j；”为例，引入Scanner类的源码做实际的测试，以下面的代码清单4-1为例。
+
+```java
+import com.sun.tools.javac.parser.Scanner;
+import com.sun.tools.javac.parser.ScannerFactory;
+import com.sun.tools.javac.util.Context;
+
+public class MyTest {
+    public static void main(String[] args) {
+        ScannerFactory factory = ScannerFactory.instance(new Context());
+        Scanner scanner = factory.newScanner("int k = i + j;", false);
+
+        scanner.nextToken();
+        System.out.println(scanner.token().kind);   // int
+        scanner.nextToken();
+        System.out.println(scanner.token().name()); // j
+        scanner.nextToken();
+        System.out.println(scanner.token().kind);   // =
+        scanner.nextToken();
+        System.out.println(scanner.token().name()); // i
+        scanner.nextToken();
+        System.out.println(scanner.token().kind);   // +
+        scanner.nextToken();
+        System.out.println(scanner.token().name()); // j
+        scanner.nextToken();
+        System.out.println(scanner.token().kind);   // ;
+    }
+}
+```
+
+​	Scanner会读取源文件中的内容，将其解析为Java语言的Token序列，这个过程如图4-7所示。
+​	词法分析之后是进行语法分析（syntax analyzing），语法分析是在词法分析的基础上分析单词之间的关系，将其转换为计算机易于理解的形式，生成抽象语法树（Abstract Syntax Tree，AST）。AST是一个树状结构，树的每个节点都是一个语法单元，抽象语法树是后续的语义分析、语法校验、代码生成的基础。
+
+![](https://pic.imgdb.cn/item/61adcef02ab3f51d91cdbd5a.jpg)
+
+​	与其他大多数语言一样，javac也是使用递归下降法（recursive descent）来生成抽象语法树。主要功能由com.sun.tools.javac.parser.JavacParser类完成，语句“int k=i+j；”对应的AST如图4-8所示。
+
+![](https://pic.imgdb.cn/item/61adcf072ab3f51d91cdcbf7.jpg)
+
+​	词法分析和语法分析没有我们想的那么遥远，解析CSV、JSON、XML本质上也是语法分析和一部分语义分析的过程。
+
+### 4.2.2 enter阶段
+
+​	enter阶段的主要作用是解析和填充符号表（symbol table），主要由com.sun.tools.javac.comp.Enter和com.sun.tools.javac.comp.MemberEnter类来实现。符号表是由标识符、标识符类型、作用域等信息构成的记录表。在遍历抽象语法树遇到类型、变量、方法定义时，会将它们的信息存储到符号表中，方便后续进行快速查询。
+
+```java
+public class HelloWorld { // 定义类 HelloWorld
+    int x = 5; // 定义 int 型字段 x，初始化值为 5
+    char y = 'A'; // 定义 char 型字段 y，初始化值为 'A'
+    // 定义 add 方法，返回类型为 long，参数个数为 2，类型都为 long
+    public long add(long a, long b) {
+        return a + b;
+    }
+}
+```
+
+​	javac使用Symbol类来表示符号，每个符号都包含名称、类别和类型这三个关键属性，如下所示。
+
+* name表示符号名，比如上面代码中的x、y、add都是符号名。
+* kind表示符号类型，上面代码中，x的符号类型是Kinds.VAR，表示这是一个变量符号。add的符号类型是Kinds.MTH，表示这是一个方法符号。
+* type表示符号类型，上面代码中，x的符号类型是int，y的符号类型为char，add方法的符号类型为null，对于Java这种静态类型的语言来说，在编译期就会确定变量的类型。
+
+
+
+​	Symbol类是一个抽象类，常见的实现类有VarSymbol、MethodSymbol等，如图4-9所示。
+
+![](https://pic.imgdb.cn/item/61add0072ab3f51d91ce5f26.jpg)
+
+​	Symbol定义了符号是什么，作用域（Scope）则指定了符号的有效范围，由com.sun.tools.javac.code.Scope类表示。以下面的代码为例。
+
+```java
+public void foo() {
+    int x = 0; // x 在 foo 方法作用域内
+    System.out.println(x);
+}
+
+public void bar() {
+    int x = 0; // x 在 bar 方法作用域内
+    System.out.println(x);
+}
+```
+
+​	foo和bar函数都定义了一个名为x的int类型的变量，这两个变量能独立使用且不会互相影响，在超出各自的方法体作用域以后就对外不可见了，外部也访问不到。
+
+​	作用域也可以进行嵌套，如下面的代码所示。
+
+```java
+public class MyClass {
+    int x = 0;
+    public void foo() {
+        int i = 0; // foo 方法作用域
+        {
+            int y = 0; // 第一层嵌套作用域
+            {
+                int z = 0; // 第二层嵌套作用域
+            }
+        }
+        int j = 0; // foo 方法作用域
+    }
+}
+```
+
+​	符号表查找的过程是先在当前作用域中查找，如果找到，就直接返回；如果没有找到，那么它会向上在外层的作用域中继续查找，直到找到或者到达顶层作用域为止。
+
+​	enter阶段除了上述生成符号表，还会在类文件中没有默认构造方法的情况下，添加<init>构造方法等。
+
+### 4.2.3 process阶段
+
+​	process用来做注解的处理，这个步骤由com.sun.tools.javac.processing.JavacProcessing-Environment类完成。从JDK6开始，javac支持在编译阶段允许用户自定义处理注解，大名鼎鼎的lombok框架就是利用了这个特性，通过注解处理的方式生成目标class文件，比在运行时反射调用性能明显提升。这一部分的内容比较多，会在后面的章节单独进行介绍，这里不再详细展开。
+
+### 4.2.4 attr阶段
+
+​	attr阶段是语义分析的一部分，主要由com.sun.tools.javac.comp.Attr类实现，这个阶段会做语义合法性检查、常量折叠等，由com.sun.tools.javac.comp包下的Check、Resolve、ConstFold、Infer几个类辅助实现。
+
+​	com.sun.tools.javac.comp.Check类的主要作用是检查变量类型、方法返回值类型是否合法，是否有重复的变量、类定义等，比如下面这些场景。
+
+**Check**
+
+​	1）检查方法返回值是否与方法声明的返回值类型一致，以下面的代码为例。
+
+```java
+public int foo() {
+    return "hello";
+}
+```
+
+​	这个检查由com.sun.tools.javac.comp.Check类的checkType完成，这个方法的定义如下。
+
+```java
+Type checkType(final DiagnosticPosition pos, final Type found, final Type req, final CheckContext checkContext){
+}
+```
+
+​	其中found参数值表示当前语法节点的类型，req参数表示当前语义环境需要的类型，这个方法内部会调用checkContext.compatible方法检查found与req是否匹配。当抽象语法树遍历到"return hello；"对应的节点时，得到的found参数值为对象类型String，req类型为int，返回值类型和方法声明不一致，错误日志如下所示。
+
+```java
+error: incompatible types: String cannot be converted to int
+        return "hello";
+               ^
+1 error
+```
+
+​	2）检查是否有重复的定义，比如检查同一个类中是否存在相同签名的方法。校验的逻辑由Check类的checkUnique方法实现，以下面的代码为例。
+
+```java
+class HelloWorld {
+    public void foo() {}
+    public void foo() {}
+}
+```
+
+​	在编译时会出现重复定义的错误，如下所示
+
+```java
+error: method foo() is already defined in class HelloWorld
+    public void foo() {}
+                ^
+```
+
+​	在编译时会出现重复定义的错误，如下所示。
+
+```java
+error: method foo() is already defined in class HelloWorld
+    public void foo() {}
+                ^
+```
+
+**Resolve**
+
+​	com.sun.tools.javac.comp.Resolve类的主要作用是：
+
+* 检查变量、方法、类访问是否合法，比如private方法的访问是否在方法所在类中访问等。
+* 为重载方法调用选择最具体（most specific）的方法。
+
+
+
+​	以下面的代码为例：
+
+```java
+public static void method(Object obj) {
+    System.out.println("method # Object");
+}
+
+public static void method(String obj) {
+    System.out.println("method # String");
+}
+
+public static void main(String[] args) {
+    method(null);
+}
+```
+
+​	在Java中允许方法重载（overload），但要求方法签名不能一样。调用method（null）实际是调用第二个方法输出“method#String”，javac在编译时会推断出最具体的方法，方法的选择在Resolve类的mostSpecific方法中完成。第二个方法的入参类型String是第一个方法的入参类型Object的子类，会被javac认为更具体。
+
+​	将上面的例子稍作修改，增加一个入参类型为Integer的method方法。
+
+```java
+public static void method(Integer obj) {
+    System.out.println("method # Integet");
+}
+
+public static void method(String obj) {
+    System.out.println("method # String");
+}
+
+public static void main(String[] args) {
+    method(null);
+}
+```
+
+​	在编译时会报错，错误信息如下：
+
+```java
+error: reference to method is ambiguous
+        method(null);
+        ^
+  both method method(Integer) in HelloWorld and method method(String) in HelloWorld match
+```
+
+​	null可以被赋值给String类型，也可以被赋值给Integer类型，此时编译器无法决定该调用哪个方法。
+
+
+
+**ConstFold**
+
+​	com.sun.tools.javac.comp.ConstFold类的主要作用是在编译期将可以合并的常量合并，比如常量字符串相加，常量整数运算等，以下面的代码为例。
+
+```java
+public void foo() {
+    int x = 1 + 2;
+    String y = "hel" + "lo";
+    int z = 100 / 2;
+}
+```
+
+
+
+​	对应的字节码如下所示：
+
+```java
+0: iconst_3
+1: istore_1
+2: ldc           #2                  // String hello
+4: astore_2
+5: bipush        50
+7: istore_3
+8: return
+```
+
+​	可以看到编译后的字节码已经将常量进行了合并，javac没有理由把这些可以在编译期完成的计算留到运行时。
+
+​	com.sun.tools.javac.comp.Infer类的主要作用是推导泛型方法的参数类型，比较简单，这里不再赘述。
+
+### 4.2.5 flow阶段
+
+​	flow阶段主要用来处理数据流分析，主要由com.sun.tools.javac.comp.Flow类实现，很多编译期的校验在这个阶段完成，下面列举几个常见的场景。
+
+1）检查非void方法是否所有的退出分支都有返回值，以下面的代码为例：
+
+```java
+public boolean foo(int x) {
+    if (x == 0) {
+        return true;
+    }
+    // 注释掉这个 return
+    // return false; 
+}
+```
+
+​	上面的代码编译报错如下：
+
+```java
+error: missing return statement
+    }
+    ^
+```
+
+​	2）检查受检异常（checked exception）是否被捕获或者显式抛出，以下面的代码为例。
+
+```java
+public void foo() {
+    throw new FileNotFoundException();
+}
+```
+
+​	上面的代码编译报错如下：
+
+```java
+error: unreported exception FileNotFoundException; must be caught or declared to be thrown
+    throw new FileNotFoundException();
+    ^
+```
+
+​	3）检查局部变量使用前是否被初始化。Java中的成员变量在未赋值的情况下会赋值为默认值，但是局部变量不会，在使用前必须先赋值，以下面的代码为例。
+
+```java
+public void foo() {
+    int x;
+    int y = x + 1;
+    System.out.println(y);
+}
+```
+
+​	上面的代码编译报错如下：
+
+```java
+error: variable x might not have been initialized
+        int y = x + 1;
+                ^
+```
+
+4）检查final变量是否有重复赋值，保证final的语义，以下面的代码为例。
+
+```java
+public void foo(final int x) {
+    x = 2;
+    System.out.println(x);
+}
+```
+
+​	上面的代码编译报错如下：
+
+```java
+error: final parameter x may not be assigned
+        x = 2;
+        ^
+```
+
+5）检查是否有语句不可达，比如在return之后的不可达代码，以下面的代码为例。
+
+```java
+public int foo() {
+    System.out.println("Hello");
+    return 1;
+    System.out.println("World");
+}
+```
+
+​	上面的代码编译报错如下。
+
+```java
+	error: unreachable statement
+    System.out.println("World");
+    ^
+```
+
+​	这个逻辑判断是在Flow.java的AliveAnalyzer中完成的，在遇到return以后，会回调markDead方法，把alive变量设置为false，表示后面的代码块将不可达，源代码如下所示。
+
+```java
+void markDead(JCTree tree) {
+    alive = false;
+}
+```
+
+​	继续往下处理第2个println时，回调AliveAnalyzer的scanStat方法，这里会判定当前语句是否已经不可达，如果不可达，则输出错误日志，如下所示。
+
+```java
+void scanStat(JCTree tree) {
+    // 如果已经不可达，tree 代表第二次 println 语句，不为 null
+    if (!alive && tree != null) {
+        // 打印 "error: unreachable statement"
+        log.error(tree.pos(), "unreachable.stmt");
+        if (!tree.hasTag(SKIP)) alive = true;
+    }
+    scan(tree);
+}
+```
+
+### 4.2.6 desugar阶段
+
+​	Java的语法糖没有Kotlin和Scala那么丰富，每次随着新版本的发布都会加入非常多的语法糖。下面这些某种意义上来说都算是语法糖：泛型、内部类、try-with-resources、foreach语句、原始类型和包装类型之间的隐式转换、字符串和枚举的switch-case实现、后缀和前缀运算符（i++和++i）、变长参数等。
+
+​	desugar的过程就是解除语法糖，主要由com.sun.tools.javac.comp.TransTypes类和com.sun.tools.javac.comp.Lower类完成。TransTypes类用来擦除泛型和插入相应的类型转换代码，Lower类用来处理除泛型以外其他的语法糖。下面是列举的几个常见的Desugar例子。
+
+​	1）在desugar阶段泛型会被擦除，在有需要时自动为原始类和包装类型转换添加拆箱、装箱代码，以下面的代码为例。
+
+```java
+public void foo() {
+    List<Long> idList = new ArrayList<>();
+    idList.add(1L);
+    long firstId = idList.get(0);
+}
+```
+
+​	对应的字节码如下所示：
+
+```java
+// 执行 new ArrayList<>()
+ 0: new           #2             // class java/util/ArrayList
+ 3: dup
+ 4: invokespecial #3             // Method java/util/ArrayList."<init>":()V
+ 7: astore_1
+ 8: aload_1
+ // 把原始类型 1 自动装箱为 Long 类型
+ 9: lconst_1
+10: invokestatic  #4             // Method java/lang/Long.valueOf:(J)Ljava/lang/Long;
+// 执行 add 调用
+13: invokeinterface #5,  2       // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+18: pop
+19: aload_1
+// 执行 get(0) 调用
+20: iconst_0
+21: invokeinterface #6,  2       // InterfaceMethod java/util/List.get:(I)Ljava/lang/Object;
+// 检查 Object 对象是否是 Long 类型
+26: checkcast     #7             // class java/lang/Long
+// 自动拆箱为原始类型
+29: invokevirtual #8             // Method java/lang/Long.longValue:()J
+32: lstore_2
+33: return
+```
+
+把上面的代码转换为等价的Java代码，如下所示：
+
+```java
+public void foo() {
+    List idList = new ArrayList();
+    // 原始类型自动装箱
+    idList.add(Long.valueOf(1L));
+    // 插入强制类型转换，保持泛型语义，自动拆箱转为原始类型
+    long firstId = ((Long) idList.get(0)).longValue();
+}
+```
+
+​	2）去除逻辑死代码，也就是不可能进入的代码块，比如if（false）{}，以下面的代码为例。
+
+```java
+public void foo() {
+    if (false) {
+        System.out.println("string #1 false");
+    }  else {
+        System.out.println("string #2 true");
+    }
+}
+```
+
+​	对应的字节码如下所示：
+
+```java
+public void foo();
+     0: getstatic     #2     // Field java/lang/System.out:Ljava/io/PrintStream;
+     3: ldc           #3     // String string #2 true
+     5: invokevirtual #4     // Method java/io/PrintStream.println: (Ljava/lang/ String;)V
+     8: return
+```
+
+​	可以看到，在编译后的字节码中if（false）分支的代码已经不存在了，javac这部分的逻辑在Lower类的visitIf方法中处理，如下面的代码清单4-2所示。
+
+​	代码清单4-2　逻辑死分支剔除
+
+```java
+public void visitIf(JCIf tree) {
+    JCTree cond = tree.cond = translate(tree.cond, syms.booleanType);
+    if (cond.type.isTrue()) {
+        result = translate(tree.thenpart);
+        addPrunedInfo(cond);
+    } else if (cond.type.isFalse()) {
+        if (tree.elsepart != null) {
+            result = translate(tree.elsepart);
+        } else {
+            result = make.Skip();
+        }
+        addPrunedInfo(cond);
+    } else {
+        // Condition is not a compile-time constant.
+        tree.thenpart = translate(tree.thenpart);
+        tree.elsepart = translate(tree.elsepart);
+        result = tree;
+    }
+}
+```
+
+​	在碰到if语句块时，javac会先判断if条件值在编译期是否是一个固定值。如果条件值恒等于true，则会保留if条件部分，去掉else部分；反之，如果条件值恒等于false，则会去掉if部分，保留else部分。如果条件值在编译期不恒等于true和false，则会保留if和else两部分。
+
+​	3）String类、枚举类的switch-case也是在Desugar阶段进行的，以下面的枚举类switch代码为例。
+
+```java
+Color color = Color.BLUE;
+switch (color) {
+    case RED:
+        System.out.println("red");
+        break;
+    case BLUE:
+        System.out.println("blue");
+        break;
+    default:
+        System.out.println("default");
+        break;
+}
+```
+
+​	javac为枚举的每一个switch都会生成一个中间类，这个类包含了一个称为“SwitchMap”的数组，这个SwitchMap数组维护了枚举ordinal值与递增整数序列的映射关系。上面的代码会转为如代码清单4-3所示的实现形式。
+
+​	代码清单4-3　枚举switch的等价实现
+
+```java
+class Outer$0 {
+    synthetic static final int[] $SwitchMap$Color = new int[Color.values().length];
+
+    static {
+        try {
+            $SwitchMap$Color[Color.RED.ordinal()] = 1;
+        } catch (NoSuchFieldError ex) {
+        }
+        try {
+            $SwitchMap$Color[Color.BLUE.ordinal()] = 2;
+        } catch (NoSuchFieldError ex) {
+        }
+    }
+}
+
+public void bar(Color color) {
+    switch (Outer$0.$SwitchMap$Color[color.ordinal()]) {
+        case 1:
+            System.out.println("red");
+            break;
+        case 2:
+            System.out.println("blue");
+            break;
+        default:
+            System.out.println("default");
+            break;
+    }
+}
+```
+
+​	为什么不直接用ordinal值来作为case值呢？这是为了提供更好的性能，case值中的ordinal值不一定是连续的，通过SwitchMap数组可以把不连续的ordinal值转为连续的case值，编译成更高效的tableswitch指令。
+
+### 4.2.7 generate阶段
+
+​	generate阶段的主要作用是遍历抽象语法树生成最终的Class文件，由com.sun.tools.javac.jvm.Gen类实现，下面列举了几个常见的场景。
+
+​	1）初始化块代码并收集到`<init>`和`<clinit>`中，以下面的代码为例。
+
+```java
+public class MyInit {
+    {
+        System.out.println("hello");
+    }
+    public int a = 100;
+}
+```
+
+​	生成的构造器方法`<init>`对应的字节码如下所示。
+
+```java
+public MyInit();
+     0: aload_0
+     1: invokespecial #1          // Method java/lang/Object."<init>":()V
+     4: getstatic     #2          // Field java/lang/System.out:Ljava/io/PrintStream;
+     7: ldc           #3          // String hello
+     9: invokevirtual #4          // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+    12: aload_0
+    13: bipush        100
+    15: putfield      #5          // Field a:I
+    18: return
+```
+
+​	可以看到，编译器会自动帮忙生成一个构造器方法`<init>`，没有写在构造器方法中的字段初始化、初始化代码块都被收集到了构造器方法中，翻译为Java源代码如下所示。
+
+```java
+public class MyInit {
+    public int a;
+    
+    public MyInit() {
+        System.out.println("hello");
+        this.a = 100;
+    }
+}
+```
+
+​	与static修饰的静态初始化的逻辑一样，javac会将静态初始化代码块和静态变量初始化收集到`<clinit>`方法中。
+
+​	2）把字符串拼接语句转换为StringBuilder.append的方式来实现，比如下面的字符串x和y的拼接代码。
+
+```java
+public void foo(String x, String y) {
+    String ret = x + y;
+    System.out.println(ret);
+}
+```
+
+​	在generate阶段会被转换为下面的代码。
+
+```java
+public void foo(String x, String y) {
+    String ret = new StringBuilder().append(s).append(s2).toString();
+    System.out.println(ret);
+}
+```
+
+​	3）为synchronized关键字生成异常表，保证monitorenter、monitorexit指令可以成对调用。
+
+​	4）switch-case实现中tableswitch和lookupswitch指令的选择。
+
+​	第2章介绍过，switch-case的实现会根据case值的稀疏程度选择tableswitch或者lookupswitch指令来实现，以下面的代码为例。
+
+```java
+public static void foo() {
+    int a = 0;
+    switch (a) {
+        case 0:
+            System.out.println("#0");
+            break;
+        case 1:
+            System.out.println("#1");
+            break;
+        default:
+        System.out.println("default");
+            break;
+    }
+}
+```
+
+​	对应的字节码如下所示。
+
+```java
+public static void foo();
+ 0: iconst_0
+ 1: istore_0
+ 2: iload_0
+ 3: lookupswitch  { // 2
+               0: 28
+               1: 39
+         default: 50
+    }
+```
+
+​	可以看到，上面的代码是采用lookupswitch而不是tableswitch来实现，难道case值0和1还不够紧凑吗？
+
+​	我们来分析原因，这两个指令的选择逻辑在com/sun/tools/javac/jvm/Gen.java中，如下所示。
+
+```java
+long table_space_cost = 4 + ((long) hi - lo + 1); // words
+long table_time_cost = 3; // comparisons
+long lookup_space_cost = 3 + 2 * (long) nlabels;
+long lookup_time_cost = nlabels;
+int opcode =
+    nlabels > 0 &&
+    table_space_cost + 3 * table_time_cost <=
+    lookup_space_cost + 3 * lookup_time_cost
+    ?
+    tableswitch : lookupswitch;
+```
+
+​	在上面的例子中，nlables等于case值的个数，等于2，hi表示case值的最大值1，lo表示case值的最小值0，因此可以计算出使用tableswitch和lookupswitch的时间和空间代价，如下所示。
+
+```java
+// table_space_cost 表示 tableswitch的空间代价
+table_space_cost = 4 + (1 - 0 + 1) = 6
+// table_time_cost 表示 tableswitch的时间代价，恒等于 3
+table_time_cost = 3
+// lookup_space_cost 表示 lookupswitch 的空间代价 
+lookup_space_cost = 3 + 2 * 2 = 7
+// lookup_time_cost 表示 lookupswitch 的时间代价 
+lookup_time_cost = 2
+```
+
+​	tableswitch和lookupswitch的总代价计算公式如下。
+
+```java
+代价 = 空间代价 + 3 * 时间代价
+```
+
+​	因此在case值为0、1时，tableswitch的代价为6+3*3=15，lookupswitch的代价为7+3*2=13，lookupswitch的代价更小，javac选择了lookupswitch作为switch-case的实现指令。
+
+​	如果case值变多为0、1、2时，nlables等于3，hi等于2，lo等于0，因此计算出空间代价和时间代价如下。
+
+```java
+table_space_cost = 7
+table_time_cost = 3
+lookup_space_cost = 3 + 2 * 3 = 9
+lookup_time_cost = 3
+table_space_cost + 3 * table_time_cost  = 7 + 3 * 3 = 16
+lookup_space_cost + 3 * lookup_time_cost = 9 + 3 * 3 = 18
+```
+
+​	这种情况下，table_space_cost的代价更小，选择tableswitch作为switch-case的实现指令。
+
+​	通过上面的源码分析，可以彻底搞清楚switch-case实现指令选择的依据：在一般情况下，当case值较稀疏时，使用tableswitch的空间代价较大，会选择lookupswitch指令来实现；当case值较密集时，lookupswitch的时间代价比tableswitch高，会选择tableswitch指令。
+
