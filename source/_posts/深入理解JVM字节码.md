@@ -4062,3 +4062,78 @@ lookup_space_cost + 3 * lookup_time_cost = 9 + 3 * 3 = 18
 
 ​	通过上面的源码分析，可以彻底搞清楚switch-case实现指令选择的依据：在一般情况下，当case值较稀疏时，使用tableswitch的空间代价较大，会选择lookupswitch指令来实现；当case值较密集时，lookupswitch的时间代价比tableswitch高，会选择tableswitch指令。
 
+# 6. ASM和Javassist字节码操作工具
+
+## 6.1 ASM介绍
+
+​	当需要对一个class文件做修改时，我们可以选择自己解析这个class文件，在符合Java字节码规范的前提下进行字节码改造。如果你写过class文件的解析代码，就会发现这个过程极其烦琐，更别提增加方法、手动计算max_stack等操作了。
+
+​	ASM最开始是2000年Eric Bruneton在INRIA（法国国立计算机及自动化研究院）读博士期间完成的一个作品。那个时候包含java.lang.reflect.Proxy包的JDK 1.3还没发布，ASM被用作代码生成器生成动态代理的代理类。经过多年的发展，ASM被诸多框架采用，成为字节码操作领域事实上的标准。
+
+​	简单的API背后ASM自动帮我们做了很多事情，比如维护常量池的索引、计算最大栈大小max_stack、局部变量表大小max_locals等，除此之外还有下面这些优点。
+
+* 架构设计精巧，使用方便。
+* 更新速度快，支持最新的Java版本。
+* 速度非常快，在动态代理class的生成和转换时，尽可能确保运行中的应用不会被ASM拖慢。
+* 非常可靠、久经考验，有很多著名的开源框架都在使用，如cglib、MyBatis、Fastjson等。
+
+
+
+​	其他字节码操作框架在操作字节码的过程中会生成很多中间类和对象，耗费大量的内存且运行缓慢，ASM提供了两种生成和转换类的方法：基于事件触发的core API和基于对象的Tree API，这两种方式可以用XML解析的SAX和DOM方式来对照。
+
+​	SAX解析XML文件采用的是事件驱动，它不需要一次解析完整个文档，而是按内容顺序解析文档，如果解析时符合特定的事件则回调一些函数来处理事件。SAX运行时是单向的、流式的，解析过的部分无法在不重新开始的情况下再次读取，ASM的Core API与这种方式类似。
+
+​	DOM解析方式则会将整个XML作为类似树结构的方式读入内存中以便操作及解析，ASM的Tree API与这种方式类似。
+
+​	以下面的XML文件为例。
+
+```xml
+<Order>
+    <Customer>Arthur</Customer>
+    <Product>
+        <Name>Birdsong Clock</Name>
+        <Quantity>12</Quantity>
+        <Price currency="USD">21.95</Price >
+    </Product>
+</Order>
+```
+
+​	对应的SAX和DOM解析方式如图6-1所示。
+
+![](https://pic.imgdb.cn/item/61af4def2ab3f51d919f15d2.jpg)
+
+### 6.1.1　ASM Core API核心类
+
+​	ASM核心包由Core API、Tree API、Commons、Util、XML几部分组成，如图6-2所示。
+
+![](https://pic.imgdb.cn/item/61af4e152ab3f51d919f3071.jpg)
+
+​	Core API中最重要的三个类是ClassReader、ClassVisitor、ClassWriter，字节码操作都是跟这个三个类打交道。
+
+​	ClassReader是字节码读取和分析引擎，负责解析class文件。采用类似于SAX的事件读取机制，每当有事件发生时，触发相应的ClassVisitor、MethodVisitor等做相应的处理。
+
+​	ClassVisitor是一个抽象类，使用时需要继承这个类，ClassReader的accept（）方法需要传入一个ClassVisitor对象。ClassReader在解析class文件的过程中遇到不同的节点时会调用ClassVisitor不同的visit方法，比如visitAttribute、visitInnerClass、visitField、visitMethod、visitEnd方法等。
+
+​	在上述visit的过程中还会产生一些子过程，比如visitAnnotation会触发Annotation-Visitor的调用、visitMethod会触发MethodVisitor的调用。正是在这些visit的过程中，我们得以有机会去修改各个子节点的字节码。
+
+​	ClassVisitor类中的visit方法按照以下的顺序被调用执行。
+
+```java
+visit
+[visitSource]
+[visitOuterClass] 
+(visitAnnotation | visitAttribute)*
+(visitInnerClass | visitField | visitMethod)* 
+visitEnd
+```
+
+​	visit方法最先被调用，接着调用零次或一次visitSource方法，调用零次或一次visitOuter-Class方法，接下来按任意顺序调用任意多次visitAnnotation和visitAttribute方法，再按任意顺序调用任意多次visitInnerClass、visitField、visitMethod方法，最后调用visitEnd。
+
+​	调用时序图如图6-3所示。
+​	ClassWriter类是ClassVisitor抽象类的一个实现类，在ClassVisitor的visit方法中可以对原始的字节码做修改，ClassWriter的toByteArray方法则把最终修改的字节码以byte数组的形式返回。
+
+​	一个最简单的用法如下面的代码清单6-1所示。
+
+![](https://pic.imgdb.cn/item/61af4f222ab3f51d919fdc1a.jpg)
+
+ 
