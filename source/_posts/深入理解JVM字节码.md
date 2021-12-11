@@ -4162,7 +4162,7 @@ cr.accept(cv, 0);
 
 ​	接下来我们用几个简单的例子来演示如何使用ASM的API操作字节码。
 
-**1.访问类的方法和字段**
+### **1.访问类的方法和字段**
 
 ​	ASM的visitor设计模式使我们可以很方便地访问类文件中感兴趣的部分，比如类文件的字段和方法列表，以下面的MyMain类为例。
 
@@ -4215,4 +4215,721 @@ method: test02
 * SKIP_CODE：跳过方法体中的Code属性（方法字节码、异常表等）。
 * EXPAND_FRAMES：展开StackMapTable属性。
 * SKIP_FRAMES：跳过StackMapTable属性。
+
+
+
+​	本例中的flags值为SKIP_DEBUG|SKIP_CODE，因为这里只要求输出字段名和方法名，不需要解析方法Code属性和调试信息。
+​	前面有提到ClassVisitor是一个抽象类，我们可以选择关心的事件进行处理，比如例子中覆写了visitField和visitMethod方法，仅对字段和方法进行处理，对于不感兴趣的事件可以选择不覆写。
+​	前面介绍的都是Core API的用法，使用Tree API的方式也可以实现同样的效果，代码如下所示。
+
+```java
+byte[] bytes = getBytes();
+
+ClassReader cr = new ClassReader(bytes);
+ClassNode cn = new ClassNode();
+cr.accept(cn, ClassReader.SKIP_DEBUG | ClassReader.SKIP_CODE);
+
+List<FieldNode> fields = cn.fields;
+for (int i = 0; i < fields.size(); i++) {
+    FieldNode fieldNode = fields.get(i);
+    System.out.println("field: " + fieldNode.name);
+}
+List<MethodNode> methods = cn.methods;
+for (int i = 0; i < methods.size(); ++i) {
+    MethodNode method = methods.get(i);
+    System.out.println("method: " + method.name);
+}
+ClassWriter cw = new ClassWriter(0);
+cr.accept(cn, 0);
+byte[] bytesModified = cw.toByteArray();
+```
+
+​	Tree API的方式相比Core API使用起来更简单，但是处理速度会慢30%左右，同时会消耗更多的内存，在实际使用过程中可以根据场景做取舍。
+
+### 2.新增一个字段
+
+​	在实际字节码转换中，经常需要给类新增一个字段以存储额外的信息，在ASM中给类新增一个字段非常简单，以下面的MyMain类为例，使用javac编译为class文件。
+
+```java
+public class MyMain {
+}
+```
+
+​	这里采用visitEnd方法中进行添加字段的操作，使用下面的代码可以给MyMain新增一个String类型的xyz字段。
+
+```java
+byte[] bytes = FileUtils.readFileToByteArray(new File("./MyMain.class"));
+ClassReader cr = new ClassReader(bytes);
+ClassWriter cw = new ClassWriter(0);
+ClassVisitor cv = new ClassVisitor(ASM5, cw) {
+    @Override
+    public void visitEnd() {
+        super.visitEnd();
+        FieldVisitor fv = cv.visitField(Opcodes.ACC_PUBLIC, "xyz", "Ljava/lang/String;", null, null);
+        if (fv != null) fv.visitEnd();
+    }
+};
+cr.accept(cv, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG);
+byte[] bytesModified = cw.toByteArray();
+FileUtils.writeByteArrayToFile(new File("./MyMain2.class"), bytesModified);
+```
+
+​	使用javap查看MyMain2的字节码，可以看到已经多了一个类型为String的xyz变量，部分字节码如下所示。
+
+```java
+public java.lang.String xyz;
+descriptor: Ljava/lang/String;
+flags: ACC_PUBLIC
+```
+
+​	在实际的使用中，为了避免添加的字段名与已有字段重名，一般会增加一个特殊的后缀或者前缀。
+​	使用Tree API也可以同样实现这个功能，不用担心调用时机的问题，代码如下所示。
+
+```java
+byte[] bytes = FileUtils.readFileToByteArray(new File("./MyMain.class"));
+ClassReader cr = new ClassReader(bytes);
+ClassNode cn = new ClassNode();
+cr.accept(cn, ClassReader.SKIP_DEBUG | ClassReader.SKIP_CODE);
+
+FieldNode fn = new FieldNode(ACC_PUBLIC, "xyz", "Ljava/lang/String;", null, null);
+cn.fields.add(fn);
+
+ClassWriter cw = new ClassWriter(0);
+cn.accept(cw);
+byte[] bytesModified = cw.toByteArray();
+FileUtils.writeByteArrayToFile(new File("./MyMain2.class"), bytesModified);
+```
+
+​	在实际的使用中，为了避免添加的字段名与已有字段重名，一般会增加一个特殊的后缀或者前缀。
+​	使用Tree API也可以同样实现这个功能，不用担心调用时机的问题，代码如下所示。
+
+```java
+byte[] bytes = FileUtils.readFileToByteArray(new File("./MyMain.class"));
+ClassReader cr = new ClassReader(bytes);
+ClassNode cn = new ClassNode();
+cr.accept(cn, ClassReader.SKIP_DEBUG | ClassReader.SKIP_CODE);
+
+FieldNode fn = new FieldNode(ACC_PUBLIC, "xyz", "Ljava/lang/String;", null, null);
+cn.fields.add(fn);
+
+ClassWriter cw = new ClassWriter(0);
+cn.accept(cw);
+byte[] bytesModified = cw.toByteArray();
+FileUtils.writeByteArrayToFile(new File("./MyMain2.class"), bytesModified);
+```
+
+### 3.新增方法
+
+​	这里同样以MyMain类为例，给这个类新增一个xyz方法，如下所示。
+
+```java
+public void xyz(int a, String b) {
+}
+```
+
+​	根据前面的知识可以知道xyz方法的签名为（ILjava/lang/String；）V，使用ASM新增xyz方法的代码如下所示。
+
+```java
+byte[] bytes = FileUtils.readFileToByteArray(new File("./MyMain.class"));
+ClassReader cr = new ClassReader(bytes);
+ClassWriter cw = new ClassWriter(0);
+ClassVisitor cv = new ClassVisitor(ASM5, cw) {
+    @Override
+    public void visitEnd() {
+        super.visitEnd();
+        MethodVisitor mv = cv.visitMethod(Opcodes.ACC_PUBLIC, "xyz", "(ILjava/lang/String;)V", null, null);
+        if (mv != null) mv.visitEnd();
+    }
+};
+cr.accept(cv, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG);
+byte[] bytesModified = cw.toByteArray();
+FileUtils.writeByteArrayToFile(new File("./MyMain2.class"), bytesModified);
+```
+
+使用javap查看生成的MyMain2类，确认xyz方法已经生成，方法签名如下所示。
+
+```java
+public void xyz(int, java.lang.String);
+descriptor: (ILjava/lang/String;)V
+flags: ACC_PUBLIC
+```
+
+​	Tree API生成方法的方式与生成字段类似，这里不再赘述。
+
+### 4.移除方法和字段
+
+​	前面介绍了如何利用ASM给class文件新增方法和字段，接下来看看如何使用ASM删掉方法和字段。以下面的MyMain类为例，删掉abc字段和xyz方法。
+
+```java
+public class MyMain {
+    private int abc = 0;
+    private int def = 0;
+    public void foo() {
+    }
+    public int xyz(int a, String b) {
+        return 0;
+    }
+}
+```
+
+​	如果仔细观察ClassVisitor类的visit方法，会发现visitField、visitMethod等方法是有返回值的，如果这些方法直接返回null，这些字段、方法将从类中被移除，代码如下所示。
+
+```java
+byte[] bytes = FileUtils.readFileToByteArray(new File("./MyMain.class"));
+ClassReader cr = new ClassReader(bytes);
+ClassWriter cw = new ClassWriter(0);
+ClassVisitor cv = new ClassVisitor(ASM5, cw) {
+    @Override
+    public FieldVisitor visitField(int access, String name, String desc, String signature, Object value) {
+        if ("abc".equals(name)) {
+            return null; // 返回 null
+        }
+        return super.visitField(access, name, desc, signature, value);
+    }
+
+    @Override
+    public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
+        if ("xyz".equals(name)) {
+            return null; // 返回 null
+        }
+        return super.visitMethod(access, name, desc, signature, exceptions);
+    }
+};
+
+cr.accept(cv, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG);
+byte[] bytesModified = cw.toByteArray();
+FileUtils.writeByteArrayToFile(new File("./MyMain2.class"), bytesModified);
+```
+
+​	使用javap查看MyMain2的字节码，可以看到abc字段和xyz方法已经移除，只剩下def字段和foo方法。
+
+### 5.修改方法内容
+
+​	前面有接触到MethodVisitor类，这个类用来处理访问一个方法触发的事件，与ClassVisitor一样，它也有很多visit方法，这些visit方法也有一定的调用时序，常用的如下所示。
+
+```java
+(visitParameter)* 
+[visitAnnotationDefault] 
+(visitAnnotation | visitParameterAnnotation | visitAttribute)*
+[
+    visitCode 
+    (visitFrame | visit<i>X</i>Insn | visitLabel | visitInsnAnnotation | visitTryCatchBlock | visitTryCatchAnnotation | visitLocalVariable | visitLocalVariableAnnotation | visitLineNumber )* 
+    visitMaxs
+]
+visitEnd
+```
+
+​	其中visitCode和visitMaxs可以作为方法体中字节码的开始和结束，visitEnd是MethodVisitor所有事件的结束。
+
+​	以下面的foo方法为例，把方法体的返回值改为a+100。
+
+```java
+public class MyMain {
+    public static void main(String[] args) {
+        System.out.println(new MyMain().foo(1));
+    }
+
+    public int foo(int a) {
+        return a; // 修改为 return a + 100;
+    }
+}
+```
+
+​	方法体内容“return 100；”对应的字节码指令如下所示。
+
+```java
+0: iload_1
+1: bipush        100
+3: iadd
+4: ireturn
+```
+
+​	为了替换foo的方法体，一个可选的做法是在ClassVisitor的visitMethod方法返回null以删除原foo方法，然后在visitEnd方法中新增一个foo方法，如下面的代码所示：
+
+```java
+byte[] bytes = FileUtils.readFileToByteArray(new File("./MyMain.class"));
+ClassReader cr = new ClassReader(bytes);
+ClassWriter cw = new ClassWriter(0);
+ClassVisitor cv = new ClassVisitor(ASM7, cw) {
+    @Override
+    public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
+
+        if ("foo".equals(name)) {
+            // 删除 foo 方法
+            return null;
+        }
+        return super.visitMethod(access, name, desc, signature, exceptions);
+    }
+
+    @Override
+    public void visitEnd() {
+        // 新增 foo 方法
+        MethodVisitor mv = cv.visitMethod(Opcodes.ACC_PUBLIC, "foo", "(I)I", null, null);
+
+        mv.visitCode();
+        mv.visitVarInsn(Opcodes.ILOAD, 1);
+        mv.visitIntInsn(Opcodes.BIPUSH, 100);
+        mv.visitInsn(Opcodes.IADD);
+        mv.visitInsn(Opcodes.IRETURN);
+        mv.visitEnd();
+    }
+};
+cr.accept(cv, 0);
+byte[] bytesModified = cw.toByteArray();
+FileUtils.writeByteArrayToFile(new File("./MyMain.class"), bytesModified);
+```
+
+​	使用javap查看生成的foo方法字节码，可以看到方法字节码已经被替换，如下所示。
+
+```java
+public int foo();
+descriptor: ()I
+flags: ACC_PUBLIC
+Code:
+stack=0, locals=0, args_size=1
+ 0: iload_1
+ 1: bipush        100
+ 3: iadd
+ 4: ireturn
+```
+
+​	使用java运行MyMain，会发现抛出了ClassFormatError异常，提示入参无法放到局部变量表locals中，详细的错误信息如下所示。
+
+```java
+java -cp . MyMain    
+Error: A JNI error has occurred, please check your installation and try again
+Exception in thread "main" java.lang.ClassFormatError: Arguments can't fit into locals in class file MyMain
+```
+
+​	再回过头来查看生成的字节码，会发现它的stack和locals都等于0，从前面的内容可以知道Java虚拟机根据字节码中stack和locals的值来分配操作数栈和局部变量表的空间，如果两个值都等于0则不能加载操作数和存储方法参数。
+
+​	从源代码可以分析出，最大栈的大小为2（a，100），局部变量表的大小为2（this，a）。一个可选的办法是在“mv.visitEnd（）；”代码之前新增“mv.visitMaxs（2，2）；”以手动指定stack和locals的大小。
+
+​	另一个方法是让ASM自动计算stack和locals，这与ClassWriter构造器方法参数有关，如下所示。
+
+* new ClassWriter（0）：这种方式不会自动计算操作数栈和局部变量表的大小，需要我们手动指定。
+* new ClassWriter（ClassWriter.COMPUTE_MAXS）：这种方式会自动计算操作数栈和局部变量表的大小，前提是需要调用visitMaxs方法来触发计算上述两个值，参数值可以随便指定。
+* new ClassWriter（ClassWriter.COMPUTE_FRAMES）：不仅会计算操作数栈和局部变量表，还会自动计算StackMapFrames。在Java 6之后JVM在class文件的Code属性中引入了StackMapTable属性，作用是为了提高JVM在类型检查时验证过程的效率，里面记录的是一个方法中操作数栈与局部变量区的类型在一些特定位置的状态。
+
+
+
+​	虽然COMPUTE_FRAMES隐式地包含了COMPUTE_MAXS，一般在使用中还是会同时指定，调用的代码如下所示。
+
+```java
+new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES)
+```
+
+​	因为stack和locals的计算复杂、容易出错，在正常使用中强烈建议使用ASM的COMPUTE_MAXS和COMPUTE_FRAMES，虽然有一点点性能损耗，但是代码更加清晰易懂，且更易于维护。
+
+```java
+byte[] bytes = FileUtils.readFileToByteArray(new File("./MyMain.class"));
+ClassReader cr = new ClassReader(bytes);
+// 指定 ClassWriter 自动计算
+ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+ClassVisitor cv = new ClassVisitor(ASM7, cw) {
+    @Override
+    public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
+
+        if ("foo".equals(name)) {
+            // 删除 foo 方法
+            return null;
+        }
+        return super.visitMethod(access, name, desc, signature, exceptions);
+    }
+
+    @Override
+    public void visitEnd() {
+        // 新增 foo 方法
+        MethodVisitor mv = cv.visitMethod(Opcodes.ACC_PUBLIC, "foo", "(I)I", null, null);
+
+        mv.visitCode();
+        mv.visitVarInsn(Opcodes.ILOAD, 1);
+        mv.visitIntInsn(Opcodes.BIPUSH, 100);
+        mv.visitInsn(Opcodes.IADD);
+        mv.visitInsn(Opcodes.IRETURN);
+        // 触发计算
+        mv.visitMaxs(0, 0);
+        mv.visitEnd();
+    }
+};
+cr.accept(cv, 0);
+byte[] bytesModified = cw.toByteArray();
+FileUtils.writeByteArrayToFile(new File("./MyMain.class"), bytesModified);
+```
+
+​	这个时候使用java执行MyMain，就可以正常输出结果，如下所示。
+
+```java
+java -cp . MyMain
+101
+```
+
+### 6.AdviceAdapter使用
+
+​	AdviceAdapter是一个抽象类，继承自MethodVisitor，可以很方便地在方法的开始和结束前插入代码，它的两个核心方法介绍如下所示。
+
+* onMethodEnter：方法开始或者构造器方法中父类的构造器调用以后被回调。
+* onMethodExit：正常退出和异常退出时被调用。正常退出指的是遇到RETURN、ARETURN、LRETURN等方法正常返回的情况。异常退出指的是遇到ATHROW指令，有异常抛出方法返回的情况。
+
+```java
+public void foo() {
+    System.out.println("hello foo");
+}
+```
+
+​	接下来用AdviceAdapter在函数开始和结束的时候都加上一行打印。
+
+```java
+byte[] bytes = FileUtils.readFileToByteArray(new File("./MyMain.class"));
+
+ClassReader cr = new ClassReader(bytes);
+ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+ClassVisitor cv = new ClassVisitor(ASM7, cw) {
+    @Override
+    public MethodVisitor visitMethod(int access, final String name, String desc, String signature, String[] exceptions) {
+
+        MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);
+        if (!"foo".equals(name)) return mv;
+        
+        return new AdviceAdapter(ASM7, mv, access, name, desc) {
+            @Override
+            protected void onMethodEnter() {
+                // 新增 System.out.println("enter " +  name);
+                super.onMethodEnter();
+                mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+                mv.visitLdcInsn("enter " + name);
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            }
+
+            @Override
+            protected void onMethodExit(int opcode) {
+               // 新增 System.out.println("[normal,err] exit " +  name);
+                super.onMethodExit(opcode);
+                mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+                if (opcode == Opcodes.ATHROW) {
+                    mv.visitLdcInsn("err exit " + name);
+                } else {
+                    mv.visitLdcInsn("normal exit " + name);
+                }
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            }
+        };
+    }
+};
+cr.accept(cv, 0);
+byte[] bytesModified = cw.toByteArray();
+FileUtils.writeByteArrayToFile(new File("./MyMain.class"), bytesModified);
+```
+
+​	运行生成的MyMain类，就可以看到enter和exit语句已经生效了，运行结果如下所示。
+
+```java
+java -cp . MyMain    
+enter foo
+hello foo
+normal exit foo
+```
+
+### 7.给方法加上try catch
+
+​	很显然上一个小节的代码无法在代码抛出未捕获异常时输出err quit，比如把foo代码做细微修改，如下所示。
+
+```java
+public void foo() {
+    System.out.println("step 1");
+    int a = 1 / 0;
+    System.out.println("step 2");
+}
+```
+
+​	经过上个例子的字节码改写以后，执行的结果输出如下所示。
+
+```java
+java -cp . MyMain  
+enter foo
+step 1
+Exception in thread "main" java.lang.ArithmeticException: / by zero
+        at MyMain.foo(MyMain.java:24)
+        at MyMain.main(MyMain.java:8)
+```
+
+​	可以看到并没有如期输出“err exit foo”，因为在字节码中并没有出现显式的ATHROW指令抛出异常，自然无法添加相应的输出语句。为了达到这个效果，需要把方法体用try/finally语句块包裹起来。
+
+​	这里需要介绍ASM的Label类，与它的英文含义一样，可以给字节码指令地址打标签，标记特定的字节码位置，用于后续跳转等。新增一个Label可以用MethodVisitor的visitLabel方法，如下所示。
+
+```java
+Label startLabel = new Label();
+mv.visitLabel(startLabel);
+```
+
+​	前面章节介绍过，JVM的异常处理是通过异常表来实现的，try-catch-finally语句块实际上是标定了异常处理的范围。ASM中可以用visitTryCatchBlock方法来给一段代码块增加异常表，它的方法签名如下所示。
+
+```java
+public void visitTryCatchBlock(Label start, Label end, Label handler, String type)
+```
+
+​	其中start、end表示异常表开始和结束的位置，handler表示异常发生后需要跳转到哪里继续执行，可以理解为catch语句块开始的位置，type是异常的类型。
+
+​	为了给整个方法体包裹try-catch语句，start Label应该放在方法visitCode之后，end Label则放在visitMaxs调用之前，代码如下所示。
+
+```java
+Label startLabel = new Label();
+
+@Override
+protected void onMethodEnter() {
+    super.onMethodEnter();
+    mv.visitLabel(startLabel);
+
+    mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+    mv.visitLdcInsn("enter " + name);
+    mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+}
+
+@Override
+public void visitMaxs(int maxStack, int maxLocals) {
+    // 生成异常表
+    Label endLabel = new Label();
+    mv.visitTryCatchBlock(startLabel, endLabel, endLabel, null);
+    mv.visitLabel(endLabel);
+    
+    // 生成异常处理代码块
+    finallyBlock(ATHROW);
+    mv.visitInsn(ATHROW);
+    super.visitMaxs(maxStack, maxLocals);
+}
+
+private void finallyBlock(int opcode) {
+    mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+    if (opcode == Opcodes.ATHROW) {
+        mv.visitLdcInsn("err exit " + name);
+    } else {
+        mv.visitLdcInsn("normal exit " + name);
+    }
+    mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+}
+
+@Override
+protected void onMethodExit(int opcode) {
+    super.onMethodExit(opcode);
+    // 处理正常返回的场景
+    if (opcode != ATHROW) finallyBlock(opcode);
+}
+```
+
+​	前面介绍过onMethodExit在方法正常退出和异常退出时都会被调用。添加完异常处理表以后，程序异常退出时都会进入异常代码处理模块，为了避免重复处理，在onMethodExit中只会处理正常退出的情况，不必处理ATHROW指令。
+​	执行使用Java修改过的MyMain类，可以看到已经有“err exit foo”输出了。
+
+```java
+java -cp . MyMain 
+enter foo
+step 1
+err exit foo
+Exception in thread "main" java.lang.ArithmeticException: / by zero
+        at MyMain.foo(MyMain.java:24)
+        at MyMain.main(MyMain.java:8)
+```
+
+## 6.2　Javassist介绍
+
+​	前面介绍的ASM入门门槛还是挺高的，需要跟底层的字节码指令打交道，优点是小巧、性能好。Javassist是一个性能比ASM稍差但使用起来简单很多的字节码操作库，不需要使用者掌握字节码指令，由东京工业大学的数学和计算机科学系的教授Shigeru Chiba开发。
+
+​	本节将分为两个部分来讲解，第一部分是Javassist核心API介绍，第二部分是Javassist操作class文件的代码示例。
+
+### 6.2.1 Javassist核心API
+
+​	在Javassist中每个需要编辑的class都对应一个CtClass实例，CtClass的含义是编译时的类（compile time class），这些类会存储在ClassPool中。ClassPool是一个容器，存储了一系列CtClass对象。
+
+​	Javassist的API与Java反射API比较相似，Java类包含的字段、方法在Javassist中分别对应CtField和CtMethod，通过CtClass对象就可以给类新增字段、修改方法了。Javassist核心API如图6-5所示。
+
+![](https://pic.imgdb.cn/item/61b4b57d2ab3f51d911d9572.jpg)
+
+​	CtClass的writeFile可以将生成的class文件输出到指定目录中，比如新建一个Hello类可以用下面的代码实现。
+
+```java
+ClassPool cp = ClassPool.getDefault();
+CtClass ct = cp.makeClass("ya.me.Hello");
+ct.writeFile("./out");
+```
+
+​	运行上面的代码，out目录下就生成了一个Hello类，内容如下所示。
+
+```java
+package ya.me;
+
+public class Hello {
+    public Hello() {
+    }
+}
+```
+
+### 6.2.2　Javassist操作字节码示例
+
+#### 1.给已有类新增方法
+
+​	新建一个MyMain类，如下所示。
+
+```java
+public class MyMain {
+}
+```
+
+​	接下来用Javassist给它新增一个foo方法，调用CtClass的addMethod可以实现给类新增方法的功能，代码如下所示。
+
+```java
+ClassPool cp = ClassPool.getDefault();
+cp.insertClassPath("/path/to/MyMain.class");
+CtClass ct = cp.get("MyMain");
+CtMethod method = new CtMethod(
+        CtClass.voidType,
+        "foo",
+        new CtClass[]{CtClass.intType, CtClass.intType},
+        ct);
+method.setModifiers(Modifier.PUBLIC);
+ct.addMethod(method);
+ct.writeFile("./out");
+```
+
+​	查看生成MyMain类可以看到生成了foo方法。
+
+#### **2.修改方法体**
+
+​	CtMethod提供了几个实用的方法来修改方法体：
+
+* setBody方法用来替换整个方法体，它接收一段源代码字符串，Javassist会将这段源码字符串编译为字节码，替换原有的方法体。
+* insertBefore、insertAfter方法可以实现在方法开始和结束的地方插入语句。
+
+
+
+​	如果想把foo方法体修改为“return 0；”，可以做如下修改。
+
+```java
+CtMethod method = ct.getMethod("foo", "(II)I");
+method.setBody("return 0;");
+```
+
+​	如果想把foo方法体的“a+b；”修改为“a*b；”，比较直观的想法是调用`method.setBody（"return a*b；"）`。实际运行时会报错，提示找不到字段a，错误堆栈如下所示。
+
+```java
+Exception in thread "main" javassist.CannotCompileException: [source error] no such field: a
+    at javassist.CtBehavior.setBody(CtBehavior.java:474)
+    at javassist.CtBehavior.setBody(CtBehavior.java:440)
+    at JavassistTest2.main(JavassistTest2.java:17)
+Caused by: compile error: no such field: a
+```
+
+​	这是因为源代码在javac编译以后，抹去了局部变量名字，只留下类型和局部变量表的位置，比如上面的a和b对应局部变量表1和2的位置。在Javassist中访问方法参数使用$0$1...，而不是直接使用变量名，将上面的代码修改为如下所示。
+
+```java
+method.setBody("return $1 * $2;");
+```
+
+生成新的MyMain类中的foo方法如下所示。
+
+```java
+public int foo(int var1, int var2) {
+    return var1 * var2;
+}
+```
+
+​	除了方法的参数，Javassist定义了以$开头的特殊标识符，如表6-1所示。
+
+![](https://pic.imgdb.cn/item/61b4b7ca2ab3f51d911ee61f.jpg)
+
+​	下面来逐一介绍。
+
+（1）$0$1$2...参数
+
+​	$0$1$2等表示方法参数，非静态方法0对应于this，如果是静态方法$0不可用，从$1开始依次表示方法参数。
+
+（2）$args参数
+
+​	$args变量表示所有参数的数组，它是一个Object类型的数组，如果参数中有原始类型，会被转为对应的包装类型，比如上面foo（int a，int b）对应的$args如下所示。
+
+```java
+new Object[]{ new Integer(a), new Integer(b) }
+```
+
+（3）$$参数
+
+​	$$参数表示所有的参数的展开，参数直接用逗号分隔，foo（$$）相当于foo（$1，$2，...）。
+
+（4）$cflow参数
+
+​	$cflow是“control flow”的缩写，这是一个只读的属性，表示某方法递归调用的深度。一个典型的使用场景是监控某递归方法执行的时间，如果只想记录一次最顶层调用的时间，可以使用$cflow来判断当前递归调用的深度，如果不是最顶层调用则忽略记录时间。比如下面的计算fibonacci数列的方法。
+
+​	如果只想在第一次调用的时候执行打印，可以对字节码做如下修改。
+
+```java
+CtMethod method = ct.getMethod("fibonacci", "(I)J");
+method.useCflow("fibonacci");
+method.insertBefore(
+        "if ($cflow(fibonacci) == 0) {" +
+            "System.out.println(\"fibonacci init \" + $1);" +
+        "}"
+);
+```
+
+​	执行生成的MyMain，可以看到只输出了一次打印：
+
+```java
+java -cp /path/to/javassist.jar:. MyMain
+fibonacci init 10
+```
+
+（5）$_参数
+
+​	CtMethod的insertAfter（）方法在目标方法的末尾插入一段代码。$_用来表示方法的返回值，在insertAfter方法中可以引用，以下面的代码为例。
+
+```java
+method.insertAfter("System.out.println(\"result: \"  + $_);");
+```
+
+​	生成的class文件反编译结果如下所示。
+
+```java
+public int foo(int a, int b) {
+    int var4 = a + b;
+    System.out.println("result: " + var4);
+    return var4;
+}
+```
+
+​	细心的读者看到这里会有疑问，如果是方法异常退出，它的方法返回值是什么呢？以下面foo代码为例。
+
+```java
+public int foo(int a, int b) {
+    int c = 1 / 0;
+    return a + b;
+}
+```
+
+​	执行上面的改写后，反编译以后代码如下所示。
+
+```java
+public int foo(int a, int b) {
+    int c = 1 / 0;
+    int var5 = a + b;
+    System.out.println(var5);
+    return var5;
+}
+```
+
+​	在这种情况下，代码块抛出异常时是无法执行插入语句的。如果想代码抛出异常的时候也能执行，就需要把insertAfter的第二个参数asFinally设置为true，如下面代码所示。
+
+```java
+method.insertAfter("System.out.println(\"result: \"  + $_);", true);
+```
+
+​	执行输出结果如下，可以看到在抛出异常的情况下也输出了预期的打印语句。
+
+```java
+result: 0
+Exception in thread "main" java.lang.ArithmeticException: / by zero
+        at MyMain.foo(MyMain.java:9)
+        at MyMain.main(MyMain.java:6)
+```
+
+（6）其他参数
+
+​	还有几个Javassist提供的内置变量（$r等）用的非常少，这里不再介绍，具体可以查看Javassist的官网。
 
