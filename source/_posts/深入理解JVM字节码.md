@@ -4136,4 +4136,81 @@ visitEnd
 
 ![](https://pic.imgdb.cn/item/61af4f222ab3f51d919fdc1a.jpg)
 
- 
+ 	**代码清单6-1　ASM核心类使用示例**
+
+```java
+public class FooClassVisitor extends ClassVisitor {
+    ...
+    // visitXXX() 函数
+    ...
+}
+
+ClassReader cr = new ClassReader(bytes);
+ClassWriter cw = new ClassWriter(cr,
+        ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+ClassVisitor cv = new FooClassVisitor(cw);
+cr.accept(cv, 0);
+```
+
+​	上面的代码中，ClassReader负责读取类文件字节数组，accept调用之后ClassReader会把解析Class文件过程中的事件源源不断地通知给ClassVisitor对象调用不同的visit方法，ClassVisitor可以在这些visit方法中对字节码进行修改，ClassWriter可以生成最终修改过的字节码。这三个核心类的关系如图6-4所示。
+
+![](https://pic.imgdb.cn/item/61b0222a2ab3f51d91080fda.jpg)
+
+## 6.1.2　ASM操作字节码示例
+
+​	接下来我们用几个简单的例子来演示如何使用ASM的API操作字节码。
+
+**1.访问类的方法和字段**
+
+​	ASM的visitor设计模式使我们可以很方便地访问类文件中感兴趣的部分，比如类文件的字段和方法列表，以下面的MyMain类为例。
+
+```java
+public class MyMain {
+    public int a = 0;
+    public int b = 1;
+    public void test01() {
+    }
+    public void test02() {
+    }
+}   
+```
+
+​	使用javac将其编译为class文件，可以用下面的ASM代码来输出类的方法和字段列表。
+
+```java
+byte[] bytes  = getBytes(); // MyMain.class 文件的字节数组
+ClassReader cr = new ClassReader(bytes);
+ClassWriter cw = new ClassWriter(0);
+ClassVisitor cv = new ClassVisitor(ASM5, cw) {
+    @Override
+    public FieldVisitor visitField(int access, String name, String desc, String signature, Object value) {
+        System.out.println("field: " + name);
+        return super.visitField(access, name, desc, signature, value);
+    }
+
+    @Override
+    public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
+          System.out.println("method: " + name);
+          return super.visitMethod(access, name, desc, signature, exceptions);
+    }
+};
+cr.accept(cv, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG);
+```
+
+​	这样就实现了输出类中所有字段和方法的效果，输出结果如下所示。
+
+```java
+field: a
+field: b
+method: <init>
+method: test01
+method: test02
+```
+
+​	值得注意的是，ClassReader类accept方法的第二个参数flags是一个位掩码（bit-mask），可以选择组合的值有下面这些。
+
+* SKIP_DEBUG：跳过类文件中的调试信息，比如行号信息（LineNumberTable）等。
+* SKIP_CODE：跳过方法体中的Code属性（方法字节码、异常表等）。
+* EXPAND_FRAMES：展开StackMapTable属性。
+* SKIP_FRAMES：跳过StackMapTable属性。
+
