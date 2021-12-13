@@ -17,10 +17,3 @@ PlainMethodInvoker.invoke
 			
 ```
 
-```
-shared-configs:
-  -
-    dataId:
-      application-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
-    group: dev
-```
