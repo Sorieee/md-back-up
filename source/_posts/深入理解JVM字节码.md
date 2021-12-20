@@ -4933,3 +4933,589 @@ Exception in thread "main" java.lang.ArithmeticException: / by zero
 
 ​	还有几个Javassist提供的内置变量（$r等）用的非常少，这里不再介绍，具体可以查看Javassist的官网。
 
+# 7.Java Instrumentation原理
+
+这一章我们来介绍Java中强大的Instrumentation机制，Instrumentation看起来比较神秘，很少有书会详细介绍。日常工作中用到的很多工具其实都是基于Instrumentation来实现的，比如下面这些：
+
+* APM产品：Pinpoint、SkyWalking、newrelic等。
+* 热部署工具：Intellij idea的HotSwap、Jrebel等。
+* Java诊断工具：Arthas等。
+
+## 7.1　Java Instrumentation简介
+
+​	JDK从1.5版本开始引入了java.lang.instrument包，开发者可以更方便的实现字节码增强。其核心功能由java.lang.instrument.Instrumentation提供，这个接口的方法提供了注册类文件转换器、获取所有已加载的类等功能，允许我们在对已加载和未加载的类进行修改，实现AOP、性能监控等功能。
+
+​	Instrumentation接口的常用方法如下所示。
+
+```java
+void addTransformer(ClassFileTransformer transformer, boolean canRetransform);
+
+void retransformClasses(Class<?>... classes) throws UnmodifiableClassException;
+
+Class[] getAllLoadedClasses()
+
+boolean isRetransformClassesSupported();
+```
+
+​	它的addTransformer方法给Instrumentation注册一个类型为ClassFileTransformer的类文件转换器。ClassFileTransformer接口只有一个transform方法，接口定义如下所示。
+
+```java
+public interface ClassFileTransformer {
+    byte[] transform(
+            ClassLoader loader,
+            String className,
+            Class<?> classBeingRedefined,
+            ProtectionDomain protectionDomain,
+            byte[] classfileBuffer
+    ) throws IllegalClassFormatException;
+}
+```
+
+​	其中className参数表示当前加载类的类名，classfileBuffer参数是待加载类文件的字节数组。调用addTransformer注册transformer以后，后续所有JVM加载类都会被它的transform方法拦截，这个方法接收原类文件的字节数组，在这个方法中可以做任意的类文件改写，最后返回转换过的字节数组，由JVM加载这个修改过的类文件。如果transform方法返回null，表示不对此类做处理，如果返回值不为null，JVM会用返回的字节数组替换原来类的字节数组。
+
+​	Instrumentation接口的retransformClasses方法对JVM已经加载的类重新触发类加载。getAllLoadedClasses方法用于获取当前JVM加载的所有类对象。isRetransform-ClassesSupported方法返回一个boolean值表示当前JVM配置是否支持类重新转换的特性。
+
+​	Instrumentation有两种使用方式：第一种方式是在JVM启动的时候添加一个Agent的jar包；第二种方式是在JVM运行以后在任意时刻通过Attach API远程加载Agent的jar包。接下来分开进行介绍。
+
+## 7.2　Instrumentation与-javaagent启动参数
+
+​	Instrumentation的第一种使用方式是通过JVM的启动参数-javaagent来启动，一个典型的使用方式如下所示。
+
+```java
+java -javaagent:myagent.jar MyMain
+```
+
+​	为了能让JVM识别到Agent的入口类，需要在jar包的MANIFEST.MF文件中指定Premain-Class等信息，一个典型的生成好的MANIFEST.MF内容如下所示。
+
+```java
+Premain-Class: me.geek01.javaagent.AgentMain
+Agent-Class: me.geek01.javaagent.AgentMain
+Can-Redefine-Classes: true
+Can-Retransform-Classes: true
+```
+
+​	其中AgentMain类有一个静态的premain方法，JVM在类加载时会先执行AgentMain类的premain方法，再执行Java程序本身的main方法，这就是premain名字的来源。在premain方法中可以对class文件进行修改。这种机制可以认为是虚拟机级别的AOP，无须对原有应用做任何修改就可以实现类的动态修改和增强。
+
+​	premain方法签名如下所示。
+
+```java
+public static void premain(String agentArgument, Instrumentation instrumentation) throws Exception
+```
+
+​	第一个参数agentArgument是agent的启动参数，可以在JVM启动时指定。以下面的启动方式为例，它的agentArgument的值为"appId：agent-demo，agentType：singleJar"。
+
+```java
+java -javaagent:<jarfile>=appId:agent-demo,agentType:singleJar test.jar
+```
+
+![](https://pic.imgdb.cn/item/61c0723c2ab3f51d911dd04e.jpg)
+
+​	下面使用Instrumentation的方式实现一个简单的方法调用栈跟踪，在每个方法进入和结束的地方都打印一行日志，实现调用过程的追踪效果，测试代码如下面代码清单7-1所示。
+
+```java
+public class MyTest {
+    public static void main(String[] args) {
+        new MyTest().foo();
+    }
+    public void foo() {
+        bar1();
+        bar2();
+    }
+
+    public void bar1() {
+    }
+
+    public void bar2() {
+    }
+}
+```
+
+​	这里需要用到前面介绍的ASM相关的知识。新建一个AdviceAdapter的子类MyMethodVisitor，覆写onMethodEnter、onMethodExit方法，核心逻辑如下面代码清单7-2所示。
+
+```java
+public class MyMethodVisitor extends AdviceAdapter {
+    @Override
+    protected void onMethodEnter() {
+        // 在方法开始处插入 <<<enter xxx
+        mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+        mv.visitLdcInsn("<<<enter " + this.getName());
+        mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+        super.onMethodEnter();
+    }
+    @Override
+    protected void onMethodExit(int opcode) {
+        super.onMethodExit(opcode);
+        // 在方法结束处插入 >>>exit xxx
+        mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+        mv.visitLdcInsn(">>>exit " + this.getName());
+        mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+    }
+}	
+```
+
+​	新建一个ClassVisitor的子类MyClassVisitor，覆写visitMethod方法，返回自定义的MethodVisitor，如下面代码清单7-3所示。
+
+```java
+public class MyClassVisitor extends ClassVisitor {
+
+    public MyClassVisitor(ClassVisitor classVisitor) {
+        super(ASM7, classVisitor);
+    }
+    @Override
+    public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+        MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
+        if (name.equals("<init>")) return mv;
+        return new MyMethodVisitor(mv, access, name, descriptor);
+    }
+}
+```
+
+​	接下来新建一个MyClassFileTransformer，这个类实现了ClassFileTransformer接口，在transform接口中使用ASM实现class文件的转换，如下面代码清单7-4所示。
+
+​	代码清单7-4　自定义ClassFileTransformer
+
+```java
+public class MyClassFileTransformer implements ClassFileTransformer {
+    @Override
+    public byte[] transform(ClassLoader loader, String className, Class<?> classBeingRedefined,
+                            ProtectionDomain protectionDomain, byte[] bytes) throws IllegalClassFormatException {
+        if (!"MyTest".equals(className)) return bytes;
+        ClassReader cr = new ClassReader(bytes);
+        ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
+        ClassVisitor cv = new MyClassVisitor(cw);
+        cr.accept(cv, ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG);
+        return cw.toByteArray();
+    }
+}
+```
+
+​	接下来新建一个AgentMain类，在其中实现premain方法的逻辑，调用addTransformer方法将MyClassFileTransformer注册到Instrumentation中，如下面代码清单7-5所示。
+
+```java
+public class AgentMain {
+    public static void premain(String agentArgs, Instrumentation inst) throws ClassNotFoundException, UnmodifiableClassException {
+        inst.addTransformer(new MyClassFileTransformer(), true);
+    }
+}
+```
+
+​	接下来将上面的代码打包为Agent的jar包，使用maven-jar-plugin插件可以比较方便地实现这个功能，在manifestEntries属性中指定Premain-Class为前面新建的AgentMain类名，plugin的配置xml如下面代码清单7-6所示。
+
+```xml
+<build>
+  <plugins>
+    <plugin>
+      <groupId>org.apache.maven.plugins</groupId>
+      <artifactId>maven-jar-plugin</artifactId>
+      <configuration>
+        <archive>
+          <manifestEntries>
+            <Agent-Class>me.geek01.javaagent.AgentMain</Agent-Class>
+            <Premain-Class>me.geek01.javaagent.AgentMain</Premain-Class>
+            <Can-Redefine-Classes>true</Can-Redefine-Classes>
+            <Can-Retransform-Classes>true</Can-Retransform-Classes>
+          </manifestEntries>
+        </archive>
+      </configuration>
+    </plugin>
+  </plugins>
+</build>
+```
+
+​	执行mvn clean package生成jar包，添加-javaagent参数执行MyTest类，如下所示。
+
+```
+java -javaagent:/path/to/agent.jar MyTest
+```
+
+​	可以看到终端输出了方法调用的打印语句，结果如下所示。
+
+```java
+<<<enter main
+<<<enter foo
+<<<enter bar1
+>>>exit bar1
+<<<enter bar2
+>>>exit bar2
+>>>exit foo
+>>>exit main
+```
+
+​	通过上面的方式，我们在不修改MyTest类源码的情况下实现了调用链跟踪的效果，这个例子是APM实现的原型，更加完善的调用链跟踪实现会在后面的APM章节中介绍。接下来我们来看第二种Instrumentation使用方式。
+
+## 7.3　JVM Attach API介绍
+
+​	在JDK5中，开发者只能在JVM启动时指定一个javaagent，在premain中操作字节码，这种Instrumentation方式仅限于main方法执行前，存在很大的局限性。从JDK6开始引入了动态Attach Agent的方案，可以在JVM启动后任意时刻通过Attach API远程加载Agent的jar包，比如大名鼎鼎的arthas工具就是基于Attach API实现的。
+
+​	加载Agent的jar包只是Attach API的功能之一，我们常用jstack、jps、jmap工具都是利用Attach API来实现的。这个小节会先介绍Attach API的使用，随后会结合跨进程通信中的信号和UNIX域套接字来看Attach API的实现原理。
+
+### 7.3.1　JVM Attach API基本使用
+
+​	下面以一个实际的例子来演示动态Attach API的使用，测试代码中有一个main方法，每3秒输出foo方法的返回值100，接下来动态Attach上MyTestMain进程，修改foo的字节码，让foo方法返回50，测试代码如下面代码清单7-7所示。
+
+```java
+public class MyTestMain {
+    public static void main(String[] args) throws InterruptedException {
+        while (true) {
+            System.out.println(foo());
+            TimeUnit.SECONDS.sleep(3);
+        }
+    }
+
+    public static int foo() {
+        return 100; // 修改后 return 50;
+    }
+}
+```
+
+具体分为下面这几个步骤。
+1）编写实现自定义ClassFileTransformer，通过ASM对foo方法做注入，核心代码如下面代码清单7-8所示。
+代码清单7-8　foo方法字节码注入
+
+```java
+public class MyMethodVisitor extends AdviceAdapter {
+    @Override
+    protected void onMethodEnter() {
+        // 在方法开始插入 return 50;
+        mv.visitIntInsn(BIPUSH, 50);
+        mv.visitInsn(IRETURN);
+    }
+}
+public class MyClassVisitor extends ClassVisitor {
+    @Override
+    public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+        MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
+        // 只转换 foo 方法
+        if ("foo".equals(name)) {
+            return new MyMethodVisitor(mv, access, name, descriptor);
+        }
+        return mv;
+    }
+}
+public class MyClassFileTransformer implements ClassFileTransformer {
+    @Override
+    public byte[] transform(ClassLoader loader, String className, Class<?> classBeingRedefined,
+                            ProtectionDomain protectionDomain, byte[] bytes) throws IllegalClassFormatException {
+        if (!"MyTestMain".equals(className)) return bytes;
+        ClassReader cr = new ClassReader(bytes);
+        ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
+        ClassVisitor cv = new MyClassVisitor(cw);
+        cr.accept(cv, ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG);
+        return cw.toByteArray();
+    }
+}
+```
+
+​	2）实现agentmain方法。前面介绍的启动时加载agent会调用premain方法，动态Attach的agent会执行agentmain方法，方法参数和含义跟premain类似，agentmain的实现代码如下面代码清单7-9所示。
+
+```java
+public class AgentMain {
+    public static void agentmain(String agentArgs, Instrumentation inst) throws ClassNotFoundException, UnmodifiableClassException {
+        System.out.println("agentmain called");
+        inst.addTransformer(new MyClassFileTransformer(), true);
+        Class classes[] = inst.getAllLoadedClasses();
+        for (int i = 0; i < classes.length; i++) {
+            if (classes[i].getName().equals("MyTestMain")) {
+                System.out.println("Reloading: " + classes[i].getName());
+                inst.retransformClasses(classes[i]);
+                break;
+            }
+        }
+    }
+}
+```
+
+​	3）因为是跨进程通信，Attach的发起端是一个独立的java程序，这个java程序会调用VirtualMachine.attach方法开始和目标JVM进行跨进程通信。
+
+```java
+public class MyAttachMain {
+    public static void main(String[] args) throws Exception {
+        VirtualMachine vm = VirtualMachine.attach(args[0]);
+        try {
+            vm.loadAgent("/path/to/agent.jar");
+        } finally {
+            vm.detach();
+        }
+    }
+}
+```
+
+​	使用jps查询到MyTestMain的进程pid，使用java执行MyAttachMain类，如下所示。
+
+```java
+java -cp /path/to/your/tools.jar:. MyAttachMain pid
+```
+
+```java
+java -cp . MyTestMain
+
+100
+100
+100
+agentmain called
+Reloading: MyTestMain
+50
+50
+50
+```
+
+### 7.3.2　JVM Attach API的底层原理
+
+​	JVM Attach API的实现主要基于信号和UNIX域套接字，接下来详细介绍这两部分的内容。
+
+​	信号是某事件发生时对进程的通知机制，也被称为“软件中断”。信号可以看作一种非常轻量级的进程间通信，信号由一个进程发送给另外一个进程，只不过是经由内核作为一个中间人转发，信号最初的目的是用来指定杀死进程的不同方式。
+
+​	每个信号都有一个名字，以“SIG”开头，最熟知的信号应该是SIGINT，我们在终端执行某个应用程序的过程中按下Ctrl+C一般会终止正在执行的进程，这是因为按下Ctrl+C会发送SIGINT信号给目标程序。每个信号都有一个唯一的数字标识，从1开始，常见的信号量列表如表7-1所示。
+
+![](https://pic.imgdb.cn/item/61c079052ab3f51d9120970f.jpg)
+
+​	在Linux中，一个前台进程可以使用Ctrl+C进行终止，对于后台进程需要使用kill加进程号的方式来终止，kill命令是通过发送信号给目标进程来实现终止进程的功能。默认情况下，kill命令发送的是编号为15的SIGTERM信号，这个信号可以被进程捕获，选择忽略或正常退出。目标进程如果没有自定义处理这个信号就会被终止。对于那些忽略SIGTERM信号的进程，可以指定编号为9的SIGKILL信号强行杀死进程，SIGKILL信号不能被忽略也不能被捕获和自定义处理。
+
+​	新建一个signal.c文件，自定义处理SIGQUIT、SIGINT、SIGTERM信号，如下面代码清单7-10所示。
+
+​	代码清单7-10　信号处理示例
+
+```java
+static void signal_handler(int signal_no) {
+    if (signal_no == SIGQUIT) {
+        printf("quit signal receive: %d\n", signal_no);
+    } else if (signal_no == SIGTERM) {
+        printf("term signal receive: %d\n", signal_no);
+    } else if (signal_no == SIGINT) {
+        printf("interrupt signal receive: %d\n", signal_no);
+    }
+}
+int main() {
+    signal(SIGQUIT, signal_handler);
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    for (int i = 0;; i++) {
+        printf("%d\n", i);
+        sleep(3);
+    }
+}
+```
+
+​	使用gcc编译上面的signal.c文件，然后执行生成的signal可执行文件，如下所示。
+
+```java
+gcc signal.c -o signal
+./signal
+```
+
+​	这种情况下在终端中输入Ctrl+C，kill-3，kill-15都没有办法杀掉这个进程，只能用kill-9，如下所示。
+
+```java
+0
+^Cinterrupt signal receive: 2     // Ctrl+C
+1
+2
+term signal receive: 15           // kill pid
+3
+4
+5
+quit signal receive: 3             // kill -3 
+6
+7
+8
+[1]    46831 killed     ./signal  // kill -9 成功杀死进程
+```
+
+​	JVM对SIGQUIT的默认行为是打印所有运行线程的堆栈信息，在类UNIX系统中，可以通过使用命令kill-3 pid来发送SIGQUIT信号。运行上面的MyTestMain，使用jps找到这个JVM的进程pid，执行kill-3 pid，在终端就可以看到打印了所有线程的调用栈信息。
+
+```java
+Full thread dump Java HotSpot(TM) 64-Bit Server VM (25.51-b03 mixed mode):
+
+"Service Thread" #8 daemon prio=9 os_prio=31 tid=0x00007fe060821000 nid=0x4403 runnable [0x0000000000000000]
+    java.lang.Thread.State: RUNNABLE
+...
+"Signal Dispatcher" #4 daemon prio=9 os_prio=31 tid=0x00007fe061008800 nid=0x3403 waiting on condition [0x0000000000000000]
+    java.lang.Thread.State: RUNNABLE
+"main" #1 prio=5 os_prio=31 tid=0x00007fe060003800 nid=0x1003 waiting on condition [0x000070000d203000]
+    java.lang.Thread.State: TIMED_WAITING (sleeping)
+        at java.lang.Thread.sleep(Native Method)
+        at java.lang.Thread.sleep(Thread.java:340)
+        at java.util.concurrent.TimeUnit.sleep(TimeUnit.java:386)
+        at MyTestMain.main(MyTestMain.java:10)
+```
+
+​	接下来我们来看UNIX域套接字（UNIX Domain Socket）的概念。使用TCP和UDP进行socket通信是一种广为人知的socket使用方式，除了这种方式以外还有一种称为UNIX域套接字的方式，可以实现同一主机上的进程间通信。虽然使用127.0.01环回地址也可以通过网络实现同一主机的进程间通信，但UNIX域套接字更可靠、效率更高。Docker守护进程（Docker daemon）使用了UNIX域套接字，容器中的进程可以通过它与Docker守护进程进行通信。MySQL同样提供了域套接字进行访问的方式。
+
+​	在UNIX世界，一切皆文件，UNIX域套接字也是一个文件，下面是在某文件夹下执行ls-l命令的输出结果。
+
+```java
+ls -l
+srwxrwxr-x. 1 ya ya        0 9月   8 00:26 tmp.sock
+drwxr-xr-x. 5 ya ya    4096 11月  29 09:18 tmp
+-rw-r--r--. 1 ya ya   14919 10月  31 2017  test1.png
+```
+
+​	ls-l命令输出的第一个字符表示文件的类型，“s”表示这是一个UNIX域套接字，“d”表示这个是一个文件夹，“-”表示这是一个普通文件。
+
+​	两个进程通过读写这个文件就实现了进程间的信息传递。文件的拥有者和权限决定了谁可以读写这个套接字。
+
+​	UNIX域套接字与普通套接字的对比和区别是什么？
+
+* UNIX域套接字更加高效，它不用进行协议处理，不需要计算序列号，也不需要发送确认报文，只需要读写数据即可。
+* UNIX域套接字是可靠的，不会丢失数据，普通套接字是为不可靠通信设计的。
+* UNIX域套接字的代码可以非常简单地修改为普通套接字。
+
+
+
+	.
+	├── client.c
+	└── server.c
+​	其中server.c充当UNIX域套接字服务器，启动后会在当前目录生成一个名为tmp.sock的UNIX域套接字文件，它读取客户端写入的内容并输出到终端。server.c的代码如下面代码清单7-11所示。
+
+```java
+int main() {
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strcpy(addr.sun_path, "tmp.sock");
+    int ret = bind(fd, (struct sockaddr *) &addr, sizeof(addr));
+    listen(fd, 5)
+    
+    int accept_fd;
+    char buf[100];
+    while (1) {
+        accept_fd = accept(fd, NULL, NULL)) == -1);
+        while ((ret = read(accept_fd, buf, sizeof(buf))) > 0) {
+            // 输出客户端传过来的数据
+            printf("receive %u bytes: %s\n", ret, buf);
+        }
+}
+```
+
+客户端client.c代码如下面代码清单7-12所示。
+代码清单7-12　UNIX域套接字客户端代码
+
+```java
+int main() {
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strcpy(addr.sun_path, "tmp.sock");
+
+    connect(fd, (struct sockaddr *) &addr, sizeof(addr));
+    
+    int rc;
+    char buf[100];
+    // 读取终端标准输入的内容，写入 UNIX 域套接字文件中
+    while ((rc = read(STDIN_FILENO, buf, sizeof(buf))) > 0) {
+        write(fd, buf, rc);
+    }
+}
+```
+
+​	在命令行中进行编译和执行，如下所示。
+
+```java
+gcc server.c -o server
+gcc client.c -o client
+```
+
+![](https://pic.imgdb.cn/item/61c07bb82ab3f51d9121b747.jpg)
+
+​	接下来介绍JVM Attach API的执行过程。使用java执行本节开头的MyAttachMain，当指定一个不存在的JVM进程时，会出现如下的错误。
+
+```java
+java -cp /path/to/your/tools.jar:. MyAttachMain 1234
+Exception in thread "main" java.io.IOException: No such process
+    at sun.tools.attach.LinuxVirtualMachine.sendQuitTo(Native Method)
+    at sun.tools.attach.LinuxVirtualMachine.<init>(LinuxVirtualMachine.java:91)
+    at sun.tools.attach.LinuxAttachProvider.attachVirtualMachine(LinuxAttachProvider.java:63)
+    at com.sun.tools.attach.VirtualMachine.attach(VirtualMachine.java:208)
+    at MyAttachMain.main(MyAttachMain.java:8)
+```
+
+​	可以看到VirtualMachine.attach最终调用了sendQuitTo方法，这是一个native方法，底层就是发送了SIGQUIT号给目标JVM进程。
+
+​	前面信号部分我们介绍过，JVM对SIGQUIT的默认行为是dump当前的线程堆栈，那为什么调用VirtualMachine.attach没有输出调用栈堆栈呢？
+
+假设目标进程为12345，Attach的详细过程如下。
+1）Attach端先检查临时文件目录是否有.java_pid12345文件。
+	这个文件是一个UNIX域套接字文件，由Attach成功以后的目标JVM进程生成。如果这个文件存在，说明正在Attach中，可以用这个socket进行下一步的通信。如果这个文件不存在则创建一个.attach_pid12345文件，这部分的伪代码如下所示。
+
+```java
+String tmpdir = "/tmp";
+File socketFile = new File(tmpdir,  ".java_pid" + pid);
+if (socketFile.exists()) {
+    File attachFile = new File(tmpdir, ".attach_pid" + pid);
+    createAttachFile(attachFile.getPath());
+}
+```
+
+​	2）Attach端检查发现如果没有.java_pid12345文件，就会创建.attach_pid12345文件，然后发送SIGQUIT信号给目标JVM。接下来每隔200ms检查一次socket文件是否已经生成，如果生成则进行socket通信，5s以后还没有生成则退出。
+​	3）对于目标JVM进程而言，它的Signal Dispatcher线程收到SIGQUIT信号以后，会检查.attach_pid12345文件是否存在。
+
+* 目标JVM如果发现.attach_pid12345不存在，则认为这不是一个attach操作，执行默认行为输出当前所有线程的堆栈。
+* 目标JVM如果发现.attach_pid12345存在，则认为这是一个attach操作，会启动Attach Listener线程，负责处理Attach请求，同时创建名为.java_pid12345的socket文件。
+
+
+
+​	源码中/hotspot/src/share/vm/runtime/os.cpp这一部分处理的逻辑如下面代码清单7-13所示。
+
+```java
+#define SIGBREAK SIGQUIT
+
+static void signal_thread_entry(JavaThread* thread, TRAPS) {
+  while (true) {
+    int sig;
+    {
+    switch (sig) {
+      case SIGBREAK: { 
+        // Check if the signal is a trigger to start the Attach Listener - in that
+        // case don't print stack traces.
+        if (!DisableAttachMechanism && AttachListener::is_init_trigger()) {
+          continue;
+        }
+        ...
+        // Print stack traces
+    }
+}
+```
+
+​	AttachListener的is_init_trigger方法在.attach_pid12345文件存在的情况下会新建.java_pid12345套接字文件，准备接收Attach端发送数据。
+
+​	那Attach端和目标进程用socket传递了什么数据呢？可以通过strace命令看到Attach端究竟向socket中写了什么数据。执行命令，输出结果如下所示。
+
+```java
+sudo strace -f java -cp /usr/local/jdk/lib/tools.jar:. MyAttachMain 12345  2> strace.out
+
+...
+5841 [pid  3869] socket(AF_LOCAL, SOCK_STREAM, 0) = 5
+5842 [pid  3869] connect(5, {sa_family=AF_LOCAL, sun_path="/tmp/.java_pid12345"}, 110)      = 0
+5843 [pid  3869] write(5, "1", 1)            = 1
+5844 [pid  3869] write(5, "\0", 1)           = 1
+5845 [pid  3869] write(5, "load", 4)         = 4
+5846 [pid  3869] write(5, "\0", 1)           = 1
+5847 [pid  3869] write(5, "instrument", 10)  = 10
+5848 [pid  3869] write(5, "\0", 1)           = 1
+5849 [pid  3869] write(5, "false", 5)        = 5
+5850 [pid  3869] write(5, "\0", 1)           = 1
+5855 [pid  3869] write(5, "/home/ya/agent.jar"..., 18 <unfinished ...>
+```
+
+​	可以看到向socket写入的内容如下所示。
+
+```java
+1
+\0
+load
+\0
+instrument
+\0
+false
+\0
+/home/ya/agent.jar
+\0
+```
+
+​	数据之间用\0字符分隔，第一行的1表示协议版本，接下来是发送指令“load instrument false/home/ya/agent.jar”给目标JVM，目标JVM收到这些数据以后就可以加载相应的agent jar包进行字节码的改写。
+​	如果从socket的角度来看，VirtualMachine.attach方法相当于三次握手建立连接，Virtual-Machine.loadAgent则是握手成功之后发送数据，VirtualMachine.detach相当于四次挥手断开连接。
+
+![](https://pic.imgdb.cn/item/61c07da92ab3f51d91227ff8.jpg)
+
