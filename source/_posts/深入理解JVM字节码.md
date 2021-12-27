@@ -5519,3 +5519,736 @@ false
 
 ![](https://pic.imgdb.cn/item/61c07da92ab3f51d91227ff8.jpg)
 
+# 8. JSR 269插件化注解处理原理
+
+## 8.1 JSR 269简介
+
+​	注解（Annotation）第一次是在JDK1.5中被引入进来的，当时开发者只能在运行期处理注解。JDK1.6引入了JSR 269规范，允许开发者在编译期间对注解进行处理，可以读取、修改、添加抽象语法树中的内容。只要有足够的想象力，利用JSR269可以完成很多Java语言不支持的特性，甚至创造新的语法糖。
+
+![](https://pic.imgdb.cn/item/61c937d22ab3f51d91155a95.jpg)
+
+​	现注解处理器的第一步是继承AbstractProcessor类，实现它的process方法，如下面的代码清单8-1所示。
+
+```java
+@SupportedAnnotationTypes("me.ya.anno.Data")
+@SupportedSourceVersion(SourceVersion.RELEASE_8)
+public class DataAnnoProcessor extends AbstractProcessor {
+
+    private JavacTrees javacTrees;
+    private TreeMaker treeMaker;
+    private Names names;
+
+    @Override
+    public synchronized void init(ProcessingEnvironment processingEnv) {
+        super.init(processingEnv);
+        Context context = ((JavacProcessingEnvironment) processingEnv).getContext();
+        javacTrees = JavacTrees.instance(processingEnv);
+        treeMaker = TreeMaker.instance(context);
+        names = Names.instance(context);
+    }
+
+    @Override
+    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
+    }
+}
+```
+
+​	`@SupportedSourceVersion（value=SourceVersion.RELEASE_8）`注解表示最高支持JDK8编译出来的类文件，``@SupportedAnnotationTypes（{"me.ya.annotation.MyBuilder"}）``注解表示只处理类全限定名为``me.ya.annotation.MyBuilder`的注解。
+
+​	AbstractProcessor类有两个核心方法init和process。init方法用来完成一些初始化的操作，比如初始化核心的JavacTrees、TreeMaker、Names等，这三个类在后面的代码中会频繁用到。process方法用来做语法树的修改。
+
+​	编译阶段的注解处理过程实际上就是操作抽象语法树的过程，接下来我们来操作抽象语法树有关的类。
+
+## 8.2 抽象语法树操作API
+
+​	语法树核心操作的核心类是Names、JCTree、TreeMaker。
+
+* Names类提供了访问标识符的方法
+* JCTree类是语法树元素的基类
+* TreeMaker类封装了创建语法树节点的方法
+
+### 8.2.1 Names介绍
+
+​	Names类提供了访问标识符Name的方法，它最常用的方法是fromString，用来从一个字符串获取Name对象，它的方法定义如下所示。
+
+```java
+public Name fromString(String s) {
+    return table.fromString(s);
+}
+```
+
+​	比如，获取this名字标识符可以使用如下的代码。
+
+```java
+names.fromString("this")
+```
+
+### 8.2.2 JCTree介绍
+
+​	JCTree是语法树元素的基类，实现了Tree接口，它有两个核心的字段pos和type。其中，pos表示当前节点在语法树中的位置，type表示节点的类型。JCTree的子类众多，常见的有JCStatement、JCExpression、JCMethodDecl和JCModifiers，接下来详细介绍这几个类及其常用的子类。
+
+**1.JCStatement**
+
+​	JCStatement类用来声明语句，常见的子类有JCReturn、JCBlock、JCClassDecl、JCVariable-Decl、JCTry、JCIf等。
+​	JCReturn类用来表示return语句，它的部分源码如下所示。
+
+```java
+public static class JCReturn extends JCTree.JCStatement implements ReturnTree {
+    public JCTree.JCExpression expr;
+}
+```
+
+​	JCReturn的expr字段是一个JCExpression类型的变量，表示return语句表达式内容。
+​	JCBlock类表示一个代码块，它的部分源代码如下所示。
+
+```java
+public static class JCBlock extends JCTree.JCStatement implements BlockTree {
+    public long flags;
+    public List<JCTree.JCStatement> stats;
+}
+```
+
+​	其中，flags字段表示代码块的访问标记，stats字段是一个JCStatement类型的列表，表示代码块内的所有语句。
+
+​	JCClassDecl类表示类定义语法树节点，它的部分源代码如下所示。
+
+```java
+public static class JCClassDecl extends JCTree.JCStatement implements ClassTree {
+    public JCTree.JCModifiers mods;
+    public Name name;
+    public List<JCTree.JCTypeParameter> typarams;
+    public JCTree.JCExpression extending;
+    public List<JCTree.JCExpression> implementing;
+    public List<JCTree> defs;
+    public ClassSymbol sym;
+}
+```
+
+​	它的字段说明如下。
+
+* mods表示方法的访问修饰符，比如public、static等。
+* name表示类名。
+* typarams表示泛型参数列表。
+* restype表示返回类型。
+* extending表示继承的父类信息。
+* implementing表示实现的接口列表。
+* defs表示所有的变量和方法列表。
+* sym表示包名和类名。
+
+JCVariableDecl类用来表示变量语法树节点，它的定义如下所示。
+
+```java
+public static class JCVariableDecl extends JCStatement implements VariableTree {
+    public JCModifiers mods; 
+    public Name name;
+    public JCExpression vartype;
+    public JCExpression init;
+    public VarSymbol sym;
+    protected JCVariableDecl(JCModifiers mods,
+                     Name name,
+                     JCExpression vartype,
+                     JCExpression init,
+                     VarSymbol sym) {
+        this.mods = mods;
+        this.name = name;
+        this.vartype = vartype;
+        this.init = init;
+        this.sym = sym;
+    }
+}
+```
+
+它的核心字段说明如下：
+
+* mods：表示变量的访问修饰符，比如public、final、static等。
+* name：表示变量名。
+* vartype：表示变量类型。
+* init是JCExpression类型的变量，表示变量的初始化语句，有可能是一个固定值，也可能是一个表达式。
+
+
+
+​	JCTry类表示try-catch-finally语句，JCTry的源代码如下所示。
+
+```java
+public static class JCTry extends JCStatement implements TryTree {
+    public JCBlock body;
+    public List<JCCatch> catchers;
+    public JCBlock finalizer;
+}
+```
+
+​	其中，body表示try语句块；catchers是JCCatch对象列表，表示多个catch语句块；finalizer表示finally语句块。
+​	JCIf类表示if-else代码块，它的类定义如下所示。
+
+```java
+public static class JCIf extends JCStatement implements IfTree {
+    public JCExpression cond;
+    public JCStatement thenpart;
+    public JCStatement elsepart;
+}
+```
+
+​	其中，cond表示条件语句，thenpart和elsepart分别表示if和else部分。
+​	JCForLoop类表示一个for循环语句，它的源代码如下所示。
+
+```java
+public static class JCForLoop extends JCStatement implements ForLoopTree {
+    public List<JCStatement> init;
+    public JCExpression cond;
+    public List<JCExpressionStatement> step;
+    public JCStatement body;
+}
+```
+
+​	一个典型的for循环语句格式如下所示。
+
+```java
+for (init ; cond ; step) {
+    body
+}
+```
+
+​	其中，init表示循环的初始化，cond表示循环的条件判断，step是每次循环后的操作表达式，body是for循环的循环体。
+
+**2.JCExpression**
+
+​	JCExpression类用来表示表达式语法树节点，常见的子类如下所示。
+
+* JCAssign：赋值语句表达式。
+* JCIdent：标识符表达式。
+* JCBinary：二元运算符。
+* JCLiteral：字面量运算符表达式。
+
+​	JCAssign用来表示赋值语句表达式，比如语句“x=2”就是一个赋值语句。JCAssign类的部分源代码如下所示。
+
+```java
+public static class JCAssign extends JCTree.JCExpression implements AssignmentTree {
+    public JCTree.JCExpression lhs;
+    public JCTree.JCExpression rhs;
+    // ...
+}
+```
+
+​	lhs表示赋值语句的左边表达式，rhs表示赋值语句的右边表达式。
+​	JCIdent用来表示标识符语法树节点，可以表示类、变量和方法，它的部分源码如下所示。
+
+```java
+public static class JCIdent extends JCTree.JCExpression implements IdentifierTree {
+    public Name name;
+    public Symbol sym;
+}
+```
+
+​	其中name表示标识符的名字，sym表示标识符的其他标记，比如表示类时，sym表示类的包名和类名。
+​	JCBinary用来表示二元操作符，加、减、乘、除，以及与或运算都属于二元运算符，比如语句“1+2”就是一个二元操作符。JCBinary简化过的部分源码如下所示。
+
+```java
+public class JCBinary extends JCTree.JCExpression implements BinaryTree {
+    private JCTree.Tag opcode;
+    public JCTree.JCExpression lhs;
+    public JCTree.JCExpression rhs;
+    // ...
+}
+```
+
+​	其中，opcode表示二元操作符的运算符，lhs表示二元操作符的左半部分，rhs表示二元操作符的右半部分。opcode是一个JCTree.Tag类型的变量，JCTree.Tag是一个枚举类，常见的枚举类有下面这些。
+
+```java
+public static enum Tag {
+    // ...
+    PLUS,  // +
+    MINUS, // -
+    MUL,   // *
+    DIV,   // /
+    MOD,   // %
+    // ...
+}
+```
+
+​	JCLiteral类用来表示字面量表达式，它的部分源码如下所示。
+
+```java
+public static class JCLiteral extends JCTree.JCExpression implements LiteralTree {
+    public TypeTag typetag;
+    public Object value;
+}
+```
+
+​	其中typetag字段表示常量的类型，value字段表示常量的值。typetag是一个TypeTag类型的变量，TypeTag是一个枚举类，常见的枚举如下所示。
+
+```java
+public enum TypeTag {
+    BYTE(1, 125, true),
+    CHAR(2, 122, true),
+    SHORT(4, 124, true),
+    LONG(16, 112, true),
+    FLOAT(32, 96, true),
+    INT(8, 120, true),
+    DOUBLE(64, 64, true),
+    BOOLEAN(0, 0, true),
+    VOID,
+    CLASS,
+    // ...
+}
+```
+
+**3.JCMethodDecl**
+
+```java
+public static class JCMethodDecl extends JCTree implements MethodTree {
+    public JCModifiers mods;
+    public Name name;
+    public JCExpression restype;
+    public List<JCTypeParameter> typarams;
+    public List<JCVariableDecl> params;
+    public List<JCExpression> thrown;
+    public JCBlock body;
+    public JCExpression defaultValue; // for annotation types
+    public MethodSymbol sym;
+    ...
+}
+```
+
+常用的字段解释如下。
+
+* mods：表示方法的访问修饰符，比如public、static、synchronized等。
+* name：表示方法名。
+* restype：表示返回类型。
+* typarams：表示方法泛型参数列表。
+* params：表示方法参数列表。
+* thrown：方法异常抛出列表。
+* body：表示方法体。
+
+**4.JCModifiers**
+
+```java
+public static class JCModifiers {
+    public long flags;
+    public List<JCTree.JCAnnotation> annotations;
+    // ...
+}
+```
+
+​	flags字段表示访问标记，可以由com.sun.tools.javac.code.Flags定义的常量来表示，多个flag可以组合使用，以下面的代码为例。
+
+```java
+public static final int x = 1;
+```
+
+​	变量x的访问标记flags可以用Flags.PUBLIC+Flags.STATIC+Flags.FINAL值表示。
+
+### 8.2.3 TreeMaker介绍
+
+​	TreeMaker类封装了创建语法树节点的方法，是注解处理中最核心的类。前面8.2.2节介绍过，JCTree包含一个pos字段表示当前语法树节点在抽象语法树中的位置，所以我们不能用new关键字来创建JCTree，只能使用包含了语法树上下文的TreeMaker对象来构造JCTree。它常用的方法有下面这些。
+
+* TreeMaker.Modifiers方法用于生成一个访问标记JCModifiers。
+* TreeMaker.Binary方法用于生成二元操作符JCBinary。
+* TreeMaker.Ident方法用于创建标识符语法树节点JCIdent。
+* TreeMaker.Select方法用于创建一个字段或方法访问。
+* TreeMaker.Return方法用于创建return语句语法树节点JCReturn。
+* TreeMaker.Assign方法用于生成赋值语句的语法树节点。
+* TreeMaker.Block方法用于生成语句块语法树节点JCBlock。
+* TreeMaker.Exec创建执行这个语句的语法树节点返回一个JCExpressionStatement对象。
+* TreeMaker.VarDef方法用于生成变量语法树节点JCVariableDecl。
+* TreeMaker.MethodDef方法用于生成方法语法树节点JCMethodDecl。
+
+接下来一一进行介绍。
+
+**1.TreeMaker.Modifiers**
+	TreeMaker.Modifiers方法用来生成一个访问标记JCModifiers，它的方法定义如下所示。
+
+```java
+public JCModifiers Modifiers(long flags) {
+}
+```
+
+​	其中，flags是一个long型值，表示访问标记的组合，以下面的变量x为例。
+
+```java
+public static final int x = 1;
+```
+
+**2.TreeMaker.Binary**
+
+​	TreeMaker.Binary方法用来生成二元操作符JCBinary，它的方法定义如下。
+
+```java
+public JCBinary Binary(
+    int opcode,        // 二元操作符
+    JCExpression lhs,  // 操作符左边表达式
+    JCExpression rhs   // 操作符右边表达式
+    ) {
+}
+```
+
+​	以“1+2”为例，用TreeMaker来创建的代码如下所示。
+
+```java
+JCTree.JCBinary addJCBinary = treeMaker.Binary(
+    JCTree.Tag.PLUS,       // +
+    treeMaker.Literal(1),  // 1
+    treeMaker.Literal(2)   // 2
+);
+```
+
+​	其中JCTree.Tag.PLUS表示“+”操作符，treeMaker.Literal（1）生成了一个整型常量1作为二元操作的左半部分，treeMaker.Literal（2）生成了一个整型常量2作为二元操作的右半部分。
+
+**3.TreeMaker.Ident**
+
+​	TreeMaker.Ident方法用来创建类、变量、方法的标识符语法树节点JCIdent，它的方法定义如下所示。
+
+```java
+public JCIdent Ident(Name name) {
+}
+```
+
+​	以获取变量x的标识符为例，用TreeMaker来创建的代码如下所示。
+
+```java
+Names names = Names.instance(context);
+treeMaker.Ident(names.fromString("x"))
+```
+
+**4.TreeMaker.Select**
+
+​	TreeMaker.Select方法用于创建一个字段或方法访问JCFieldAccess，它的方法定义如下所示。
+
+```java
+public JCFieldAccess Select(
+    JCExpression selected,  // . 号左边的表达式
+    Name selector           // . 号右边的表达式
+) 
+```
+
+​	以语句“this.id”为例，用TreeMaker来创建的代码如下所示。
+
+**5.TreeMaker.Return**
+
+```java
+public JCReturn Return(JCExpression expr) {
+}
+```
+
+​	其中expr参数是返回内容的表达式语句，以下面的代码为例。
+
+```java
+return this.id;
+```
+
+​	用TreeMaker创建的代码如下所示。
+
+```java
+Names names = Names.instance(context);
+JCTree.JCReturn returnStatement = treeMaker.Return(
+        treeMaker.Select(
+treeMaker.Ident(names.fromString("this")),
+                names.fromString("id")
+        )
+);
+```
+
+**6.TreeMaker.Assign**
+
+​	TreeMaker.Assign用来生成赋值语句的语法树节点JCAssign，它的方法定义如下所示。
+
+```java
+public JCAssign Assign(
+    JCExpression lhs, // 等号左边表达式
+    JCExpression rhs  // 等号右边表达式
+    ) {
+}
+```
+
+​	以“x=0；”为例，对应的用TreeMaker创建的语句如下所示。
+
+```java
+treeMaker.Assign(
+    treeMaker.Ident(names.fromString("x")), // 等号左边 x
+    treeMaker.Literal(0)                    // 等号右边 0
+)
+```
+
+**7.TreeMaker.Block**
+
+​	TreeMaker.Block方法用于生成语句块语法树节点JCBlock，可以用于方法体，它的定义如下所示。
+
+```java
+public JCBlock Block(long flags, List<JCStatement> stats) {
+}
+```
+
+​	它的第一个参数flags表示访问标记，第二个参数stats是一个JCStatement列表，表示多条语句，常见的用法如下所示。
+
+```java
+JCStatement statement = // ...
+ListBuffer<JCTree.JCStatement> statements = new ListBuffer<JCTree.JCStatement>().append(statement);
+JCTree.JCBlock body = treeMaker.Block(0, statements.toList());
+```
+
+**8.TreeMaker.Exec**
+
+​	前面介绍的TreeMaker.Assign返回了一个JCAssign对象，一般使用时会对它包装一层TreeMaker.Exec方法调用，使其返回一个JCExpressionStatement类型的对象。TreeMaker.Exec的方法定义如下所示。
+
+```java
+public JCExpressionStatement Exec(JCExpression expr) {
+}
+```
+
+​	还是以“x=0；”语句为例，对应的用TreeMaker创建的代码如下所示。
+
+```java
+JCTree.JCExpressionStatement statement =
+    treeMaker.Exec(
+        treeMaker.Assign(
+            treeMaker.Ident(names.fromString("x")), // 等号左边表达式
+            treeMaker.Literal(0)                    // 等号右边表达式
+        )
+);
+```
+
+**9.TreeMaker.VarDef**
+
+​	TreeMaker.VarDef方法用来生成变量语法树节点JCVariableDecl，它的方法定义如下所示。
+
+```java
+public JCVariableDecl VarDef(
+    JCModifiers mods,     // 访问标记
+    Name name,            // 变量名
+    JCExpression vartype, // 变量类型
+    JCExpression init     // 变量初始化表达式
+)
+```
+
+​	以下面的Java语句为例。
+
+```java
+private int x = 1;
+```
+
+​	可以用如下TreeMaker语句来创建。
+
+```java
+JCTree.JCVariableDecl var = treeMaker.VarDef(
+        treeMaker.Modifiers(Flags.PRIVATE), // JCModifiers
+        names.fromString("x"),              // Name
+        treeMaker.TypeIdent(TypeTag.INT),   // JCPrimitiveTypeTree
+        treeMaker.Literal(1)                // JCLiteral
+);
+```
+
+​	变量初始值除了可以是字面量、常量以外，还可以是一个初始化表达式，以下面代码为例。
+
+```java
+final int x = 1 + 2;
+final int y = flag ? -1 : 1;
+```
+
+​	变量x的初始化init为一个JCBinary（1+2），表示这是一个二元操作符表达式。变量y的初始化init为一个JCConditional（flag？-1：1），表示这是一个条件语句。
+
+**10.TreeMaker.MethodDef**
+	TreeMaker.MethodDef用来创建一个方法语法树节点JCMethodDecl，它的方法定义如下所示。
+
+```java
+public JCMethodDecl MethodDef(
+       JCModifiers mods,              // 方法访问级别修饰符
+       Name name,                     // 方法名
+       JCExpression restype,          // 返回值类型
+       List<JCTypeParameter> typarams,// 泛型参数列表
+       List<JCVariableDecl> params,   // 参数值列表
+       List<JCExpression> thrown,     // 异常抛出列表
+       JCBlock body,                  // 方法体
+       JCExpression defaultValue)     // 默认值
+```
+
+​	下面8.2.4节的案例中会有TreeMaker.MethodDef定义方法的使用介绍，这里先不展开。
+​	到这里基础的API介绍就告一段落，接下来我们来看自定义注解处理实战。
+
+### 8.2.4 自定义注解处理实战
+
+​	本节会演示一个实际的例子，使用JSR 269 API为类中的字段自动生成get、set方法。首先定义一个自定义注解类Data，如下所示。
+
+```java
+@Target({ElementType.TYPE})
+@Retention(RetentionPolicy.SOURCE)
+public @interface Data {
+}
+```
+
+​	接下来新建一个AbstractProcessor的子类DataAnnotationProcessor，实现init和process方法，如下面的代码清单8-2所示。
+
+```java
+@SupportedAnnotationTypes("me.ya.annotation.Data")
+@SupportedSourceVersion(SourceVersion.RELEASE_8)
+public class DataAnnotationProcessor extends AbstractProcessor {
+
+    private JavacTrees javacTrees;
+    private TreeMaker treeMaker;
+    private Names names;
+ @Override
+    public synchronized void init(ProcessingEnvironment processingEnv) {
+        super.init(processingEnv);
+        Context context = ((JavacProcessingEnvironment) processingEnv).getContext();
+        javacTrees = JavacTrees.instance(processingEnv);
+        treeMaker = TreeMaker.instance(context);
+        names = Names.instance(context);
+    }
+    
+    @Override
+    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
+        Set<? extends Element> set = roundEnv.getElementsAnnotatedWith(Data.class);
+        for (Element element : set) {
+            JCTree tree = javacTrees.getTree(element);
+            tree.accept(new TreeTranslator() {
+                @Override
+                public void visitClassDef(JCTree.JCClassDecl jcClassDecl) {
+                    jcClassDecl.defs.stream()
+                            .filter(it -> it.getKind().equals(Tree.Kind.VARIABLE)) // 只处理变量类型
+                            .map(it -> (JCTree.JCVariableDecl) it)                 // 强制转换为 JCVariableDecl 类型
+                            .forEach(it -> {
+                                jcClassDecl.defs = jcClassDecl.defs.prepend(genGetterMethod(it));
+                                jcClassDecl.defs = jcClassDecl.defs.prepend(genSetterMethod(it));
+                            });
+
+                    super.visitClassDef(jcClassDecl);
+                }
+            });
+        }
+        return true;
+    }
+}
+```
+
+init方法比较简单，主要作用是从Context中初始化JavacTrees、TreeMaker、Names等关键类。process方法分为下面这几个步骤。
+
+首先通过RoundEnvironment.getElementsAnnotatedWith方法获取被Data注解的类的集合，接下来开始逐个处理这些类。
+
+* 通过JavacTrees.getTree获取当前处理类的抽象语法树。
+* 调用JCTree.accept方法，传入一个TreeTranslator实例，覆写其中的visitClassDef方法，在遍历抽象语法树的过程中遇到相应的事件就会调用这个方法。
+* 当visitClassDef方法被调用时，可以获取到JCClassDecl实例对象，可以遍历过滤出这个类的所有字段。
+* 接下来遍历所有的字段列表，根据字段名和字段类型使用TreeMaker生成get和set方法。
+
+对于字段id，对应的get方法代码如下所示。
+
+```java
+public int getId() {
+    return this.id;
+}
+```
+
+通过TreeMaker.MethodDef可以生成方法语法树节点，完整的代码如下面的代码清单8-3所示。
+代码清单8-3　get方法生成
+
+```java
+private JCTree.JCMethodDecl genGetterMethod(JCTree.JCVariableDecl jcVariableDecl) {
+    // 生成语句 return this.xxx;
+    JCTree.JCReturn returnStatement = treeMaker.Return(
+            treeMaker.Select(
+            treeMaker.Ident(names.fromString("this")),
+                    jcVariableDecl.getName())
+    );
+
+    ListBuffer<JCTree.JCStatement> statements = new ListBuffer<JCTree.JCStatement>().append(returnStatement);
+    // public 方法访问级别修饰符
+    JCTree.JCModifiers modifiers = treeMaker.Modifiers(Flags.PUBLIC);
+    // 方法名(getXxx), 根据字段名生成首字母大写的 get 方法
+    Name getMethodName = getMethodName(jcVariableDecl.getName());
+    // 返回值类型，get 方法的返回值类型与字段类型一样
+    JCTree.JCExpression returnMethodType = jcVariableDecl.vartype;
+    // 生成方法体
+    JCTree.JCBlock body = treeMaker.Block(0, statements.toList());
+    // 泛型参数列表
+    List<JCTree.JCTypeParameter> methodGenericParamList = List.nil();
+    // 参数值列表
+    List<JCTree.JCVariableDecl> parameterList = List.nil();
+    // 异常抛出列表
+    List<JCTree.JCExpression> thrownCauseList = List.nil();
+
+    // 生成方法定义语法树节点
+    return treeMaker.MethodDef(
+            modifiers,              // 方法访问级别修饰符
+            getMethodName,          // get 方法名
+            returnMethodType,       // 返回值类型
+            methodGenericParamList, // 泛型参数列表
+            parameterList,          // 参数值列表
+            thrownCauseList,        // 异常抛出列表
+            body,                   // 方法体
+            null                    // 默认值
+    );
+}
+```
+
+set方法生成比get方法稍微复杂一点点，完整的代码如下面的代码清单8-4所示。
+代码清单8-4　set方法生成
+
+```java
+private JCTree.JCMethodDecl genSetterMethod(JCTree.JCVariableDecl jcVariableDecl) {
+
+    // this.xxx = xxx;
+    JCTree.JCExpressionStatement statement =
+            treeMaker.Exec(
+                    treeMaker.Assign(
+                            treeMaker.Select(
+                                    treeMaker.Ident(names.fromString("this")),
+                                    jcVariableDecl.getName()
+                            ),                                        // lhs
+                            treeMaker.Ident(jcVariableDecl.getName()) // rhs
+                    )
+            );
+    ListBuffer<JCTree.JCStatement> statements = new ListBuffer<JCTree.JCStatement>().append(statement);
+
+    // set 方法参数
+    JCTree.JCVariableDecl param = treeMaker.VarDef(
+            treeMaker.Modifiers(Flags.PARAMETER, List.nil()), // 访问修饰符
+            jcVariableDecl.name,                              // 变量名
+            jcVariableDecl.vartype,                           // 变量类型
+            null                                              // 变量初始值
+    );
+
+    // 方法访问修饰符 public
+    JCTree.JCModifiers modifiers = treeMaker.Modifiers(Flags.PUBLIC);
+    // 方法名(setXxx), 根据字段名生成首字母大写的 set 方法
+    Name setMethodName = setMethodName(jcVariableDecl.getName());
+    // 返回值类型，void
+    JCTree.JCExpression returnMethodType = treeMaker.Type(new Type.JCVoidType());
+    // 生成方法体
+    JCTree.JCBlock body = treeMaker.Block(0, statements.toList());
+    // 泛型参数列表
+    List<JCTree.JCTypeParameter> methodGenericParamList = List.nil();
+    // 参数值列表
+    List<JCTree.JCVariableDecl> parameterList = List.of(param);
+    // 异常抛出列表
+    List<JCTree.JCExpression> thrownCauseList = List.nil();
+
+    // 生成方法定义语法树节点
+    return treeMaker.MethodDef(
+            modifiers,              // 方法访问级别修饰符
+            setMethodName,          // set 方法名
+            returnMethodType,       // 返回值类型
+            methodGenericParamList, // 泛型参数列表
+            parameterList,          // 参数值列表
+            thrownCauseList,        // 异常抛出列表
+            body,                   // 方法体
+            null                    // 默认值
+    );
+}
+```
+
+​	这个时候还没有进行注解处理生成get、set方法，如果进行编译一定会出错，先使用javac编译注解类，如下所示。
+
+```java
+javac -cp /your_jdk_path/lib/tools.jar src/main/java/me/ya/annotation/* -d ./out
+```
+
+​	接下来使用-processor选项编译User.java，如下所示。
+
+```java
+javac -cp ./out -d out -processor me.ya.annotation.DataAnnotationProcessor src/main/java/User.java
+```
+
+​	这时会在out目录生成User.class文件，运行java可以得到预期的输出。
+
+```java
+java User 
+id: 1118        name: ya
+```
+
