@@ -92,3 +92,42 @@ ClassPathResource res=new ClassPathResource("beans.xml");
 
 ​	这里用CGLIB对Bean进行实例化。CGLIB是一个常用的字节码生成器的类库，它提供了一系列的API来提供生成和转换Java的字节码的功能。在Spring AOP中也使用CGLIB对Java的字节码进行增强。在IoC容器中，要了解怎样使用CGLIB来生成Bean对象，需要看一下SimpleInstantiationStrategy类。这个Strategy是Spring用来生成Bean对象的默认类，它提供了两种实例化Java对象的方法，一种是通过BeanUtils，它使用了JVM的反射功能，一种是通过前面提到的CGLIB来生成，如代码清单2-25所示。
 
+## 2.5　容器其他相关特性的设计与实现
+
+### 2.5.1　ApplicationContext和Bean的初始化及销毁
+
+​	对于BeanFactory，特别是ApplicationContext，容器自身也有一个初始化和销毁关闭的过程。下面详细看看在这两个过程中，应用上下文完成了什么，可以让我们更多地理解应用上下文的工作，容器初始化和关闭过程可以简要地通过图2-16来表现。
+
+![](https://pic.imgdb.cn/item/61d440ad2ab3f51d917d8087.jpg)
+
+​	从图中可以看到，对ApplicationContext启动的过程是在AbstractApplicationContext中实现的。在使用应用上下文时需要做一些准备工作，这些准备工作在prepareBeanFactory()方法中实现。在这个方法中，为容器配置了ClassLoader、PropertyEditor和BeanPost-Processor等，从而为容器的启动做好了必要的准备工作。
+
+IoC的Bean的生命周期
+
+* Bean实例的创建。
+
+* 为Bean实例设置属性。
+* 调用Bean的初始化方法。
+* 应用可以通过IoC容器使用Bean。
+* 当容器关闭时，调用Bean的销毁方法。
+
+Bean的初始化方法调用是在以下的initializeBean方法中实现的：
+
+### 2.5.4　BeanPostProcessor的实现
+
+​	BeanPostProcessor是使用IoC容器时经常会遇到的一个特性，这个Bean的后置处理器是一个监听器，它可以监听容器触发的事件。将它向IoC容器注册后，容器中管理的Bean具备了接收IoC容器事件回调的能力。	BeanPostProcessor的使用非常简单，只需要通过设计一个具体的后置处理器来实现。同时，这个具体的后置处理器需要实现接口类BeanPostProcessor，然后设置到XML的Bean配置文件中。这个BeanPostProcessor是一个接口类，它有两个接口方法，一个是postProcessBeforeInitialization，在Bean的初始化前提供回调入口；一个是postProcessAfterInitialization，在Bean的初始化后提供回调入口，这两个回调的触发都是和容器管理Bean的生命周期相关的。这两个回调方法的参数都是一样的，分别是Bean的实例化对象和Bean的名字。BeanPostProcessor为具体的处理提供基本的回调输入，如代码清单2-33所示。
+
+![](https://pic.imgdb.cn/item/61d44f542ab3f51d918992fd.jpg)
+
+​	PostProcessBeforeInitialization是在populateBean完成之后被调用的。从BeanPostProcessor中的一个回调接口入手，对另一个回调接口postProcessAfterInitialization方法的调用，实际上也是在同一个地方封装完成的，这个地方就是populateBean方法中的initializeBean调用。关于这一点，读者会在接下来的分析中了解得很清楚。在前面对IoC的依赖注入进行分析时，对这个populateBean有过分析，这个方法实际上完成了Bean的依赖注入。在容器中建立Bean的依赖关系，是容器功能实现的一个很重要的部分。节选doCreateBean中的代码就可以看到postProcessBeforeInitialization调用和populateBean调用的关系，如下所示。
+
+```java
+Object exposedObject=bean;
+try{
+	populateBean(beanName,mbd,instanceWrapper);
+/*在完成对Bean的生成和依赖注入以后，开始对Bean进行初始化，这个初始化过程包含了对后置处理器postProcessBeforeInitialization的回调*/
+    exposedObject=initializeBean(
+        beanName,exposedObject,mbd);
+}
+```
+
