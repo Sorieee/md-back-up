@@ -131,3 +131,24 @@ try{
 }
 ```
 
+### 2.5.5 autowiring（自动依赖装配）的实现
+
+​	在前面对IoC容器实现原理的分析中，一直是通过BeanDefinition的属性值和构造函数以显式的方式对Bean的依赖关系进行管理的。在Spring中，相对这种显式的依赖管理方式，IoC容器还提供了自动依赖装配的方式，为应用使用容器提供更大的方便。在自动装配中，不需要对Bean属性做显式的依赖关系声明，只需要配置好autowiring属性，IoC容器会根据这个属性的配置，使用反射自动查找属性的类型或者名字，然后基于属性的类型或名字来自动匹配IoC容器中的Bean，从而自动地完成依赖注入。
+
+​	从autowiring使用上可以知道，这个autowiring属性在对Bean属性进行依赖注入时起作用。对Bean属性依赖注入的实现原理，在前面已经做过分析。回顾那部分内容，不难发现，对autowirng属性进行处理，从而完成对Bean属性的自动依赖装配，是在populateBean中实现的。节选AbstractAutowireCapableBeanFactory的populateBean方法中与autowiring实现相关的部分，可以清楚地看到这个特性在容器中实现的入口。也就是说，对属性autowiring的处理是populateBean处理过程的一个部分。在populateBean的实现中，在处理一般的Bean之前，先对autowiring属性进行处理。如果当前的Bean配置了autowire_by_name和autowire_by_type属性，那么调用相应的autowireByName方法和autowireByType方法。这两个方法很巧妙地应用了IoC容器的特性。例如，对于autowire_by_name，它首先通过反射机制从当前Bean中得到需要注入的属性名，然后使用这个属性名向容器申请与之同名的Bean，这样实际又触发了另一个Bean的生成和依赖注入的过程。实现过程如代码清单2-35所示。
+
+### 2.5.7　Bean对IoC容器的感知
+
+* BeanNameAware，可以在Bean中得到它在IoC容器中的Bean实例名称。
+* BeanFactoryAware，可以在Bean中得到Bean所在的IoC容器，从而直接在Bean中使用IoC容器的服务。
+* ApplicationContextAware，可以在Bean中得到Bean所在的应用上下文，从而直接在Bean中使用应用上下文的服务。
+* MessageSourceAware，在Bean中可以得到消息源。
+* ApplicationEventPublisherAware，在Bean中可以得到应用上下文的事件发布器，从而可以在Bean中发布应用上下文的事件。
+* ResourceLoaderAware，在Bean中可以得到ResourceLoader，从而在Bean中使用ResourceLoader加载外部对应的Resource资源。
+
+# 3. Spring AOP的实现
+
+## 3.1　Spring AOP概述
+
+### 3.1.1　AOP概念回顾
+
