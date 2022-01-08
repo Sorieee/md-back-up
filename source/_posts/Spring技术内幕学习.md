@@ -152,3 +152,115 @@ try{
 
 ### 3.1.1　AOP概念回顾
 
+​	AspectJ：源代码和字节码级别的编织器，用户需要使用不同于Java的新语言。
+
+​	AspectWerkz：AOP框架，使用字节码动态编织器和XML配置。
+
+​	JBoss-AOP：基于拦截器和元数据的AOP框架，运行在JBoss应用服务器上。以及在AOP中用到的一些相关的技术实现：
+​	BCEL（Byte-Code Engineering Library）：Java字节码操作类库，具体的信息可以参见项目网站http://jakarta.apache.org/bcel/。
+​	Javassist：Java字节码操作类库，JBoss的一个子项目，项目信息可以参见项目网站http://jboss.org/javassist/。
+
+![](https://pic.imgdb.cn/item/61d6da952ab3f51d914b2ea4.jpg)
+
+​	AOP联盟定义的AOP体系结构把与AOP相关的概念大致分为由高到低、从使用到实现的三个层次。从上往下，最高层是语言和开发环境，在这个环境中可以看到几个重要的概念：“基础”（base）可以视为待增强对象或者说目标对象；“切面”（aspect）通常包含对于基础的增强应用；“配置”（configuration）可以看成是一种编织，通过在AOP体系中提供这个配置环境，可以把基础和切面结合起来，从而完成切面对目标对象的编织实现。
+
+​	在分析中，以ProxyFactoryBean和ProxyFactory为例进行说明。
+
+### 3.1.2　Advice通知
+
+​	Advice（通知）定义在连接点做什么，为切面增强提供织入接口。在Spring AOP中，它主要描述Spring AOP围绕方法调用而注入的切面行为。Advice是AOP联盟定义的一个接口，具体的接口定义在org.aopalliance.aop.Advice中。在Spring AOP的实现中，使用了这个统一接口，并通过这个接口，为AOP切面增强的织入功能做了更多的细化和扩展，比如提供了更具体的通知类型，如BeforeAdvice、AfterAdvice、ThrowsAdvice等。作为Spring AOP定义的接口类，具体的切面增强可以通过这些接口集成到AOP框架中去发挥作用。
+
+![](https://pic.imgdb.cn/item/61d706ff2ab3f51d916ef814.jpg)
+
+在BeforeAdvice的继承关系中，定义了为待增强的目标方法设置的前置增强接口MethodBeforeAdvice，使用这个前置接口需要实现一个回调函数：
+
+```java
+void before(Method method,Object[]args,Object target)throws Throwable;
+```
+
+​	作为回调函数，before方法的实现在Advice中被配置到目标方法后，会在调用目标方法时被回调。具体的调用参数有：Method对象，这个参数是目标方法的反射对象；Object[]对象数组，这个对象数组中包含目标方法的输入参数。以CountingBeforeAdvice为例来说明BeforeAdvice的具体使用，CountingBeforeAdvice是接口MethodBeforeAdvice的具体实现，如代码清单3-1所示。可以看到，它的实现比较简单，完成的工作是统计被调用的方法次数。作为切面增强实现，它会根据调用方法的方法名进行统计，把统计结果根据方法名和调用次数作为键值对放入一个map中。
+
+​	在Advice的实现体系中，Spring还提供了AfterAdvice这种通知类型，它的类接口关系如图3-3所示。
+
+![](https://pic.imgdb.cn/item/61d70a862ab3f51d91728193.jpg)
+
+​	了解了BeforeAdvice和AfterAdvice，在Spring AOP中，还可以看到另外一种Advice通知类型，那就是ThrowsAdvice，它的类层次关系如图3-4所示。
+
+![](https://pic.imgdb.cn/item/61d70ad42ab3f51d9172b6f1.jpg)
+
+### 3.1.3　Pointcut切点
+
+​	Pointcut（切点）决定Advice通知应该作用于哪个连接点，也就是说通过Pointcut来定义需要增强的方法的集合，这些集合的选取可以按照一定的规则来完成。在这种情况下，Pointcut通常意味着标识方法，例如，这些需要增强的地方可以由某个正则表达式进行标识，或根据某个方法名进行匹配等。
+
+![](https://pic.imgdb.cn/item/61d70ce32ab3f51d91742e72.jpg)
+
+​	从源代码实现上同样可以得到相应的Spring AOP的Pointcut设计，如图3-6所示。
+
+![](https://pic.imgdb.cn/item/61d70d022ab3f51d917445a3.jpg)
+
+​	在Pointcut的基本接口定义中可以看到，需要返回一个MethodMatcher。对于Point的匹配判断功能，具体是由这个返回的MethodMatcher来完成的，也就是说，由这个MethodMatcher来判断是否需要对当前方法调用进行增强，或者是否需要对当前调用方法应用配置好的Advice通知。在Pointcut的类继承关系中，以正则表达式切点JdkRegexpMethodPointcut的实现原理为例，来具体了解切点Pointcut的工作原理。JdkRegexpMethodPointcut类完成通过正则表达式对方法名进行匹配的功能。在JdkRegexpMethodPointcut的基类StaticMethod-MatcherPointcut的实现中可以看到，设置MethodMatcher为StaticMethodMatcher，同时JdkRegexpMethodPointcut也是这个MethodMatcher的子类，它的类层次关系如图3-7所示。
+
+![](https://pic.imgdb.cn/item/61d70d1d2ab3f51d91745832.jpg)
+
+![](https://pic.imgdb.cn/item/61d70d352ab3f51d91746a48.jpg)
+
+图　3-8　对JdkRegexpMethodPointcut的matches方法的调用关系
+
+​	在JdkRegexpMethodPointcut中，通过JDK来实现正则表达式的匹配，这在代码清单3-5中可以看得很清楚。如果要详细了解使用JDK的正则表达式匹配功能，可以参考JDK的API文档。接下来看看其他的Pointcut。
+
+​	在Spring AOP中，还提供了其他的MethodPointcut，比如通过方法名匹配进行Advice匹配的NameMatchMethodPointcut。它的matches方法实现很简单，匹配的条件是方法名相同或者方法名相匹配。
+
+### 3.1.4　Advisor通知器
+
+​	完成对目标方法的切面增强设计（Advice）和关注点的设计（Pointcut）以后，需要一个对象把它们结合起来，完成这个作用的就是Advisor（通知器）。通过Advisor，可以定义应该使用哪个通知并在哪个关注点使用它，也就是说通过Advisor，把Advice和Pointcut结合起来，这个结合为使用IoC容器配置AOP应用，或者说即开即用地使用AOP基础设施，提供了便利。在Spring AOP中，我们以一个Advisor的实现（DefaultPointcutAdvisor）为例，来了解Advisor的工作原理。在DefaultPointcutAdvisor中，有两个属性，分别是advice和pointcut。通过这两个属性，可以分别配置Advice和Pointcut。
+
+## 3.2　Spring AOP的设计与实现
+
+### 3.2.1　JVM的动态代理特性
+
+​	前面已经介绍了横切关注点的一些概念，以及它们在Spring中的具体设计和实现。具体来说，在Spring AOP实现中，使用的核心技术是动态代理，而这种动态代理实际上是JDK的一个特性（在JDK 1.3以上的版本里，实现了动态代理模式）。通过JDK的动态代理特性，可以为任意Java对象创建代理对象，对于具体使用来说，这个特性是通过Java Reflection API来完成的。在了解具体的Java Reflection之前，先简要地复习一下Proxy模式，其静态类图如图3-9所示。
+
+​	在图3-9中，可以看到有一个RealSubject，这个对象是目标对象，而在代理模式的设计中，会设计一个接口和目标对象一致的代理对象Proxy，它们都实现了接口Subject的request方法。在这种情况下，对目标对象的request的调用，往往就被代理对象“浑水摸鱼”给拦截了，通过这种拦截，为目标对象的方法操作做了铺垫，所以称之为代理模式。了解了如图3-10所示的调用关系，就可以清楚地了解这里的过程。
+
+![](https://pic.imgdb.cn/item/61d710962ab3f51d9176ea2a.jpg)
+
+![](https://pic.imgdb.cn/item/61d710a32ab3f51d9176f4cc.jpg)
+
+​	如果在JDK中实现，需要实现下面所示的InvocationHandler接口：
+
+```java
+public interface InvocationHandler{
+	public Object invoke(Object proxy,Method method,Object[]args)throws Throwable;
+}
+```
+
+​	在这个接口方法中，只声明了一个invoke方法，这个invoke方法的第一个参数是代理对象实例，第二个参数是Method方法对象，代表的是当前Proxy被调用的方法，最后一个参数是被调用的方法中的参数。通过这些信息，在invoke方法实现中，已经可以了解Proxy对象的调用背景了。至于怎样让invoke方法和Proxy挂上钩，熟悉Proxy用法的读者都知道，只要在实现通过调用Proxy.newIntance方法生成具体Proxy对象时把InvocationHandler设置到参数里面就可以了，剩下的由Java虚拟机来完成。
+
+### 3.2.2　Spring AOP的设计分析
+
+​	在Spring AOP中，虽然对于AOP的使用者来说，只需要配置相关的Bean定义即可，但仔细分析Spring AOP的内部设计可以看到，为了让AOP起作用，需要完成一系列过程，比如，需要为目标对象建立代理对象，这个代理对象可以通过使用JDK的Proxy来完成，也可以通过第三方的类生成器CGLIB来完成。然后，还需要启动代理对象的拦截器来完成各种横切面的织入，这一系列的织入设计是通过一系列Adapter来实现的。通过一系列Adapter的设计，可以把AOP的横切面设计和Proxy模式有机地结合起来，从而实现在AOP中定义好的各种织入方式。具体的设计实现可以参考后面的内容，这里只是简要介绍一下。
+
+### 3.3　建立AopProxy代理对象
+
+![](https://pic.imgdb.cn/item/61d9053c2ab3f51d91ba04c7.jpg)
+
+​	在这个类继承关系中，可以看到完成AOP应用的类，比如AspectJProxyFactory、ProxyFactory和ProxyFactoryBean，它们都在同一个类的继承体系下，都是ProxyConfig、AdvisedSupport和ProxyCreatorSupport的子类。作为共同基类，可以将ProxyConfig看成是一个数据基类，这个数据基类为ProxyFactoryBean这样的子类提供了配置属性；在另一个基类AdvisedSupport的实现中，封装了AOP对通知和通知器的相关操作，这些操作对于不同的AOP的代理对象的生成都是一样的，但对于具体的AOP代理对象的创建，AdvisedSupport把它交给它的子类们去完成；对于ProxyCreatorSupport，可以将它看成是其子类创建AOP代理对象的一个辅助类。通过继承以上提到的基类的功能实现，具体的AOP代理对象的生成，根据不同的需要，分别由ProxyFactoryBean、AspectJProxyFactory和ProxyFactory来完成。对于需要使用AspectJ的AOP应用，AspectJProxyFactory起到集成Spring和AspectJ的作用；对于使用Spring AOP的应用，ProxyFactoryBean和ProxyFactoy都提供了AOP功能的封装，只是使用ProxyFactoryBean，可以在IoC容器中完成声明式配置，而使用ProxyFactory，则需要编程式地使用Spring AOP的功能；对于它们是如何封装实现AOP功能的，会在本章小结中给出详细的分析，在这里，通过这些类层次关系的介绍，先给读者留下一个大致的印象。Proxy-FactoryBean相关的类层次关系如图3-12所示。
+
+![](https://pic.imgdb.cn/item/61d908362ab3f51d91bc6759.jpg)
+
+### 3.3.2　配置ProxyFactoryBean
+
+1）定义使用的通知器Advisor，这个通知器应该作为一个Bean来定义。很重要的一点是，这个通知器的实现定义了需要对目标对象进行增强的切面行为，也就是Advice通知。
+	2）定义ProxyFactoryBean，把它作为另一个Bean来定义，它是封装AOP功能的主要类。在配置ProxyFactoryBean时，需要设定与AOP实现相关的重要属性，比如proxyInterface、interceptorNames和target等。从属性名称可以看出，interceptorNames属性的值往往设置为需要定义的通知器，因为这些通知器在ProxyFactoryBean的AOP配置下，是通过使用代理对象的拦截器机制起作用的。所以，这里依然沿用了拦截器这个名字，也算是旧瓶装新酒吧。
+	3）定义target属性，作为target属性注入的Bean，是需要用AOP通知器中的切面应用来增强的对象，也就是前面提到的base对象。
+
+### 3.3.3　ProxyFactoryBean生成AopProxy代理对象
+
+![](https://pic.imgdb.cn/item/61d90efe2ab3f51d91c18f51.jpg)
+
+### 3.3.4　JDK生成AopProxy代理对象
+
+![](https://pic.imgdb.cn/item/61d913472ab3f51d91c47c5c.jpg)
+
+![](https://pic.imgdb.cn/item/61d93bd62ab3f51d91e3ac03.jpg)
+
