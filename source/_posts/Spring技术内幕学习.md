@@ -264,3 +264,11 @@ public interface InvocationHandler{
 
 ![](https://pic.imgdb.cn/item/61d93bd62ab3f51d91e3ac03.jpg)
 
+# 4. Spring MVC与Web环境
+
+![](https://pic.imgdb.cn/item/61e92a4b2ab3f51d915a0991.jpg)
+
+## 4.2 Web环境的Spring MVC
+
+​	Spring IoC是一个独立的模块，它并不是直接在Web容器中发挥作用的，如果要在Web环境中使用IoC容器，需要Spring为IoC设计一个启动过程，把IoC容器导入，并在Web容器中建立起来。具体说来，这个启动过程是和Web容器的启动过程集成在一起的。在这个过程中，一方面处理Web容器的启动，另一方面通过设计特定的Web容器拦截器，将IoC容器载入到Web环境中来，并将其初始化。在这个过程建立完成以后，IoC容器才能正常工作，而Spring MVC是建立在IoC容器的基础上的，这样才能建立起MVC框架的运行机制，从而响应从Web容器传递的HTTP请求。
+
