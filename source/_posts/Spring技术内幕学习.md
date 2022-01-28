@@ -272,3 +272,47 @@ public interface InvocationHandler{
 
 ​	Spring IoC是一个独立的模块，它并不是直接在Web容器中发挥作用的，如果要在Web环境中使用IoC容器，需要Spring为IoC设计一个启动过程，把IoC容器导入，并在Web容器中建立起来。具体说来，这个启动过程是和Web容器的启动过程集成在一起的。在这个过程中，一方面处理Web容器的启动，另一方面通过设计特定的Web容器拦截器，将IoC容器载入到Web环境中来，并将其初始化。在这个过程建立完成以后，IoC容器才能正常工作，而Spring MVC是建立在IoC容器的基础上的，这样才能建立起MVC框架的运行机制，从而响应从Web容器传递的HTTP请求。
 
+### 4.3 上下文在Web容器中的启动
+
+![](https://pic.imgdb.cn/item/61ea65c92ab3f51d918b350e.jpg)
+
+​	在web.xml中，已经配置了ContextLoaderListener，这个ContextLoaderListener是Spring提供的类，是为在Web容器中建立IoC容器服务的，它实现了ServletContextListener接口。
+
+![](https://pic.imgdb.cn/item/61ea66892ab3f51d918c8514.jpg)
+
+​	在ContextLoader中，完成了两个IoC容器建立的基本过程，一个是在Web容器中建立起双亲IoC容器，另一个是生成相应的WebApplicationContext并将其初始化。
+
+### 4.3.2　Web容器中的上下文设计
+
+![](https://pic.imgdb.cn/item/61ea68032ab3f51d918ef93d.jpg)
+
+### 4.3.3　ContextLoader的设计与实现
+
+​		对于Spring承载的Web应用而言，可以指定在Web应用程序启动时载入IoC容器（或者称为WebApplicationContext）。这个功能是由ContextLoaderListener这样的类来完成的，它是在Web容器中配置的监听器。
+
+## 4.4 Spring MVC的设计与实现
+
+​	面简要回顾了MVC模式，并且知道了Spring MVC是一个MVC模式的实现。在Spring MVC的使用中，看到了在web.xml中，除了需要配置ContextLoaderListener之外，还要对DispatcherServlet进行配置。作为一个Servlet，这个DispatcherServlet实现的是Sun的J2EE核心模式中的前端控制器模式（Front Controller），作为一个前端控制器，所有的Web请求都需要通过它来处理，进行转发、匹配、数据处理后，并转由页面进行展现，因此这个DispatcerServlet可以看成是Spring MVC实现中最为核心的部分，它的设计与分析也是下面分析Spring MVC的一条主线。
+
+​	除了这条主线，在Spring MVC中，对于不同的Web请求的映射需求，Spring MVC提供了不同的HandlerMapping的实现，可以让应用开发选取不同的映射策略。
+
+### 4.4.2 Spring MVC设计概览
+
+​	在完成对ContextLoaderListener的初始化以后，Web容器开始初始化DispatcherServlet，这个初始化的启动与在web.xml中对载入次序的定义有关。DispatcherServlet会建立自己的上下文来持有Spring MVC的Bean对象，在建立这个自己持有的IoC容器时，会从ServletContext中得到根上下文作为DispatcherServlet持有上下文的双亲上下文。有了这个根上下文，再对自己持有的上下文进行初始化，最后把自己持有的这个上下文保存到ServletContext中，供以后检索和使用。
+
+​	为了解这个过程，可以从DispatcherServlet的父类FrameworkServlet的代码入手，去探寻Dispatcher-Servlet的启动过程，它同时也是Spring MVC的启动过程。
+
+![](https://pic.imgdb.cn/item/61ea68032ab3f51d918ef93d.jpg)
+
+
+
+![](https://pic.imgdb.cn/item/61ea7a172ab3f51d91ab22ff.jpg)
+
+​	DispatcherServlet的工作大致可以分为两个部分：一个是初始化部分，由initServletBean()启动，通过initWebApplicationContext()方法最终调用DispatcherServlet的initStrategies方法，在这个方法里，DispatcherServlet对MVC模块的其他部分进行了初始化，比如handlerMapping、ViewResolver等；另一个是对HTTP请求进行响应，作为一个Servlet，Web容器会调用Servlet的doGet()和doPost()方法，在经过FrameworkServlet的processRequest()简单处理后，会调用DispatcherServlet的doService()方法，在这个方法调用中封装了doDispatch()，这个doDispatch()是Dispatcher实现MVC模式的主要部分。
+
+### 4.4.3　DispatcherServlet的启动和初始化
+
+​	作为Servlet，DispatcherServlet的启动与Servlet的启动过程是相联系的。在Servlet的初始化过程中，Servlet的init方法会被调用，以进行初始化。DispatcherServlet的基类HttpServletBean中的这个初始化过程如代码清单4-8所示。在初始化开始时，需要读取配置在ServletContext中的Bean属性参数，这些属性参数设置在web.xml的Web容器初始化参数中。使用编程式的方式来设置这些Bean属性，在这里可以看到对PropertyValues和BeanWrapper的使用。对于这些和依赖注入相关的类的使用，在分析IoC容器的初始化时，尤其是在依赖注入实现分析时，有过“亲密接触”。只是这里的依赖注入是与Web容器初始化相关的，初始化过程由HttpServletBean来完成。
+
+​	接着会执行DispatcherServlet持有的IoC容器的初始化过程，在这个初始化过程中，一个新的上下文被建立起来，这个DispatcherServlet持有的上下文被设置为根上下文的子上下文。可以认为，根上下文是和Web应用相对应的一个上下文，而DispatcherServlet持有的上下文是和Servlet对应的一个上下文。在一个Web应用中，往往可以容纳多个Servlet存在；与此相对应，对于应用在Web容器中的上下体系，一个根上下文可以作为许多Servlet上下文的双亲上下文。了解了这一点，对在Web环境中IoC容器中的Bean设置和检索会有更多的了解，因为了解IoC工作原理的读者知道，在向IoC容器getBean时，IoC容器会首先向其双亲上下文去getBean，也就是说，在根上下文中定义的Bean是可以被各个Servlet持有的上下文得到和共享的。DispatcherServlet持有的上下文被建立起来以后，也需要和其他IoC容器一样完成初始化，这个初始化也是通过refresh方法来完成的。最后，DispatcherServlet给这个自己持有的上下文命名，并把它设置到Web容器的上下文中，这个名称和在web.xml中设置的DispatcherServlet的Servlet名称有关，从而保证了这个上下文在Web环境上下文体系中的唯一性。
+
