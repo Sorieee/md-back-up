@@ -316,3 +316,11 @@ public interface InvocationHandler{
 
 ​	接着会执行DispatcherServlet持有的IoC容器的初始化过程，在这个初始化过程中，一个新的上下文被建立起来，这个DispatcherServlet持有的上下文被设置为根上下文的子上下文。可以认为，根上下文是和Web应用相对应的一个上下文，而DispatcherServlet持有的上下文是和Servlet对应的一个上下文。在一个Web应用中，往往可以容纳多个Servlet存在；与此相对应，对于应用在Web容器中的上下体系，一个根上下文可以作为许多Servlet上下文的双亲上下文。了解了这一点，对在Web环境中IoC容器中的Bean设置和检索会有更多的了解，因为了解IoC工作原理的读者知道，在向IoC容器getBean时，IoC容器会首先向其双亲上下文去getBean，也就是说，在根上下文中定义的Bean是可以被各个Servlet持有的上下文得到和共享的。DispatcherServlet持有的上下文被建立起来以后，也需要和其他IoC容器一样完成初始化，这个初始化也是通过refresh方法来完成的。最后，DispatcherServlet给这个自己持有的上下文命名，并把它设置到Web容器的上下文中，这个名称和在web.xml中设置的DispatcherServlet的Servlet名称有关，从而保证了这个上下文在Web环境上下文体系中的唯一性。
 
+### 4.4.4 MVC处理HTTP分发请求
+
+![](https://pic.imgdb.cn/item/61f3b2822ab3f51d91f39e39.jpg)
+
+
+
+![](https://pic.imgdb.cn/item/61f3b8192ab3f51d91f94b34.jpg)
+
