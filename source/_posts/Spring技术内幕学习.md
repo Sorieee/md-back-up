@@ -328,3 +328,63 @@ public interface InvocationHandler{
 
 ![](https://pic.imgdb.cn/item/61f4fe2e2ab3f51d913182af.jpg)
 
+# 5. 数据库操作组件的实现
+
+## 5.1 Spring JDBC的设计和实现
+
+### 5.1.2 设计概要
+
+![](https://pic.imgdb.cn/item/61fcf4bd2ab3f51d9170eb36.jpg)
+
+
+
+## 5.2 Spring JDBC中模板类的设计与实现
+
+### 5.2.1 设计原理
+
+![](https://pic.imgdb.cn/item/61fcf82b2ab3f51d91741f01.jpg)
+
+### 5.2.3　JdbcTemplate的execute实现
+
+![](https://pic.imgdb.cn/item/61fcf8432ab3f51d917431af.jpg)
+
+### 5.2.4　JdbcTemplate的query实现
+
+![](https://pic.imgdb.cn/item/61fcfa322ab3f51d91762f86.jpg)
+
+ 
+
+## 5.3 Spring JDBC中RDBMS操作对象的实现
+
+![](https://pic.imgdb.cn/item/61fd08732ab3f51d9182d517.jpg)
+
+
+
+### 5.3.1　SqlQuery的实现
+
+![](https://pic.imgdb.cn/item/61fd08b62ab3f51d91830f5b.jpg)
+
+### 5.3.2 SqlUpdate的实现
+
+![](https://pic.imgdb.cn/item/61fd0b382ab3f51d918550ea.jpg)
+
+### 5.3.3 SqlFunction
+
+![](https://pic.imgdb.cn/item/61fd0be22ab3f51d9185f187.jpg)
+
+## 5.4 Spring ORM的设计与实现
+
+### 5.4.2 设计概要
+
+![](https://pic.imgdb.cn/item/61fd0ce62ab3f51d9186e0f5.jpg)
+
+## 5.5 Spring驱动Hibernate的设计与实现
+
+### 5.5.2　Hibernate的SessionFactory
+
+![](https://pic.imgdb.cn/item/61fd0d892ab3f51d9187772f.jpg)
+
+### 5.5.3　HibernateTemplate的实现
+
+![](https://pic.imgdb.cn/item/61fd0f342ab3f51d91890b24.jpg)
+
