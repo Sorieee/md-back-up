@@ -9,3 +9,9 @@ docker logs -f d3aa
 
 # 安装k8s集群
 
+https://blog.csdn.net/miss1181248983/article/details/87970338
+
+https://www.cnblogs.com/wanghao1874/p/10609206.html
+
+
+
