@@ -159,3 +159,428 @@ K8s提供:
 
 # The Kubernetes API
 
+## 持久化
+
+​	Kubernetes 通过将对象的序列化状态写入 etcd 来存储它们。 
+
+## API和版本
+
+​	为了更容易消除字段或重组资源表示，Kubernetes 支持多个 API 版本，每个版本位于不同的 API 路径，例如 `/api/v1` 或 ``/apis/rbac.authorization.k8s.io/v1alpha1`。
+
+​	版本控制是在 API 级别而不是在资源或字段级别完成的，以确保 API 呈现清晰、一致的系统资源和行为视图，并能够控制对报废和/或实验 API 的访问。
+
+​	为了更容易发展和扩展其 API，Kubernetes 实现了可以启用或禁用的 API 组。
+
+​	To make it easier to evolve and to extend its API, Kubernetes implements [API groups](https://kubernetes.io/docs/reference/using-api/#api-groups) that can be [enabled or disabled](https://kubernetes.io/docs/reference/using-api/#enabling-or-disabling).
+
+​	API 资源通过其 API 组、资源类型、命名空间（用于命名空间资源）和名称来区分。 API 服务器透明地处理 API 版本之间的转换：所有不同的版本实际上是相同持久数据的表示。 API 服务器可以通过多个 API 版本提供相同的底层数据。
+
+​	例如，假设同一个资源有两个 API 版本，v1 和 v1beta1。 如果您最初使用其 API 的 v1beta1 版本创建了一个对象，您以后可以使用 v1beta1 或 v1 API 版本读取、更新或删除该对象。
+
+## API变更
+
+​	任何成功的系统都需要随着新用例的出现或现有用例的变化而发展和改变。 因此，Kubernetes 将 Kubernetes API 设计为不断变化和成长。 Kubernetes 项目旨在不破坏与现有客户端的兼容性，并在一段时间内保持这种兼容性，以便其他项目有机会适应。
+
+​	一般来说，新的 API 资源和新的资源字段可以经常和频繁地添加。 消除资源或字段需要遵循 API 弃用政策。
+
+​	一旦官方 Kubernetes API 达到普遍可用性 (GA)，Kubernetes 做出了坚定的承诺，通常在 API 版本 v1 上保持它们的兼容性。 此外，即使在可行的情况下，Kubernetes 也保持对 beta API 版本的兼容性：如果您采用 beta API，您可以继续使用该 API 与您的集群进行交互，即使在功能稳定之后也是如此。
+
+> 注意：虽然 Kubernetes 还旨在维护 alpha API 版本的兼容性，但在某些情况下这是不可能的。 如果您使用任何 alpha API 版本，请在升级集群时查看 Kubernetes 的发行说明，以防 API 发生更改。
+
+​	Refer to [API versions reference](https://kubernetes.io/docs/reference/using-api/#api-versioning) for more details on the API version level definitions
+
+## API扩展
+
+The Kubernetes API can be extended in one of two ways:
+
+1. [Custom resources](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/) let you declaratively define how the API server should provide your chosen resource API.
+2. You can also extend the Kubernetes API by implementing an [aggregation layer](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/apiserver-aggregation/).
+
+# Working with Kubernetes Objects
+
+​		本页介绍了 Kubernetes 对象如何在 Kubernetes API 中表示，以及如何以 .yaml 格式表示它们。
+
+## Understanding Kubernetes Objects
+
+​	Kubernetes 对象是 Kubernetes 系统中的持久实体。 Kubernetes 使用这些实体来表示集群的状态。 具体来说，他们可以描述：
+
+* 正在运行哪些容器化应用程序（以及在哪些节点上）。
+* 这些应用程序可用的资源。
+* 有关这些应用程序行为方式的策略，例如重启策略、升级和容错。
+
+### Object Spec and Status
+
+​	几乎每个 Kubernetes 对象都包含两个管理对象配置的嵌套对象字段：对象`spec`和对象`status`。 对于具有`spec`的对象，您必须在创建对象时进行设置，提供您希望资源具有的特征的描述：其所需的状态。
+
+​	`status`描述对象的当前状态，由 Kubernetes 系统及其组件提供和更新。 Kubernetes 控制平面持续主动地管理每个对象的实际状态，以匹配您提供的所需状态。
+
+​	例如：在 Kubernetes 中，Deployment 是一个对象，可以代表在您的集群上运行的应用程序。 创建部署时，您可以设置部署规范以指定要运行应用程序的三个副本。 Kubernetes 系统读取部署规范并启动所需应用程序的三个实例——更新状态以匹配您的规范。 如果这些实例中的任何一个失败（状态更改），Kubernetes 系统会通过进行更正来响应规范和状态之间的差异——在这种情况下，启动一个替换实例。
+
+​	For more information on the object spec, status, and metadata, see the [Kubernetes API Conventions](https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md).
+
+### Describing a Kubernetes object
+
+​	在 Kubernetes 中创建对象时，必须提供描述其所需状态的对象规范，以及有关对象的一些基本信息（例如名称）。 当您使用 Kubernetes API 创建对象（直接或通过 kubectl）时，该 API 请求必须将该信息作为 JSON 包含在请求正文中。 大多数情况下，您在 .yaml 文件中向 kubectl 提供信息。 kubectl 在发出 API 请求时将信息转换为 JSON。
+
+​	Here's an example `.yaml` file that shows the required fields and object spec for a Kubernetes Deployment:
+
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  selector:
+    matchLabels:
+      app: nginx
+  replicas: 2 # tells deployment to run 2 pods matching the template
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.14.2
+        ports:
+        - containerPort: 80
+```
+
+​	使用上述 .yaml 文件创建部署的一种方法是在 kubectl 命令行界面中使用 kubectl apply 命令，将 .yaml 文件作为参数传递。 这是一个例子：
+
+```shell
+kubectl apply -f https://k8s.io/examples/application/deployment.yaml
+```
+
+The output is similar to this:
+
+```
+deployment.apps/nginx-deployment created
+```
+
+### Required Fields
+
+在您要创建的 Kubernetes 对象的 .yaml 文件中，您需要为以下字段设置值：
+
+* `apiVersion` - Which version of the Kubernetes API you're using to create this object
+* `kind` - What kind of object you want to create
+* `metadata` - Data that helps uniquely identify the object, including a `name` string, `UID`, and optional `namespace`
+* `spec` - What state you desire for the object
+
+
+
+​	每个 Kubernetes 对象的对象规范的精确格式都不同，并且包含特定于该对象的嵌套字段。 Kubernetes API  [Kubernetes API Reference](https://kubernetes.io/docs/reference/kubernetes-api/)参考可以帮助您找到可以使用 Kubernetes 创建的所有对象的规范格式。
+
+​	例如，Pod 的参考详细说明了 API 中 Pod 的 spec 字段，而 Deployment 的参考详细说明了 Deployment 的 spec 字段。 在这些 API 参考页面中，您会看到对 PodSpec 和 DeploymentSpec 的提及。 这些名称是 Kubernetes 用来实现其 API 的 Golang 代码的实现细节。
+
+# Kubernetes Object Management
+
+​	kubectl 命令行工具支持多种不同的方式来创建和管理 Kubernetes 对象。 本文档概述了不同的方法。 阅读 Kubectl 书籍，了解 Kubectl 管理对象的详细信息。
+
+## Management techniques
+
+> 警告：应该只使用一种技术来管理 Kubernetes 对象。 同一对象的混合和匹配技术会导致未定义的行为。
+
+| Management technique             | 操作对象             | 推荐环境             | Supported writers | 学习曲线 |
+| -------------------------------- | -------------------- | -------------------- | ----------------- | -------- |
+| Imperative commands              | Live objects         | Development projects | 1+                | Lowest   |
+| Imperative object configuration  | Individual files     | Production projects  | 1                 | Moderate |
+| Declarative object configuration | Directories of files | Production projects  | 1+                | Highest  |
+
+### Imperative commands
+
+​	使用imperative commands时，用户直接对集群中的活动对象进行操作。 用户将操作作为参数或标志提供给 kubectl 命令。
+
+​	这是开始或在集群中运行一次性任务的推荐方式。 因为这种技术直接对活动对象进行操作，所以它不提供以前配置的历史记录。
+
+#### Examples
+
+Run an instance of the nginx container by creating a Deployment object:
+
+```sh
+kubectl create deployment nginx --image nginx
+```
+
+#### 对比
+
+与对象配置相比的优势：
+
+* 命令表示为单个动作词。
+* 命令只需要一个步骤即可对集群进行更改。
+
+与对象配置相比的劣势：
+
+* 命令不与变更审查流程集成。
+* 命令不提供与更改关联的审计跟踪。
+* 命令不提供记录的来源，除了实时的。
+* 命令不提供用于创建新对象的模板。
+
+### Imperative object configuration
+
+​	在命令式对象配置中，kubectl 命令指定操作（创建、替换等）、可选标志和至少一个文件名。 指定的文件必须包含 YAML 或 JSON 格式的对象的完整定义。
+
+​	See the [API reference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/) for more details on object definitions.
+
+> 警告：命令`replace`命令用新提供的规范替换现有规范，删除配置文件中缺少的对象的所有更改。 此方法不应用于规范独立于配置文件更新的资源类型。 例如，LoadBalancer 类型的服务的 externalIPs 字段的更新独立于集群的配置。
+
+#### Examples
+
+Create the objects defined in a configuration file:
+
+```sh
+kubectl create -f nginx.yaml
+```
+
+Delete the objects defined in two configuration files:
+
+```sh
+kubectl delete -f nginx.yaml -f redis.yaml
+```
+
+Update the objects defined in a configuration file by overwriting the live configuration:
+
+```sh
+kubectl replace -f nginx.yaml
+```
+
+#### 对比
+
+与命令式命令相比的优点：
+
+* 对象配置可以存储在源代码控制系统中，例如 Git。
+* 对象配置可以与流程集成，例如在推送和审计跟踪之前审查更改。
+* 对象配置提供了创建新对象的模板。
+
+与命令式命令相比的缺点：
+
+* 对象配置需要对对象模式有基本的了解:
+
+* 对象配置需要额外的编写 YAML 文件的步骤。
+
+与声明性对象配置相比的优势：
+
+* 命令式对象配置行为更简单、更容易理解。
+* 从 Kubernetes 1.5 版本开始，命令式对象配置更加成熟。
+
+与声明性对象配置相比的缺点：
+
+* 命令式对象配置最适用于文件，而不是目录。
+* 对活动对象的更新必须反映在配置文件中，否则它们将在下次替换时丢失。
+
+### Declarative object configuration
+
+​	当使用声明性对象配置时，用户对存储在本地的对象配置文件进行操作，但是用户没有定义要对文件进行的操作。 kubectl 会自动检测每个对象的创建、更新和删除操作。 这允许在目录上工作，不同的对象可能需要不同的操作。
+
+> 注意：声明性对象配置保留其他编写者所做的更改，即使这些更改没有合并回对象配置文件。 这可以通过使用补丁 API 操作来仅写入观察到的差异，而不是使用替换 API 操作来替换整个对象配置。
+
+### Examples
+
+​	Process all object configuration files in the `configs` directory, and create or patch the live objects. You can first `diff` to see what changes are going to be made, and then apply:
+
+```sh
+kubectl diff -f configs/
+kubectl apply -f configs/
+```
+
+​	Recursively process directories:
+
+```sh
+kubectl diff -R -f configs/
+kubectl apply -R -f configs/
+```
+
+#### 对比
+
+与命令式对象配置相比的优势:
+
+* 直接对活动对象所做的更改会被保留，即使它们没有合并回配置文件。
+* 声明式对象配置更好地支持对目录进行操作并自动检测每个对象的操作类型（创建、修补、删除）
+
+与命令式对象配置相比的缺点：
+
+* 声明性对象配置在意外时更难调试和理解结果。
+* 使用差异的部分更新会创建复杂的合并和修补操作。
+
+## Object Names and IDs
+
+​	集群中的每个对象都有一个对该类型资源唯一的名称。 每个 Kubernetes 对象还有一个在整个集群中唯一的 UID。
+
+​	例如，在同一个命名空间中只能有一个名为 myapp-1234 的 Pod，但可以有一个 Pod 和一个 Deployment，每个都命名为 myapp-1234。
+
+​	For non-unique user-provided attributes, Kubernetes provides [labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/) and [annotations](https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/).
+
+### Names
+
+​	略。
+
+### DNS Subdomain Names
+
+大多数资源类型需要一个可用作 RFC 1123 中定义的 DNS 子域名的名称。这意味着该名称必须：
+
+* 包含不超过 253 个字符
+* 仅包含小写字母数字字符、“-”或“.”
+* 以字母数字字符开头
+* 以字母数字字符结尾
+
+### RFC 1123 Label Names
+
+某些资源类型要求其名称遵循 RFC 1123 中定义的 DNS 标签标准。这意味着名称必须：
+
+* 最多包含 63 个字符
+* 仅包含小写字母数字字符或“-”
+* 以字母数字字符开头
+* 以字母数字字符结尾
+
+### RFC 1035 Label Names
+
+某些资源类型要求其名称遵循 RFC 1035 中定义的 DNS 标签标准。这意味着名称必须：
+
+* 最多包含 63 个字符
+* 仅包含小写字母数字字符或“-”
+* 以字母字符开头
+* 以字母数字字符结尾
+
+### Path Segment Names
+
+​	某些资源类型要求它们的名称能够安全地编码为path segment。 换句话说，名称可能不是“.” 或“..”，并且名称不能包含“/”或“%”。
+
+​	这是一个名为 nginx-demo 的 Pod 的示例清单。
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-demo
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.14.2
+    ports:
+    - containerPort: 80
+```
+
+> **Note:** Some resource types have additional restrictions on their names.
+
+## UIDs
+
+​	A Kubernetes systems-generated string to uniquely identify objects.
+
+​	Every object created over the whole lifetime of a Kubernetes cluster has a distinct UID. It is intended to distinguish between historical occurrences of similar entities.
+
+​	Kubernetes UIDs are universally unique identifiers (also known as UUIDs). UUIDs are standardized as ISO/IEC 9834-8 and as ITU-T X.667
+
+# Namespaces
+
+​	在 Kubernetes 中，命名空间提供了一种在单个集群中隔离资源组的机制。 资源名称在命名空间内必须是唯一的，但跨命名空间不需要。 基于命名空间的作用域仅适用于命名空间对象（例如部署、服务等），不适用于集群范围的对象（例如 StorageClass、Nodes、PersistentVolumes 等）。
+
+## When to Use Multiple Namespaces
+
+​	略。
+
+## Working with Namespaces
+
+​	Creation and deletion of namespaces are described in the [Admin Guide documentation for namespaces](https://kubernetes.io/docs/tasks/administer-cluster/namespaces).
+
+> **Note:** Avoid creating namespaces with the prefix `kube-`, since it is reserved for Kubernetes system namespaces.
+
+#### Viewing namespaces
+
+You can list the current namespaces in a cluster using:
+
+```shell
+kubectl get namespace
+NAME              STATUS   AGE
+default           Active   1d
+kube-node-lease   Active   1d
+kube-public       Active   1d
+kube-system       Active   1d
+```
+
+Kubernetes starts with four initial namespaces:
+
+* `default` The default namespace for objects with no other namespace
+* `kube-system` The namespace for objects created by the Kubernetes system
+* `kube-public` This namespace is created automatically and is readable by all users (including those not authenticated). This namespace is mostly reserved for cluster usage, in case that some resources should be visible and readable publicly throughout the whole cluster. The public aspect of this namespace is only a convention, not a requirement.
+* `kube-node-lease` This namespace holds [Lease](https://kubernetes.io/docs/reference/kubernetes-api/cluster-resources/lease-v1/) objects associated with each node. Node leases allow the kubelet to send [heartbeats](https://kubernetes.io/docs/concepts/architecture/nodes/#heartbeats) so that the control plane can detect node failure.
+
+### Setting the namespace for a request
+
+To set the namespace for a current request, use the `--namespace` flag.
+
+For example:
+
+```shell
+kubectl run nginx --image=nginx --namespace=<insert-namespace-name-here>
+kubectl get pods --namespace=<insert-namespace-name-here>
+```
+
+### Setting the namespace preference
+
+You can permanently save the namespace for all subsequent kubectl commands in that context.
+
+```shell
+kubectl config set-context --current --namespace=<insert-namespace-name-here>
+# Validate it
+kubectl config view --minify | grep namespace:
+```
+
+## Namespaces and DNS
+
+​	When you create a [Service](https://kubernetes.io/docs/concepts/services-networking/service/), it creates a corresponding [DNS entry](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/). This entry is of the form `<service-name>.<namespace-name>.svc.cluster.local`, which means that if a container only uses `<service-name>`, it will resolve to the service which is local to a namespace. This is useful for using the same configuration across multiple namespaces such as Development, Staging and Production. If you want to reach across namespaces, you need to use the fully qualified domain name (FQDN).
+
+​	As a result, all namespace names must be valid [RFC 1123 DNS labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#dns-label-names).
+
+> **警告**： 通过创建与公共顶级域同名的命名空间，这些命名空间中的服务可以具有与公共 DNS 记录重叠的短 DNS 名称。 来自任何名称空间的工作负载执行不带尾随点的 DNS 查找，将被重定向到这些服务，优先于公共 DNS。 为了缓解这种情况，请将创建命名空间的权限限制为受信任的用户。 如果需要，您可以额外配置第三方安全控制，例如准入 webhook，以阻止使用公共 TLD 名称创建任何命名空间。 
+
+## Not All Objects are in a Namespace
+
+​	Most Kubernetes resources (e.g. pods, services, replication controllers, and others) are in some namespaces. However namespace resources are not themselves in a namespace. And low-level resources, such as [nodes](https://kubernetes.io/docs/concepts/architecture/nodes/) and persistentVolumes, are not in any namespace.
+
+To see which Kubernetes resources are and aren't in a namespace:
+
+```shell
+# In a namespace
+kubectl api-resources --namespaced=true
+
+# Not in a namespace
+kubectl api-resources --namespaced=false
+```
+
+## Automatic labelling
+
+**FEATURE STATE:** `Kubernetes 1.21 [beta]`
+
+​	The Kubernetes control plane sets an immutable [label](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels) `kubernetes.io/metadata.name` on all namespaces, provided that the `NamespaceDefaultLabelName` [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/) is enabled. The value of the label is the namespace name.
+
+# Labels and Selectors
+
+​	标签是附加到对象（例如 pod）的键/值对。 标签旨在用于指定对用户有意义且相关的对象的标识属性，但不直接暗示核心系统的语义。 标签可用于组织和选择对象的子集。 标签可以在创建时附加到对象上，随后可以随时添加和修改。 每个对象都可以定义一组键/值标签。 对于给定的对象，每个 Key 必须是唯一的。
+
+```json
+"metadata": {
+  "labels": {
+    "key1" : "value1",
+    "key2" : "value2"
+  }
+}
+```
+
+​	Labels allow for efficient queries and watches and are ideal for use in UIs and CLIs. Non-identifying information should be recorded using [annotations](https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/)
+
+## Motivation
+
+标签使用户能够以松散耦合的方式将他们自己的组织结构映射到系统对象上，而无需客户端存储这些映射。
+
+服务部署和批处理管道通常是多维实体（例如，多个分区或部署、多个发布轨道、多个层、每层多个微服务）。管理通常需要横切操作，这打破了严格层次表示的封装，特别是由基础设施而不是用户确定的刚性层次。
+
+示例标签：
+
+* “发布”：“稳定”，“发布”：“金丝雀”
+* “环境”：“开发”，“环境”：“qa”，“环境”：“生产”
+* “层”：“前端”，“层”：“后端”，“层”：“缓存”
+* “分区”：“客户A”，“分区”：“客户B”
+* “轨道”：“每日”，“轨道”：“每周”
+
+
+
+​	这些是常用标签的示例；您可以自由开发自己的约定。请记住，标签 Key 对于给定对象必须是唯一的。
