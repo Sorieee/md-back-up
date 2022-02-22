@@ -373,3 +373,20 @@ BOOT_IMAGE=/boot/vmlinuz-3.18.4-aufs root=/dev/sda5 ro cgroup_enable=memory
 swapaccount=1
 ```
 
+**安装**
+
+https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/
+
+https://minikube.sigs.k8s.io/docs/start/
+
+https://www.jianshu.com/p/585dfca309b0
+
+https://blog.csdn.net/believe_ordinary/article/details/119046138
+
+```sh
+minikube start --registry-mirror=https://registry.docker-cn.com  --driver=none --image-repository=registry.cn-hangzhou.aliyuncs.com/google_containers --extra-config=kubelet.cgroup-driver=systemd --v=5
+
+```
+
+https://blog.csdn.net/qq_29653373/article/details/122810169
+
