@@ -273,11 +273,11 @@ deployment.apps/nginx-deployment created
 
 ​	例如，Pod 的参考详细说明了 API 中 Pod 的 spec 字段，而 Deployment 的参考详细说明了 Deployment 的 spec 字段。 在这些 API 参考页面中，您会看到对 PodSpec 和 DeploymentSpec 的提及。 这些名称是 Kubernetes 用来实现其 API 的 Golang 代码的实现细节。
 
-# Kubernetes Object Management
+## Kubernetes Object Management
 
 ​	kubectl 命令行工具支持多种不同的方式来创建和管理 Kubernetes 对象。 本文档概述了不同的方法。 阅读 Kubectl 书籍，了解 Kubectl 管理对象的详细信息。
 
-## Management techniques
+### Management techniques
 
 > 警告：应该只使用一种技术来管理 Kubernetes 对象。 同一对象的混合和匹配技术会导致未定义的行为。
 
@@ -461,7 +461,7 @@ spec:
 
 > **Note:** Some resource types have additional restrictions on their names.
 
-## UIDs
+### UIDs
 
 ​	A Kubernetes systems-generated string to uniquely identify objects.
 
@@ -469,15 +469,15 @@ spec:
 
 ​	Kubernetes UIDs are universally unique identifiers (also known as UUIDs). UUIDs are standardized as ISO/IEC 9834-8 and as ITU-T X.667
 
-# Namespaces
+## Namespaces
 
 ​	在 Kubernetes 中，命名空间提供了一种在单个集群中隔离资源组的机制。 资源名称在命名空间内必须是唯一的，但跨命名空间不需要。 基于命名空间的作用域仅适用于命名空间对象（例如部署、服务等），不适用于集群范围的对象（例如 StorageClass、Nodes、PersistentVolumes 等）。
 
-## When to Use Multiple Namespaces
+### When to Use Multiple Namespaces
 
 ​	略。
 
-## Working with Namespaces
+### Working with Namespaces
 
 ​	Creation and deletion of namespaces are described in the [Admin Guide documentation for namespaces](https://kubernetes.io/docs/tasks/administer-cluster/namespaces).
 
@@ -524,7 +524,7 @@ kubectl config set-context --current --namespace=<insert-namespace-name-here>
 kubectl config view --minify | grep namespace:
 ```
 
-## Namespaces and DNS
+### Namespaces and DNS
 
 ​	When you create a [Service](https://kubernetes.io/docs/concepts/services-networking/service/), it creates a corresponding [DNS entry](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/). This entry is of the form `<service-name>.<namespace-name>.svc.cluster.local`, which means that if a container only uses `<service-name>`, it will resolve to the service which is local to a namespace. This is useful for using the same configuration across multiple namespaces such as Development, Staging and Production. If you want to reach across namespaces, you need to use the fully qualified domain name (FQDN).
 
@@ -532,7 +532,7 @@ kubectl config view --minify | grep namespace:
 
 > **警告**： 通过创建与公共顶级域同名的命名空间，这些命名空间中的服务可以具有与公共 DNS 记录重叠的短 DNS 名称。 来自任何名称空间的工作负载执行不带尾随点的 DNS 查找，将被重定向到这些服务，优先于公共 DNS。 为了缓解这种情况，请将创建命名空间的权限限制为受信任的用户。 如果需要，您可以额外配置第三方安全控制，例如准入 webhook，以阻止使用公共 TLD 名称创建任何命名空间。 
 
-## Not All Objects are in a Namespace
+### Not All Objects are in a Namespace
 
 ​	Most Kubernetes resources (e.g. pods, services, replication controllers, and others) are in some namespaces. However namespace resources are not themselves in a namespace. And low-level resources, such as [nodes](https://kubernetes.io/docs/concepts/architecture/nodes/) and persistentVolumes, are not in any namespace.
 
@@ -546,13 +546,13 @@ kubectl api-resources --namespaced=true
 kubectl api-resources --namespaced=false
 ```
 
-## Automatic labelling
+### Automatic labelling
 
 **FEATURE STATE:** `Kubernetes 1.21 [beta]`
 
 ​	The Kubernetes control plane sets an immutable [label](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels) `kubernetes.io/metadata.name` on all namespaces, provided that the `NamespaceDefaultLabelName` [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/) is enabled. The value of the label is the namespace name.
 
-# Labels and Selectors
+## Labels and Selectors
 
 ​	标签是附加到对象（例如 pod）的键/值对。 标签旨在用于指定对用户有意义且相关的对象的标识属性，但不直接暗示核心系统的语义。 标签可用于组织和选择对象的子集。 标签可以在创建时附加到对象上，随后可以随时添加和修改。 每个对象都可以定义一组键/值标签。 对于给定的对象，每个 Key 必须是唯一的。
 
@@ -567,7 +567,7 @@ kubectl api-resources --namespaced=false
 
 ​	Labels allow for efficient queries and watches and are ideal for use in UIs and CLIs. Non-identifying information should be recorded using [annotations](https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/)
 
-## Motivation
+### Motivation
 
 标签使用户能够以松散耦合的方式将他们自己的组织结构映射到系统对象上，而无需客户端存储这些映射。
 
@@ -584,3 +584,97 @@ kubectl api-resources --namespaced=false
 
 
 ​	这些是常用标签的示例；您可以自由开发自己的约定。请记住，标签 Key 对于给定对象必须是唯一的。
+
+### Syntax and character set
+
+​	标签是键值对。 有效的标签键有两个部分：可选的前缀和名称，由斜杠 (`/`) 分隔。 名称段是必需的，并且必须为 63 个字符或更少，以字母数字字符 (`[a-z0-9A-Z]`) 开头和结尾，并带有破折号 (`-`)、下划线 (`_`)、圆点 (`.`) 和字母数字. 前缀是可选的。 如果指定，前缀必须是 DNS 子域：由点 (`.`) 分隔的一系列 DNS 标签，总共不超过 253 个字符，后跟斜杠 (`/`)。
+
+​	如果省略了前缀，则假定标签密钥对用户是私有的。 向最终用户对象添加标签的自动化系统组件（例如 kube-scheduler、kube-controller-manager、kube-apiserver、kubectl 或其他第三方自动化）必须指定前缀。
+
+​	The `kubernetes.io/` and `k8s.io/` prefixes are [reserved](https://kubernetes.io/docs/reference/labels-annotations-taints/) for Kubernetes core components.
+
+Valid label value:
+
+* must be 63 characters or less (can be empty),
+* unless empty, must begin and end with an alphanumeric character (`[a-z0-9A-Z]`),
+* could contain dashes (`-`), underscores (`_`), dots (`.`), and alphanumerics between.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: label-demo
+  labels:
+    environment: production
+    app: nginx
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.14.2
+    ports:
+    - containerPort: 80
+```
+
+### Label selectors
+
+​	Unlike [names and UIDs](https://kubernetes.io/docs/concepts/overview/working-with-objects/names/), labels do not provide uniqueness. In general, we expect many objects to carry the same label(s).
+
+​	Via a *label selector*, the client/user can identify a set of objects. The label selector is the core grouping primitive in Kubernetes.
+
+​	API 目前支持两种类型的选择器：基于相等和基于集合。 标签选择器可以由逗号分隔的多个要求组成。 在多个要求的情况下，必须满足所有要求，因此逗号分隔符充当逻辑 AND (&&) 运算符。
+
+#### *Equality-based* requirement
+
+​	Three kinds of operators are admitted `=`,`==`,`!=`. The first two represent *equality* (and are synonyms), while the latter represents *inequality*. For example:
+
+```
+environment = production
+tier != frontend
+```
+
+One usage scenario for equality-based label requirement is for Pods to specify node selection criteria. For example, the sample Pod below selects nodes with the label "`accelerator=nvidia-tesla-p100`".
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cuda-test
+spec:
+  containers:
+    - name: cuda-test
+      image: "k8s.gcr.io/cuda-vector-add:v0.1"
+      resources:
+        limits:
+          nvidia.com/gpu: 1
+  nodeSelector:
+    accelerator: nvidia-tesla-p100
+```
+
+### *Set-based* requirement
+
+​	*Set-based* label requirements allow filtering keys according to a set of values. Three kinds of operators are supported: `in`,`notin` and `exists` (only the key identifier). For example:
+
+```
+environment in (production, qa)
+tier notin (frontend, backend)
+partition
+!partition
+```
+
+​	Similarly the comma separator acts as an *AND* operator. So filtering resources with a `partition` key (no matter the value) and with `environment` different than `qa` can be achieved using `partition,environment notin (qa)`. The *set-based* label selector is a general form of equality since `environment=production` is equivalent to `environment in (production)`; similarly for `!=` and `notin`.
+
+​	*Set-based* requirements can be mixed with *equality-based* requirements. For example: `partition in (customerA, customerB),environment!=qa`.
+
+### API
+
+#### LIST and WATCH filtering
+
+​	LIST 和 WATCH 操作可以指定标签选择器来过滤使用查询参数返回的对象集。 这两个要求都是允许的（此处显示它们将出现在 URL 查询字符串中）：
+
+* *equality-based* requirements: `?labelSelector=environment%3Dproduction,tier%3Dfrontend`
+* *set-based* requirements: `?labelSelector=environment+in+%28production%2Cqa%29%2Ctier+in+%28frontend%29`
+
+
+
+​	两种标签选择器样式都可用于通过 REST 客户端列出或查看资源。 例如，使用 kubectl 定位 apiserver 并使用基于等式的可能会这样写：
+
