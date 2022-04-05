@@ -2,6 +2,7 @@
 
 ```sh
 docker run -d -p 80:80 -p 443:443 rancher/rancher:v2.0.0
+sudo docker run --privileged -d --restart=unless-stopped -p 80:80 -p 443:443 -v /root/rancher:/var/lib/rancher/ rancher/rancher:stable
 # d3aa53c5dedfae93ddd9cb048357b44481d90a8aa99bf0e88d15bc239c1723f1
 
 docker logs -f d3aa
