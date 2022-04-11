@@ -849,3 +849,356 @@ If you need to escape the `$` or `${}` placeholders in a GString so they appear 
 assert '$5' == "\$5"
 assert '${name}' == "\${name}"
 ```
+
+#### 4.4.2. Special case of interpolating closure expressions
+
+​	So far, we’ve seen we could interpolate arbitrary expressions inside the `${}` placeholder, but there is a special case and notation for closure expressions. When the placeholder contains an arrow, `${→}`, the expression is actually a closure expression — you can think of it as a closure with a dollar prepended in front of it:
+
+```
+def sParameterLessClosure = "1 + 2 == ${-> 3}" // 1
+assert sParameterLessClosure == '1 + 2 == 3'
+
+def sOneParamClosure = "1 + 2 == ${ w -> w << 3}" // 2
+assert sOneParamClosure == '1 + 2 == 3'
+```
+
+1. The closure is a parameterless closure which doesn’t take arguments.
+2. Here, the closure takes a single `java.io.StringWriter` argument, to which you can append content with the `<<` leftShift operator. In either case, both placeholders are embedded closures.
+
+​	In appearance, it looks like a more verbose way of defining expressions to be interpolated, but closures have an interesting advantage over mere expressions: lazy evaluation.
+
+```groovy
+def number = 1 
+def eagerGString = "value == ${number}"
+def lazyGString = "value == ${ -> number }"
+
+assert eagerGString == "value == 1" 
+assert lazyGString ==  "value == 1" 
+
+number = 2 
+assert eagerGString == "value == 1" 
+assert lazyGString ==  "value == 2" 
+```
+
+#### 4.4.3. Interoperability with Java
+
+When a method (whether implemented in Java or Groovy) expects a `java.lang.String`, but we pass a `groovy.lang.GString` instance, the `toString()` method of the GString is automatically and transparently called.
+
+```
+String takeString(String message) {         
+    assert message instanceof String        
+    return message
+}
+
+def message = "The message is ${'hello'}"   
+assert message instanceof GString           
+
+def result = takeString(message)            
+assert result instanceof String
+assert result == 'The message is hello'
+```
+
+#### 4.4.4. GString and String hashCodes
+
+Although interpolated strings can be used in lieu of plain Java strings, they differ with strings in a particular way: their hashCodes are different. Plain Java strings are immutable, whereas the resulting String representation of a GString can vary, depending on its interpolated values. Even for the same resulting string, GStrings and Strings don’t have the same hashCode.
+
+```
+assert "one: ${1}".hashCode() != "one: 1".hashCode()
+```
+
+GString and Strings having different hashCode values, using GString as Map keys should be avoided, especially if we try to retrieve an associated value with a String instead of a GString.
+
+```
+def key = "a"
+def m = ["${key}": "letter ${key}"]     // 1
+
+assert m["a"] == null     // 2
+```
+
+### 4.5. Triple-double-quoted string
+
+Triple-double-quoted strings behave like double-quoted strings, with the addition that they are multiline, like the triple-single-quoted strings.
+
+```groovy
+def name = 'Groovy'
+def template = """
+    Dear Mr ${name},
+
+    You're the winner of the lottery!
+
+    Yours sincerly,
+
+    Dave
+"""
+
+assert template.toString().contains('Groovy')
+```
+
+> Neither double quotes nor single quotes need be escaped in triple-double-quoted strings.
+
+### 4.6. Slashy string
+
+Beyond the usual quoted strings, Groovy offers slashy strings, which use `/` as the opening and closing delimiter. Slashy strings are particularly useful for defining regular expressions and patterns, as there is no need to escape backslashes.
+
+Example of a slashy string:
+
+```groovy
+def fooPattern = /.*foo.*/
+assert fooPattern == '.*foo.*'
+```
+
+Only forward slashes need to be escaped with a backslash:
+
+```groovy
+def escapeSlash = /The character \/ is a forward slash/
+assert escapeSlash == 'The character / is a forward slash'
+```
+
+Slashy strings are multiline:
+
+```groovy
+def multilineSlashy = /one
+    two
+    three/
+
+assert multilineSlashy.contains('\n')
+```
+
+Slashy strings can be thought of as just another way to define a GString but with different escaping rules. They hence support interpolation:
+
+```groovy
+def color = 'blue'
+def interpolatedSlashy = /a ${color} car/
+
+assert interpolatedSlashy == 'a blue car'
+```
+
+#### 4.6.1. Special cases
+
+​	An empty slashy string cannot be represented with a double forward slash, as it’s understood by the Groovy parser as a line comment. That’s why the following assert would actually not compile as it would look like a non-terminated statement:
+
+```
+assert '' == //
+```
+
+​	As slashy strings were mostly designed to make regexp easier so a few things that are errors in GStrings like `$()` or `$5` will work with slashy strings.
+
+​	Remember that escaping backslashes is not required. An alternative way of thinking of this is that in fact escaping is not supported. The slashy string `/\t/` won’t contain a tab but instead a backslash followed by the character 't'. Escaping is only allowed for the slash character, i.e. `/\/folder/` will be a slashy string containing `'/folder'`. A consequence of slash escaping is that a slashy string can’t end with a backslash. Otherwise that will escape the slashy string terminator. You can instead use a special trick, `/ends with slash ${'\'}/`. But best just avoid using a slashy string in such a case.
+
+### 4.7. Dollar slashy string
+
+Dollar slashy strings are multiline GStrings delimited with an opening `$/` and a closing `/$`. The escaping character is the dollar sign, and it can escape another dollar, or a forward slash. Escaping for the dollar and forward slash characters is only needed where conflicts arise with the special use of those characters. The characters `$foo` would normally indicate a GString placeholder, so those four characters can be entered into a dollar slashy string by escaping the dollar, i.e. `$$foo`. Similarly, you will need to escape a dollar slashy closing delimiter if you want it to appear in your string.
+
+Here are a few examples:
+
+```groovy
+def name = "Guillaume"
+def date = "April, 1st"
+
+def dollarSlashy = $/
+    Hello $name,
+    today we're ${date}.
+
+    $ dollar sign
+    $$ escaped dollar sign
+    \ backslash
+    / forward slash
+    $/ escaped forward slash
+    $$$/ escaped opening dollar slashy
+    $/$$ escaped closing dollar slashy
+/$
+
+assert [
+    'Guillaume',
+    'April, 1st',
+    '$ dollar sign',
+    '$ escaped dollar sign',
+    '\\ backslash',
+    '/ forward slash',
+    '/ escaped forward slash',
+    '$/ escaped opening dollar slashy',
+    '/$ escaped closing dollar slashy'
+].every { dollarSlashy.contains(it) }
+```
+
+### 4.8. String summary table
+
+| String name          | String syntax | Interpolated | Multiline | Escape character |
+| -------------------- | ------------- | ------------ | --------- | ---------------- |
+| Single-quoted        | `'…'`         |              |           | `\`              |
+| Triple-single-quoted | `'''…'''`     |              |           | `\`              |
+| Double-quoted        | `"…"`         |              |           | `\`              |
+| Triple-double-quoted | `"""…"""`     |              |           | `\`              |
+| Slashy               | `/…/`         |              |           | `\`              |
+| Dollar slashy        | `$/…/$`       |              |           | `$`              |
+
+### 4.9. Characters
+
+​	Unlike Java, Groovy doesn’t have an explicit character literal. However, you can be explicit about making a Groovy string an actual character, by three different means:
+
+```groovy
+char c1 = 'A' 
+assert c1 instanceof Character
+
+def c2 = 'B' as char 
+assert c2 instanceof Character
+
+def c3 = (char)'C' 
+assert c3 instanceof Character
+```
+
+## 5. Numbers
+
+​	Groovy supports different kinds of integral literals and decimal literals, backed by the usual `Number` types of Java.
+
+### 5.1. Integral literals
+
+The integral literal types are the same as in Java:
+
+* `byte`
+* `char`
+* `short`
+* `int`
+* `long`
+* `java.math.BigInteger`
+
+You can create integral numbers of those types with the following declarations:
+
+```groovy
+// primitive types
+byte  b = 1
+char  c = 2
+short s = 3
+int   i = 4
+long  l = 5
+
+// infinite precision
+BigInteger bi =  6
+```
+
+If you use optional typing by using the `def` keyword, the type of the integral number will vary: it’ll adapt to the capacity of the type that can hold that number.
+
+For positive numbers:
+
+```gr
+def a = 1
+assert a instanceof Integer
+
+// Integer.MAX_VALUE
+def b = 2147483647
+assert b instanceof Integer
+
+// Integer.MAX_VALUE + 1
+def c = 2147483648
+assert c instanceof Long
+
+// Long.MAX_VALUE
+def d = 9223372036854775807
+assert d instanceof Long
+
+// Long.MAX_VALUE + 1
+def e = 9223372036854775808
+assert e instanceof BigInteger
+```
+
+As well as for negative numbers:
+
+```groovy
+def na = -1
+assert na instanceof Integer
+
+// Integer.MIN_VALUE
+def nb = -2147483648
+assert nb instanceof Integer
+
+// Integer.MIN_VALUE - 1
+def nc = -2147483649
+assert nc instanceof Long
+
+// Long.MIN_VALUE
+def nd = -9223372036854775808
+assert nd instanceof Long
+
+// Long.MIN_VALUE - 1
+def ne = -9223372036854775809
+assert ne instanceof BigInteger
+```
+
+#### 5.1.1. Alternative non-base 10 representations
+
+Numbers can also be represented in binary, octal, hexadecimal and decimal bases.
+
+##### Binary literal
+
+Binary numbers start with a `0b` prefix:
+
+```groovy
+int xInt = 0b10101111
+assert xInt == 175
+
+short xShort = 0b11001001
+assert xShort == 201 as short
+
+byte xByte = 0b11
+assert xByte == 3 as byte
+
+long xLong = 0b101101101101
+assert xLong == 2925l
+
+BigInteger xBigInteger = 0b111100100001
+assert xBigInteger == 3873g
+
+int xNegativeInt = -0b10101111
+assert xNegativeInt == -175
+```
+
+##### Octal literal
+
+Octal numbers are specified in the typical format of `0` followed by octal digits.
+
+```groovy
+int xInt = 077
+assert xInt == 63
+
+short xShort = 011
+assert xShort == 9 as short
+
+byte xByte = 032
+assert xByte == 26 as byte
+
+long xLong = 0246
+assert xLong == 166l
+
+BigInteger xBigInteger = 01111
+assert xBigInteger == 585g
+
+int xNegativeInt = -077
+assert xNegativeInt == -63
+```
+
+##### Hexadecimal literal
+
+Hexadecimal numbers are specified in the typical format of `0x` followed by hex digits.
+
+```groovy
+int xInt = 0x77
+assert xInt == 119
+
+short xShort = 0xaa
+assert xShort == 170 as short
+
+byte xByte = 0x3a
+assert xByte == 58 as byte
+
+long xLong = 0xffff
+assert xLong == 65535l
+
+BigInteger xBigInteger = 0xaaaa
+assert xBigInteger == 43690g
+
+Double xDouble = new Double('0x1.0p0')
+assert xDouble == 1.0d
+
+int xNegativeInt = -0x77
+assert xNegativeInt == -119
+```
