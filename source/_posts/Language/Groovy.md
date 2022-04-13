@@ -479,7 +479,7 @@ Groovy is less stringent than Java in that it allows some keywords to appear in 
 
 Additional documentation is available for [keywords](https://docs.groovy-lang.org/latest/html/documentation/core-syntax.html#_keywords).
 
-# 语法
+# Syntax
 
 ## 注释
 
@@ -1202,3 +1202,1016 @@ assert xDouble == 1.0d
 int xNegativeInt = -0x77
 assert xNegativeInt == -119
 ```
+
+### 5.2. Decimal literals
+
+The decimal literal types are the same as in Java:
+
+* `float`
+* `double`
+* `java.math.BigDecimal`
+
+You can create decimal numbers of those types with the following declarations:
+
+```groovy
+// primitive types
+float  f = 1.234
+double d = 2.345
+
+// infinite precision
+BigDecimal bd =  3.456
+```
+
+Decimals can use exponents, with the `e` or `E` exponent letter, followed by an optional sign, and an integral number representing the exponent:
+
+```groovy
+assert 1e3  ==  1_000.0
+assert 2E4  == 20_000.0
+assert 3e+1 ==     30.0
+assert 4E-2 ==      0.04
+assert 5e-1 ==      0.5
+```
+
+Conveniently for exact decimal number calculations, Groovy chooses `java.math.BigDecimal` as its decimal number type. In addition, both `float` and `double` are supported, but require an explicit type declaration, type coercion or suffix. Even if `BigDecimal` is the default for decimal numbers, such literals are accepted in methods or closures taking `float` or `double` as parameter types.
+
+>  Decimal numbers can’t be represented using a binary, octal or hexadecimal representation.
+
+### 5.3. Underscore in literals
+
+When writing long literal numbers, it’s harder on the eye to figure out how some numbers are grouped together, for example with groups of thousands, of words, etc. By allowing you to place underscore in number literals, it’s easier to spot those groups:
+
+```groovy
+long creditCardNumber = 1234_5678_9012_3456L
+long socialSecurityNumbers = 999_99_9999L
+double monetaryAmount = 12_345_132.12
+long hexBytes = 0xFF_EC_DE_5E
+long hexWords = 0xFFEC_DE5E
+long maxLong = 0x7fff_ffff_ffff_ffffL
+long alsoMaxLong = 9_223_372_036_854_775_807L
+long bytes = 0b11010010_01101001_10010100_10010010
+```
+
+### 5.4. Number type suffixes
+
+We can force a number (including binary, octals and hexadecimals) to have a specific type by giving a suffix (see table below), either uppercase or lowercase.
+
+| Type       | Suffix     |
+| :--------- | :--------- |
+| BigInteger | `G` or `g` |
+| Long       | `L` or `l` |
+| Integer    | `I` or `i` |
+| BigDecimal | `G` or `g` |
+| Double     | `D` or `d` |
+| Float      | `F` or `f` |
+
+Examples:
+
+```
+assert 42I == Integer.valueOf('42')
+assert 42i == Integer.valueOf('42') // lowercase i more readable
+assert 123L == Long.valueOf("123") // uppercase L more readable
+assert 2147483648 == Long.valueOf('2147483648') // Long type used, value too large for an Integer
+assert 456G == new BigInteger('456')
+assert 456g == new BigInteger('456')
+assert 123.45 == new BigDecimal('123.45') // default BigDecimal type used
+assert .321 == new BigDecimal('.321')
+assert 1.200065D == Double.valueOf('1.200065')
+assert 1.234F == Float.valueOf('1.234')
+assert 1.23E23D == Double.valueOf('1.23E23')
+assert 0b1111L.class == Long // binary
+assert 0xFFi.class == Integer // hexadecimal
+assert 034G.class == BigInteger // octal
+```
+
+### 5.5. Math operations
+
+Although [operators](https://docs.groovy-lang.org/latest/html/documentation/core-operators.html#groovy-operators) are covered in more detail elsewhere, it’s important to discuss the behavior of math operations and what their resulting types are.
+
+Division and power binary operations aside (covered below),
+
+* binary operations between `byte`, `char`, `short` and `int` result in `int`
+* binary operations involving `long` with `byte`, `char`, `short` and `int` result in `long`
+* binary operations involving `BigInteger` and any other integral type result in `BigInteger`
+* binary operations involving `BigDecimal` with `byte`, `char`, `short`, `int` and `BigInteger` result in `BigDecimal`
+* binary operations between `float`, `double` and `BigDecimal` result in `double`
+* binary operations between two `BigDecimal` result in `BigDecimal`
+
+The following table summarizes those rules:
+
+|                | byte | char | short | int  | long | BigInteger | float  | double | BigDecimal |
+| :------------- | :--- | :--- | :---- | :--- | :--- | :--------- | :----- | :----- | :--------- |
+| **byte**       | int  | int  | int   | int  | long | BigInteger | double | double | BigDecimal |
+| **char**       |      | int  | int   | int  | long | BigInteger | double | double | BigDecimal |
+| **short**      |      |      | int   | int  | long | BigInteger | double | double | BigDecimal |
+| **int**        |      |      |       | int  | long | BigInteger | double | double | BigDecimal |
+| **long**       |      |      |       |      | long | BigInteger | double | double | BigDecimal |
+| **BigInteger** |      |      |       |      |      | BigInteger | double | double | BigDecimal |
+| **float**      |      |      |       |      |      |            | double | double | double     |
+| **double**     |      |      |       |      |      |            |        | double | double     |
+| **BigDecimal** |      |      |       |      |      |            |        |        | BigDecimal |
+
+> Thanks to Groovy’s operator overloading, the usual arithmetic operators work as well with `BigInteger` and `BigDecimal`, unlike in Java where you have to use explicit methods for operating on those numbers.
+
+#### 5.5.1. The case of the division operator
+
+The division operators `/` (and `/=` for division and assignment) produce a `double` result if either operand is a `float` or `double`, and a `BigDecimal` result otherwise (when both operands are any combination of an integral type `short`, `char`, `byte`, `int`, `long`, `BigInteger` or `BigDecimal`).
+
+`BigDecimal` division is performed with the `divide()` method if the division is exact (i.e. yielding a result that can be represented within the bounds of the same precision and scale), or using a `MathContext` with a [precision](http://docs.oracle.com/javase/7/docs/api/java/math/BigDecimal.html#precision()) of the maximum of the two operands' precision plus an extra precision of 10, and a [scale](http://docs.oracle.com/javase/7/docs/api/java/math/BigDecimal.html#scale()) of the maximum of 10 and the maximum of the operands' scale.
+
+> For integer division like in Java, you should use the `intdiv()` method, as Groovy doesn’t provide a dedicated integer division operator symbol.
+
+#### 5.5.2. The case of the power operator
+
+The power operation is represented by the `**` operator, with two parameters: the base and the exponent. The result of the power operation depends on its operands, and the result of the operation (in particular if the result can be represented as an integral value).
+
+The following rules are used by Groovy’s power operation to determine the resulting type:
+
+* If the exponent is a decimal value
+  * if the result can be represented as an `Integer`, then return an `Integer`
+  * else if the result can be represented as a `Long`, then return a `Long`
+  * otherwise return a `Double`
+* If the exponent is an integral value
+  * if the exponent is strictly negative, then return an `Integer`, `Long` or `Double` if the result value fits in that type
+  * if the exponent is positive or zero
+    * if the base is a `BigDecimal`, then return a `BigDecimal` result value
+    * if the base is a `BigInteger`, then return a `BigInteger` result value
+    * if the base is an `Integer`, then return an `Integer` if the result value fits in it, otherwise a `BigInteger`
+    * if the base is a `Long`, then return a `Long` if the result value fits in it, otherwise a `BigInteger`
+
+We can illustrate those rules with a few examples:
+
+```
+// base and exponent are ints and the result can be represented by an Integer
+assert    2    **   3    instanceof Integer    //  8
+assert   10    **   9    instanceof Integer    //  1_000_000_000
+
+// the base is a long, so fit the result in a Long
+// (although it could have fit in an Integer)
+assert    5L   **   2    instanceof Long       //  25
+
+// the result can't be represented as an Integer or Long, so return a BigInteger
+assert  100    **  10    instanceof BigInteger //  10e20
+assert 1234    ** 123    instanceof BigInteger //  170515806212727042875...
+
+// the base is a BigDecimal and the exponent a negative int
+// but the result can be represented as an Integer
+assert    0.5  **  -2    instanceof Integer    //  4
+
+// the base is an int, and the exponent a negative float
+// but again, the result can be represented as an Integer
+assert    1    **  -0.3f instanceof Integer    //  1
+
+// the base is an int, and the exponent a negative int
+// but the result will be calculated as a Double
+// (both base and exponent are actually converted to doubles)
+assert   10    **  -1    instanceof Double     //  0.1
+
+// the base is a BigDecimal, and the exponent is an int, so return a BigDecimal
+assert    1.2  **  10    instanceof BigDecimal //  6.1917364224
+
+// the base is a float or double, and the exponent is an int
+// but the result can only be represented as a Double value
+assert    3.4f **   5    instanceof Double     //  454.35430372146965
+assert    5.6d **   2    instanceof Double     //  31.359999999999996
+
+// the exponent is a decimal value
+// and the result can only be represented as a Double value
+assert    7.8  **   1.9  instanceof Double     //  49.542708423868476
+assert    2    **   0.1f instanceof Double     //  1.0717734636432956
+```
+
+## 6. Booleans
+
+Boolean is a special data type that is used to represent truth values: `true` and `false`. Use this data type for simple flags that track true/false [conditions](https://docs.groovy-lang.org/latest/html/documentation/core-operators.html#_conditional_operators).
+
+Boolean values can be stored in variables, assigned into fields, just like any other data type:
+
+```groovy
+def myBooleanVariable = true
+boolean untypedBooleanVar = false
+booleanField = true
+```
+
+`true` and `false` are the only two primitive boolean values. But more complex boolean expressions can be represented using [logical operators](https://docs.groovy-lang.org/latest/html/documentation/core-operators.html#_logical_operators).
+
+In addition, Groovy has [special rules](https://docs.groovy-lang.org/latest/html/documentation/core-semantics.html#the-groovy-truth) (often referred to as *Groovy Truth*) for coercing non-boolean objects to a boolean
+
+## 7. Lists
+
+Groovy uses a comma-separated list of values, surrounded by square brackets, to denote lists. Groovy lists are plain JDK `java.util.List`, as Groovy doesn’t define its own collection classes. The concrete list implementation used when defining list literals are `java.util.ArrayList` by default, unless you decide to specify otherwise, as we shall see later on.
+
+```groovy
+def numbers = [1, 2, 3]         
+
+assert numbers instanceof List  
+assert numbers.size() == 3      
+```
+
+* We define a list numbers delimited by commas and surrounded by square brackets, and we assign that list into a variable.
+* The list is an instance of Java’s `java.util.List` interface.
+* The size of the list can be queried with the `size()` method, and shows our list contains 3 elements.
+
+In the above example, we used a homogeneous list, but you can also create lists containing values of heterogeneous types:
+
+```sh
+def heterogeneous = [1, "a", true]
+```
+
+1. Our list here contains a number, a string and a boolean value.
+
+We mentioned that by default, list literals are actually instances of `java.util.ArrayList`, but it is possible to use a different backing type for our lists, thanks to using type coercion with the `as` operator, or with explicit type declaration for your variables:
+
+```groovy
+def arrayList = [1, 2, 3]
+assert arrayList instanceof java.util.ArrayList
+
+def linkedList = [2, 3, 4] as LinkedList    
+assert linkedList instanceof java.util.LinkedList
+
+LinkedList otherLinked = [3, 4, 5]          
+assert otherLinked instanceof java.util.LinkedList
+```
+
+1. We use coercion with the `as` operator to explicitly request a `java.util.LinkedList` implementation.
+2.  We can say that the variable holding the list literal is of type `java.util.LinkedList`.
+
+You can access elements of the list with the `[]` subscript operator (both for reading and setting values) with positive indices or negative indices to access elements from the end of the list, as well as with ranges, and use the `<<` leftShift operator to append elements to a list:
+
+```groovy
+def letters = ['a', 'b', 'c', 'd']
+
+assert letters[0] == 'a'     
+assert letters[1] == 'b'
+
+assert letters[-1] == 'd'    
+assert letters[-2] == 'c'
+
+letters[2] = 'C'             
+assert letters[2] == 'C'
+
+letters << 'e'               
+assert letters[ 4] == 'e'
+assert letters[-1] == 'e'
+
+assert letters[1, 3] == ['b', 'd']         
+assert letters[2..4] == ['C', 'd', 'e'] 
+```
+
+1. Access the first element of the list (zero-based counting)
+2. Access the last element of the list with a negative index: -1 is the first element from the end of the list
+3. Use an assignment to set a new value for the third element of the list
+4. Use the `<<` leftShift operator to append an element at the end of the list
+5. Access two elements at once, returning a new list containing those two elements
+6.  Use a range to access a range of values from the list, from a start to an end element position
+
+As lists can be heterogeneous in nature, lists can also contain other lists to create multi-dimensional lists:
+
+```groovy
+def multi = [[0, 1], [2, 3]]     
+assert multi[1][0] == 2          
+```
+
+1.  Define a list of list of numbers
+2. Access the second element of the top-most list, and the first element of the inner list
+
+## 8. Arrays
+
+Groovy reuses the list notation for arrays, but to make such literals arrays, you need to explicitely define the type of the array through coercion or type declaration.
+
+```groovy
+String[] arrStr = ['Ananas', 'Banana', 'Kiwi']  
+
+assert arrStr instanceof String[]    
+assert !(arrStr instanceof List)
+
+def numArr = [1, 2, 3] as int[]      
+
+assert numArr instanceof int[]       
+assert numArr.size() == 3
+```
+
+1. Define an array of strings using explicit variable type declaration
+2.  Assert that we created an array of strings
+3. Create an array of ints with the `as` operator
+4. Assert that we created an array of primitive ints
+
+You can also create multi-dimensional arrays:
+
+```groovy
+def matrix3 = new Integer[3][3]         
+assert matrix3.size() == 3
+
+Integer[][] matrix2                     
+matrix2 = [[1, 2], [3, 4]]
+assert matrix2 instanceof Integer[][]
+```
+
+1. You can define the bounds of a new array
+2. Or declare an array without specifying its bounds
+
+Access to elements of an array follows the same notation as for lists:
+
+```
+String[] names = ['Cédric', 'Guillaume', 'Jochen', 'Paul']
+assert names[0] == 'Cédric'     
+
+names[2] = 'Blackdrag'          
+assert names[2] == 'Blackdrag'
+```
+
+1. Retrieve the first element of the array
+2. Set the value of the third element of the array to a new value
+
+### 8.1. Java-style array initialization
+
+Groovy has always supported literal list/array definitions using square brackets and has avoided Java-style curly braces so as not to conflict with closure definitions. In the case where the curly braces come immediately after an array type declaration however, there is no ambiguity with closure definitions, so Groovy 3 and above support that variant of the Java array initialization expression.
+
+Examples:
+
+```
+def primes = new int[] {2, 3, 5, 7, 11}
+assert primes.size() == 5 && primes.sum() == 28
+assert primes.class.name == '[I'
+
+def pets = new String[] {'cat', 'dog'}
+assert pets.size() == 2 && pets.sum() == 'catdog'
+assert pets.class.name == '[Ljava.lang.String;'
+
+// traditional Groovy alternative still supported
+String[] groovyBooks = [ 'Groovy in Action', 'Making Java Groovy' ]
+assert groovyBooks.every{ it.contains('Groovy') }
+```
+
+## 9. Maps
+
+Sometimes called dictionaries or associative arrays in other languages, Groovy features maps. Maps associate keys to values, separating keys and values with colons, and each key/value pairs with commas, and the whole keys and values surrounded by square brackets.
+
+```
+def colors = [red: '#FF0000', green: '#00FF00', blue: '#0000FF']   
+
+assert colors['red'] == '#FF0000'    
+assert colors.green  == '#00FF00'    
+
+colors['pink'] = '#FF00FF'           
+colors.yellow  = '#FFFF00'           
+
+assert colors.pink == '#FF00FF'
+assert colors['yellow'] == '#FFFF00'
+
+assert colors instanceof java.util.LinkedHashMap
+```
+
+1. We define a map of string color names, associated with their hexadecimal-coded html colors
+2. We use the subscript notation to check the content associated with the `red` key
+3.  We can also use the property notation to assert the color green’s hexadecimal representation
+4. Similarly, we can use the subscript notation to add a new key/value pair
+5.  Or the property notation, to add the `yellow` color
+
+> When using names for the keys, we actually define string keys in the map.
+>
+> Groovy creates maps that are actually instances of `java.util.LinkedHashMap`.
+
+If you try to access a key which is not present in the map:
+
+```groovy
+assert colors.unknown == null
+
+def emptyMap = [:]
+assert emptyMap.anyKey == null
+```
+
+You will retrieve a `null` result.
+
+In the examples above, we used string keys, but you can also use values of other types as keys:
+
+```groovy
+def numbers = [1: 'one', 2: 'two']
+
+assert numbers[1] == 'one'
+```
+
+Here, we used numbers as keys, as numbers can unambiguously be recognized as numbers, so Groovy will not create a string key like in our previous examples. But consider the case you want to pass a variable in lieu of the key, to have the value of that variable become the key:
+
+```groovy
+def key = 'name'
+def person = [key: 'Guillaume']      
+
+assert !person.containsKey('name')   
+assert person.containsKey('key')   
+```
+
+1. The `key` associated with the `'Guillaume'` name will actually be the `"key"` string, not the value associated with the `key` variable
+2. The map doesn’t contain the `'name'` key
+3.  Instead, the map contains a `'key'` key
+
+> You can also pass quoted strings as well as keys: ["name": "Guillaume"]. This is mandatory if your key string isn’t a valid identifier, for example if you wanted to create a string key containing a dash like in: ["street-name": "Main street"].
+
+When you need to pass variable values as keys in your map definitions, you must surround the variable or expression with parentheses:
+
+```groovy
+person = [(key): 'Guillaume']        
+
+assert person.containsKey('name')    
+assert !person.containsKey('key')    
+```
+
+1. This time, we surround the `key` variable with parentheses, to instruct the parser we are passing a variable rather than defining a string key
+2. The map does contain the `name` key
+3. But the map doesn’t contain the `key` key as before
+
+# Operators
+
+## 1. Arithmetic operators
+
+### 1.1. Normal arithmetic operators
+
+The following binary arithmetic operators are available in Groovy:
+
+| Operator | Purpose        | Remarks                                                      |
+| :------- | :------------- | :----------------------------------------------------------- |
+| `+`      | addition       |                                                              |
+| `-`      | subtraction    |                                                              |
+| `*`      | multiplication |                                                              |
+| `/`      | division       | Use `intdiv()` for integer division, and see the section about [integer division](https://docs.groovy-lang.org/latest/html/documentation/core-syntax.html#integer_division) for more information on the return type of the division. |
+| `%`      | remainder      |                                                              |
+| `**`     | power          | See the section about [the power operation](https://docs.groovy-lang.org/latest/html/documentation/core-syntax.html#power_operator) for more information on the return type of the operation. |
+
+Here are a few examples of usage of those operators:
+
+```groovy
+assert  1  + 2 == 3
+assert  4  - 3 == 1
+assert  3  * 5 == 15
+assert  3  / 2 == 1.5
+assert 10  % 3 == 1
+assert  2 ** 3 == 8
+```
+
+### 1.2. Unary operators
+
+The `+` and `-` operators are also available as unary operators:
+
+```
+assert +3 == 3
+assert -4 == 0 - 4
+
+assert -(-1) == 1  
+```
+
+
+
+In terms of unary arithmetics operators, the `++` (increment) and `--` (decrement) operators are available, both in prefix and postfix notation:
+
+```groovy
+def a = 2
+def b = a++ * 3             
+
+assert a == 3 && b == 6
+
+def c = 3
+def d = c-- * 2             
+
+assert c == 2 && d == 6
+
+def e = 1
+def f = ++e + 3             
+
+assert e == 2 && f == 5
+
+def g = 4
+def h = --g + 1             
+
+assert g == 3 && h == 4
+```
+
+### 1.3. Assignment arithmetic operators
+
+The binary arithmetic operators we have seen above are also available in an assignment form:
+
+* `+=`
+* `-=`
+* `*=`
+* `/=`
+* `%=`
+* `**=`
+
+Let’s see them in action:
+
+```groovy
+def a = 4
+a += 3
+
+assert a == 7
+
+def b = 5
+b -= 3
+
+assert b == 2
+
+def c = 5
+c *= 3
+
+assert c == 15
+
+def d = 10
+d /= 2
+
+assert d == 5
+
+def e = 10
+e %= 3
+
+assert e == 1
+
+def f = 3
+f **= 2
+
+assert f == 9
+```
+
+## 2. Relational operators
+
+Relational operators allow comparisons between objects, to know if two objects are the same or different, or if one is greater than, less than, or equal to the other.
+
+The following operators are available:
+
+| Operator | Purpose                            |
+| :------- | :--------------------------------- |
+| `==`     | equal                              |
+| `!=`     | different                          |
+| `<`      | less than                          |
+| `<=`     | less than or equal                 |
+| `>`      | greater than                       |
+| `>=`     | greater than or equal              |
+| `===`    | identical (Since Groovy 3.0.0)     |
+| `!==`    | not identical (Since Groovy 3.0.0) |
+
+Here are some examples of simple number comparisons using these operators:
+
+```
+assert 1 + 2 == 3
+assert 3 != 4
+
+assert -2 < 3
+assert 2 <= 2
+assert 3 <= 4
+
+assert 5 > 1
+assert 5 >= -2
+```
+
+Both `===` and `!==` are supported which are the same as calling the `is()` method, and negating a call to the `is()` method respectively.
+
+```
+import groovy.transform.EqualsAndHashCode
+
+@EqualsAndHashCode
+class Creature { String type }
+
+def cat = new Creature(type: 'cat')
+def copyCat = cat
+def lion = new Creature(type: 'cat')
+
+assert cat.equals(lion) // Java logical equality
+assert cat == lion      // Groovy shorthand operator
+
+assert cat.is(copyCat)  // Groovy identity
+assert cat === copyCat  // operator shorthand
+assert cat !== lion     // negated operator shorthand
+```
+
+## 3. Logical operators
+
+Groovy offers three logical operators for boolean expressions:
+
+* `&&`: logical "and"
+* `||`: logical "or"
+* `!`: logical "not"
+
+Let’s illustrate them with the following examples:
+
+```
+assert !false           
+assert true && true     
+assert true || false    
+```
+
+### 3.1. Precedence
+
+The logical "not" has a higher priority than the logical "and".
+
+```
+assert (!false && false) == false   
+```
+
+The logical "and" has a higher priority than the logical "or".
+
+```
+assert true || true && false        
+```
+
+### 3.2. Short-circuiting
+
+The logical `||` operator supports short-circuiting: if the left operand is true, it knows that the result will be true in any case, so it won’t evaluate the right operand. The right operand will be evaluated only if the left operand is false.
+
+Likewise for the logical `&&` operator: if the left operand is false, it knows that the result will be false in any case, so it won’t evaluate the right operand. The right operand will be evaluated only if the left operand is true.
+
+```
+boolean checkIfCalled() {   
+    called = true
+}
+
+called = false
+true || checkIfCalled()
+assert !called              
+
+called = false
+false || checkIfCalled()
+assert called               
+
+called = false
+false && checkIfCalled()
+assert !called              
+
+called = false
+true && checkIfCalled()
+assert called               
+```
+
+## 4. Bitwise and bit shift operators
+
+### 4.1. Bitwise operators
+
+Groovy offers four bitwise operators:
+
+* `&`: bitwise "and"
+* `|`: bitwise "or"
+* `^`: bitwise "xor" (exclusive "or")
+* `~`: bitwise negation
+
+Bitwise operators can be applied on arguments which are of type `byte`, `short`, `int`, `long`, or `BigInteger`. If one of the arguments is a `BigInteger`, the result will be of type `BigInteger`; otherwise, if one of the arguments is a `long`, the result will be of type `long`; otherwise, the result will be of type `int`:
+
+```
+int a = 0b00101010
+assert a == 42
+int b = 0b00001000
+assert b == 8
+assert (a & a) == a                     
+assert (a & b) == b                     
+assert (a | a) == a                     
+assert (a | b) == a                     
+
+int mask = 0b11111111                   
+assert ((a ^ a) & mask) == 0b00000000   
+assert ((a ^ b) & mask) == 0b00100010   
+assert ((~a) & mask)    == 0b11010101   
+```
+
+### 4.2. Bit shift operators
+
+Groovy offers three bit shift operators:
+
+* `<<`: left shift
+* `>>`: right shift
+* `>>>`: right shift unsigned
+
+All three operators are applicable where the left argument is of type `byte`, `short`, `int`, or `long`. The first two operators can also be applied where the left argument is of type `BigInteger`. If the left argument is a `BigInteger`, the result will be of type `BigInteger`; otherwise, if the left argument is a `long`, the result will be of type `long`; otherwise, the result will be of type `int`:
+
+```groovy
+assert 12.equals(3 << 2)           
+assert 24L.equals(3L << 3)         
+assert 48G.equals(3G << 4)         
+
+assert 4095 == -200 >>> 20
+assert -1 == -200 >> 20
+assert 2G == 5G >> 1
+assert -3G == -5G >> 1
+```
+
+## 5. Conditional operators
+
+### 5.1. Not operator
+
+The "not" operator is represented with an exclamation mark (`!`) and inverts the result of the underlying boolean expression. In particular, it is possible to combine the `not` operator with the [Groovy truth](https://docs.groovy-lang.org/latest/html/documentation/core-semantics.html#the-groovy-truth):
+
+```groovy
+assert (!true)    == false                      
+assert (!'foo')   == false                      
+assert (!'')      == true                       
+```
+
+### 5.2. Ternary operator
+
+The ternary operator is a shortcut expression that is equivalent to an if/else branch assigning some value to a variable.
+
+Instead of:
+
+```groovy
+if (string!=null && string.length()>0) {
+    result = 'Found'
+} else {
+    result = 'Not found'
+}
+```
+
+You can write:
+
+```groovy
+result = (string!=null && string.length()>0) ? 'Found' : 'Not found'
+```
+
+The ternary operator is also compatible with the [Groovy truth](https://docs.groovy-lang.org/latest/html/documentation/core-semantics.html#the-groovy-truth), so you can make it even simpler:
+
+```groovy
+result = string ? 'Found' : 'Not found'
+```
+
+### 5.3. Elvis operator
+
+The "Elvis operator" is a shortening of the ternary operator. One instance of where this is handy is for returning a 'sensible default' value if an expression resolves to `false`-ish (as in [Groovy truth](https://docs.groovy-lang.org/latest/html/documentation/core-semantics.html#the-groovy-truth)). A simple example might look like this:
+
+```
+displayName = user.name ? user.name : 'Anonymous'   
+displayName = user.name ?: 'Anonymous'       
+```
+
+### 5.4. Elvis assignment operator
+
+Groovy 3.0.0 introduces the Elvis operator, for example:
+
+```
+import groovy.transform.ToString
+
+@ToString
+class Element {
+    String name
+    int atomicNumber
+}
+
+def he = new Element(name: 'Helium')
+he.with {
+    name = name ?: 'Hydrogen'   // existing Elvis operator
+    atomicNumber ?= 2           // new Elvis assignment shorthand
+}
+assert he.toString() == 'Element(Helium, 2)'
+```
+
+## 6. Object operators
+
+### 6.1. Safe navigation operator
+
+The Safe Navigation operator is used to avoid a `NullPointerException`. Typically when you have a reference to an object you might need to verify that it is not `null` before accessing methods or properties of the object. To avoid this, the safe navigation operator will simply return `null` instead of throwing an exception, like so:
+
+```groovy
+def person = Person.find { it.id == 123 }    
+def name = person?.name                      
+assert name == null       
+```
+
+### 6.2. Direct field access operator
+
+Normally in Groovy, when you write code like this:
+
+```groovy
+class User {
+    public final String name                 
+    User(String name) { this.name = name}
+    String getName() { "Name: $name" }       
+}
+def user = new User('Bob')
+assert user.name == 'Name: Bob'              
+```
+
+The `user.name` call triggers a call to the property of the same name, that is to say, here, to the getter for `name`. If you want to retrieve the field instead of calling the getter, you can use the direct field access operator:
+
+```
+assert user.@name == 'Bob' 
+```
+
+### 6.3. Method pointer operator
+
+The method pointer operator (`.&`) can be used to store a reference to a method in a variable, in order to call it later:
+
+```
+def str = 'example of method reference'            
+def fun = str.&toUpperCase                         
+def upper = fun()                                  
+assert upper == str.toUpperCase()                  
+```
+
+There are multiple advantages in using method pointers. First of all, the type of such a method pointer is a `groovy.lang.Closure`, so it can be used in any place a closure would be used. In particular, it is suitable to convert an existing method for the needs of the strategy pattern:
+
+```groovy
+def transform(List elements, Closure action) {                    
+    def result = []
+    elements.each {
+        result << action(it)
+    }
+    result
+}
+String describe(Person p) {                                       
+    "$p.name is $p.age"
+}
+def action = this.&describe                                       
+def list = [
+    new Person(name: 'Bob',   age: 42),
+    new Person(name: 'Julia', age: 35)]                           
+assert transform(list, action) == ['Bob is 42', 'Julia is 35']    
+```
+
+Method pointers are bound by the receiver and a method name. Arguments are resolved at runtime, meaning that if you have multiple methods with the same name, the syntax is not different, only resolution of the appropriate method to be called will be done at runtime:
+
+```groovy
+def doSomething(String str) { str.toUpperCase() }    
+def doSomething(Integer x) { 2*x }                   
+def reference = this.&doSomething                    
+assert reference('foo') == 'FOO'                     
+assert reference(123)   == 246                       
+```
+
+To align with Java 8 method reference expectations, in Groovy 3 and above, you can use `new` as the method name to obtain a method pointer to the constructor:
+
+```groovy
+def foo  = BigInteger.&new
+def fortyTwo = foo('42')
+assert fortyTwo == 42G
+```
+
+Also in Groovy 3 and above, you can obtain a method pointer to an instance method of a class. This method pointer takes an additional parameter being the receiver instance to invoke the method on:
+
+```groovy
+def instanceMethod = String.&toUpperCase
+assert instanceMethod('foo') == 'FOO'
+```
+
+### 6.4. Method reference operator
+
+The Parrot parser in Groovy 3+ supports the Java 8+ method reference operator. The method reference operator (`::`) can be used to reference a method or constructor in contexts expecting a functional interface. This overlaps somewhat with the functionality provided by Groovy’s method pointer operator. Indeed, for dynamic Groovy, the method reference operator is just an alias for the method pointer operator. For static Groovy, the operator results in bytecode similar to the bytecode that Java would produce for the same context.
+
+Some examples highlighting various supported method reference cases are shown in the following script:
+
+```groovy
+import groovy.transform.CompileStatic
+import static java.util.stream.Collectors.toList
+
+@CompileStatic
+void methodRefs() {
+    assert 6G == [1G, 2G, 3G].stream().reduce(0G, BigInteger::add)                           
+
+    assert [4G, 5G, 6G] == [1G, 2G, 3G].stream().map(3G::add).collect(toList())              
+
+    assert [1G, 2G, 3G] == [1L, 2L, 3L].stream().map(BigInteger::valueOf).collect(toList())  
+
+    assert [1G, 2G, 3G] == [1L, 2L, 3L].stream().map(3G::valueOf).collect(toList())          
+}
+
+methodRefs()
+```
+
+Some examples highlighting various supported constructor reference cases are shown in the following script:
+
+```groovy
+@CompileStatic
+void constructorRefs() {
+    assert [1, 2, 3] == ['1', '2', '3'].stream().map(Integer::new).collect(toList())  
+
+    def result = [1, 2, 3].stream().toArray(Integer[]::new)                           
+    assert result instanceof Integer[]
+    assert result.toString() == '[1, 2, 3]'
+}
+
+constructorRefs()
+```
+
+## 7. Regular expression operators
+
+### 7.1. Pattern operator
+
+The pattern operator (`~`) provides a simple way to create a `java.util.regex.Pattern` instance:
+
+```
+def p = ~/foo/
+assert p instanceof Pattern
+```
+
+while in general, you find the pattern operator with an expression in a slashy-string, it can be used with any kind of `String` in Groovy:
+
+```groovy
+p = ~'foo'                                                        
+p = ~"foo"                                                        
+p = ~$/dollar/slashy $ string/$                                   
+p = ~"${pattern}"                                             
+```
+
+### 7.2. Find operator
+
+Alternatively to building a pattern, you can use the find operator `=~` to directly create a `java.util.regex.Matcher` instance:
+
+```
+def text = "some text to match"
+def m = text =~ /match/                                           
+assert m instanceof Matcher                                       
+if (!m) {                                                         
+    throw new RuntimeException("Oops, text not found!")
+}
+```
+
+Since a `Matcher` coerces to a `boolean` by calling its `find` method, the `=~` operator is consistent with the simple use of Perl’s `=~` operator, when it appears as a predicate (in `if`, `?:`, etc.). When the intent is to iterate over matches of the specified pattern (in `while`, etc.) call `find()` directly on the matcher or use the `iterator` DGM.
+
+### 7.3. Match operator
+
+The match operator (`==~`) is a slight variation of the find operator, that does not return a `Matcher` but a boolean and requires a strict match of the input string:
+
+```
+m = text ==~ /match/                                              
+assert m instanceof Boolean                                       
+if (m) {                                                          
+    throw new RuntimeException("Should not reach that point!")
+```
+
+### 7.4. Comparing Find vs Match operators
+
+Typically, the match operator is used when the pattern involves a single exact match, otherwise the find operator might be more useful.
+
+```
+assert 'two words' ==~ /\S+\s+\S+/
+assert 'two words' ==~ /^\S+\s+\S+$/         
+assert !(' leading space' ==~ /\S+\s+\S+/)   
+
+def m1 = 'two words' =~ /^\S+\s+\S+$/
+assert m1.size() == 1                          
+def m2 = 'now three words' =~ /^\S+\s+\S+$/    
+assert m2.size() == 0                          
+def m3 = 'now three words' =~ /\S+\s+\S+/
+assert m3.size() == 1                          
+assert m3[0] == 'now three'
+def m4 = ' leading space' =~ /\S+\s+\S+/
+assert m4.size() == 1                          
+assert m4[0] == 'leading space'
+def m5 = 'and with four words' =~ /\S+\s+\S+/
+assert m5.size() == 2                          
+assert m5[0] == 'and with'
+assert m5[1] == 'four words'
+```
+
+
+
+## [10. Operator overloading](http://www.groovy-lang.org/operators.html#Operator-Overloading)
+
+Groovy allows you to overload the various operators so that they can be used with your own classes. Consider this simple class:
+
+```
+class Bucket {
+    int size
+
+    Bucket(int size) { this.size = size }
+
+    Bucket plus(Bucket other) {                     
+        return new Bucket(this.size + other.size)
+    }
+}
+```
+
+|      | `Bucket` implements a special method called `plus()` |
+| ---- | ---------------------------------------------------- |
+|      |                                                      |
+
+Just by implementing the `plus()` method, the `Bucket` class can now be used with the `+` operator like so:
+
+```
+def b1 = new Bucket(4)
+def b2 = new Bucket(11)
+assert (b1 + b2).size == 15                         
+```
+
+>  The two `Bucket` objects can be added together with the `+` operator
+
+All (non-comparator) Groovy operators have a corresponding method that you can implement in your own classes. The only requirements are that your method is public, has the correct name, and has the correct number of arguments. The argument types depend on what types you want to support on the right hand side of the operator. For example, you could support the statement
+
+```
+assert (b1 + 11).size == 15
+```
+
+by implementing the `plus()` method with this signature:
+
+```
+Bucket plus(int capacity) {
+    return new Bucket(this.size + capacity)
+}
+```
+
+Here is a complete list of the operators and their corresponding methods:
+
+| Operator | Method        | Operator   | Method                  |
+| :------- | :------------ | :--------- | :---------------------- |
+| `+`      | a.plus(b)     | `a[b]`     | a.getAt(b)              |
+| `-`      | a.minus(b)    | `a[b] = c` | a.putAt(b, c)           |
+| `*`      | a.multiply(b) | `a in b`   | b.isCase(a)             |
+| `/`      | a.div(b)      | `<<`       | a.leftShift(b)          |
+| `%`      | a.mod(b)      | `>>`       | a.rightShift(b)         |
+| `**`     | a.power(b)    | `>>>`      | a.rightShiftUnsigned(b) |
+| `|`      | a.or(b)       | `++`       | a.next()                |
+| `&`      | a.and(b)      | `--`       | a.previous()            |
+| `^`      | a.xor(b)      | `+a`       | a.positive()            |
+| `as`     | a.asType(b)   | `-a`       | a.negative()            |
+| `a()`    | a.call()      | `~a`       | a.bitwiseNegate()       |
