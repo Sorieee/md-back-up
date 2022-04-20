@@ -370,3 +370,216 @@ PRIMARY KEY (product_no, order_id)
 ​	与ON DELETE相似，同样有ON UPDATE可以用在一个被引用列被修改（更新）的情况，可
 选的动作相同。在这种情况下，CASCADE意味着被引用列的更新值应该被复制到引用行
 中。
+
+## 修改表
+
+```sql
+ALTER TABLE products ADD COLUMN description text;
+ALTER TABLE products ADD COLUMN description text CHECK (description <> '');
+ALTER TABLE products DROP COLUMN description;
+#列中的数据将会消失。涉及到该列的表约束也会被移除。然而，如果该列被另一个表的外键
+#所引用，PostgreSQL不会安静地移除该约束。我们可以通过增加CASCADE来授权移除任何
+#依赖于被删除列的所有东西：
+ALTER TABLE products DROP COLUMN description CASCADE;
+
+ALTER TABLE products ADD CHECK (name <> '');
+ALTER TABLE products ADD CONSTRAINT some_name UNIQUE (product_no);
+ALTER TABLE products ADD FOREIGN KEY (product_group_id) REFERENCES
+ product_groups;
+# 要增加一个不能写成表约束的非空约束，可使用语法：
+ALTER TABLE products ALTER COLUMN product_no SET NOT NULL;
+ALTER TABLE products DROP CONSTRAINT some_name;
+ALTER TABLE products ALTER COLUMN product_no DROP NOT NULL;
+
+ALTER TABLE products ALTER COLUMN price SET DEFAULT 7.77;
+ALTER TABLE products ALTER COLUMN price DROP DEFAULT;
+
+ALTER TABLE products ALTER COLUMN price TYPE numeric(10,2);
+
+ALTER TABLE products RENAME COLUMN product_no TO product_number;
+ALTER TABLE products RENAME TO items;
+
+
+```
+
+## 权限
+
+有多种不同的权
+限：SELECT、INSERT、UPDATE、DELETE、TRUNCATE、REFERENCES、TRIGGER、CREATE、CONNECT及USAGE。可以应用于一个特定对象的权限随着对象的类型（表、函数等）而不
+同。PostgreSQL所支持的不同类型的完整权限信息请参考GRANT。下面的章节将简单介绍
+如何使用这些权限。
+
+要分配权限，可以使用GRANT命令。例如，如果joe是一个已有角色，而accounts是一个已有
+表，更新该表的权限可以按如下方式授权：
+
+```
+GRANT UPDATE ON accounts TO joe;
+```
+
+用ALL取代特定权限会把与对象类型相关的所有权限全部授权。
+
+为了撤销一个权限，使用REVOKE命令：
+
+```
+REVOKE ALL ON accounts FROM PUBLIC;
+```
+
+## 行安全策略
+
+当在一个表上启用行安全性时（使用 ALTER TABLE ... ENABLE ROW LEVEL SECURITY），所有对该表选择行或者修改行的普通访问都必须被一条 行安全性策略所允许（不过，表的拥有者通常不服从行安全性策略）。如果 表上不存在策略，将使用一条默认的否定策略，即所有的行都不可见或者不能 被修改。应用在整个表上的操作不服从行安全性，例如TRUNCATE和 REFERENCES。
+
+作为一个简单的例子，这里是如何在account关系上 创建一条策略以允许只有managers角色的成员能访问行， 并且只能访问它们账户的行：
+
+```sql
+CREATE TABLE accounts (manager text, company text, contact_email text);
+ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY account_managers ON accounts TO managers
+USING (manager = current_user);
+
+```
+
+如果没有指定角色或者使用了特殊的用户名PUBLIC， 则该策略适用于系统上所有的用户。
+要允许所有用户访问users 表中属于他们自己的行，可以使用一条简单的策略：
+
+```sql
+CREATE POLICY user_policy ON users
+USING (user_name = current_user);
+```
+
+要对相对于可见行是被增加到表中的行使用一条不同的策略，可以使用 WITH CHECK子句。这条策略将允许所有用户查看 users表中的所有行，但是只能修改它们自己的行：
+
+```sql
+CREATE POLICY user_policy ON users
+USING (true)
+WITH CHECK (user_name = current_user);
+```
+
+## 模式
+
+```sql
+CREATE SCHEMA myschema;
+CREATE TABLE myschema.mytable (
+...
+);
+DROP SCHEMA myschema;
+# 要删除一个模式以及其中包含的所有对象，可用：
+DROP SCHEMA myschema CASCADE;
+
+#我们常常希望创建一个由其他人所拥有的模式（因为这是将用户动作限制在良定义的名字空
+间中的方法之一）。其语法是：
+CREATE SCHEMA schema_name AUTHORIZATION user_name;
+```
+
+​	在前面的小节中，我们创建的表都没有指定任何模式名称。默认情况下这些表（以及其他对象）会自动的被放入一个名为“public”的模式中。任何新数据库都包含这样一个模式。因此，下面的命令是等效的：
+
+## 模式搜索路径
+
+要显示当前搜索路径，使用下面的命令：
+SHOW search_path;
+在默认设置下这将返回：
+
+```sql
+search_path
+
+"$user",public
+```
+
+第一个元素说明一个和当前用户同名的模式会被搜索。如果不存在这个模式，该项将被忽略。第二个元素指向我们已经见过的公共模式。
+
+```sql
+#要把新模式放在搜索路径中，我们可以使用：
+SET search_path TO myschema,public;
+#（我们在这里省略了$user，因为我们并不立即需要它）。然后我们可以该表而
+#无需使用模式限定：
+DROP TABLE mytable;
+```
+
+## 模式和权限
+
+默认情况下，用户不能访问不属于他们的模式中的任何对象。要允许这种行为，模式的拥有者必须在该模式上授予USAGE权限。为了允许用户使用模式中的对象，可能还需要根据对象授予额外的权限。
+
+## 系统目录模式
+
+​	除public和用户创建的模式之外，每一个数据库还包括一个pg_catalog模式，它包含了系统表和所有内建的数据类型、函数以及操作符。pg_catalog总是搜索路径的一个有效部分。如果没有在路径中显式地包括该模式，它将在路径中的模式之前被搜索。这保证了内建的名称总是能被找到。然而，如果我们希望用用户定义的名称重载内建的名称，可以显式的将pg_catalog放在搜索路径的末尾。
+
+## 表分区
+
+PostgreSQL为以下形式的分区提供了内置支持：
+**范围分区**
+	该表被分区到由键列或列集定义的“范围”中， 分配给不同分区的值范围之间没有重叠。例如，可以按日期范围进行分区， 也可以按特定业务对象的标识符范围进行分区。
+**列表分区**
+	表通过明确列出每个分区中出现的键值进行分区。
+
+
+
+1.通过声明PARTITION BY子句将 measurement表创建为分区表， 它包括分区方法（该例中是RANGE） 和要用作分区键的字段。
+
+```sql
+CREATE TABLE measurement (
+city_id int not null,
+logdate date not null,
+peaktemp int,
+unitsales int
+) PARTITION BY RANGE (logdate);
+```
+
+2.创建分区
+
+```sql
+CREATE TABLE measurement_y2006m02 PARTITION OF measurement
+FOR VALUES FROM ('2006-02-01') TO ('2006-03-01')
+CREATE TABLE measurement_y2006m03 PARTITION OF measurement
+FOR VALUES FROM ('2006-03-01') TO ('2006-04-01')
+
+...
+CREATE TABLE measurement_y2007m11 PARTITION OF measurement
+FOR VALUES FROM ('2007-11-01') TO ('2007-12-01')
+CREATE TABLE measurement_y2007m12 PARTITION OF measurement
+FOR VALUES FROM ('2007-12-01') TO ('2008-01-01')
+TABLESPACE fasttablespace;
+
+CREATE TABLE measurement_y2008m01 PARTITION OF measurement
+FOR VALUES FROM ('2008-01-01') TO ('2008-02-01')
+TABLESPACE fasttablespace
+WITH (parallel_workers = 4);
+```
+
+要实现子分区，在创建单个分区的语句中声明PARTITION BY 子句，例如：
+
+```sql
+CREATE TABLE measurement_y2006m02 PARTITION OF measurement
+FOR VALUES FROM ('2006-02-01') TO ('2006-03-01')
+PARTITION BY RANGE (peaktemp);
+```
+
+3. 对于每一个分区，在键列上创建索引，以及您可能需要的其他索引。
+
+```sql
+CREATE INDEX ON measurement_y2006m02 (logdate);
+CREATE INDEX ON measurement_y2006m03 (logdate);
+...
+CREATE INDEX ON measurement_y2007m11 (logdate);
+CREATE INDEX ON measurement_y2007m12 (logdate);
+CREATE INDEX ON measurement_y2008m01 (logdate);
+```
+
+4. 确保在postgresql.conf中constraint_exclusion配置参数没有被禁用。如果它被禁用，查询将
+不会被按照期望的方式优化。
+
+在上面的例子中，我们将每个月创建一个新的分区， 所以编写一个脚本可以自动生成所需的
+DDL。
+
+# 数据操纵
+
+## 从修改行中返回数据
+
+```sql
+UPDATE products SET price = price * 1.10
+WHERE price <= 99.99
+RETURNING name, price AS new_price;
+
+DELETE FROM products
+WHERE obsoletion_date = 'today'
+RETURNING *;
+```
+
