@@ -795,3 +795,235 @@ ALTER SEQUENCE tablename_colname_seq OWNED BY tablename.colname;
 
 ![](https://pic.imgdb.cn/item/6260f0d4239250f7c5bafe79.jpg)
 
+## 二进制数据类型
+
+![](https://pic.imgdb.cn/item/62616555239250f7c5cbbe70.jpg)
+
+### bytea的逃逸格式
+
+![](https://pic.imgdb.cn/item/626165a0239250f7c5ccb1cd.jpg)
+
+## 日期/时间类型
+
+![](https://pic.imgdb.cn/item/626165ca239250f7c5cd2ed8.jpg)
+
+​	SQL要求只写timestamp等效于timestamp without time zone，并且PostgreSQL鼓励这种行为。timestamptz被接受为timestamp with time zone的一种简写，这是一种PostgreSQL的扩展。
+
+​	time、timestamp和interval接受一个可选的精度值 p，这个精度值声明在秒域中小数点之后保留的位数。缺省情况下，在精度上没有明确的边界，p允许的范围是从 0 到6。
+
+​	interval类型有一个附加选项，它可以通过写下面之一的短语来限制存储的fields的集合：
+YEAR
+MONTH
+DAY
+HOUR
+MINUTE
+SECOND
+YEAR TO MONTH
+DAY TO HOUR
+DAY TO MINUTE
+DAY TO SECOND
+HOUR TO MINUTE
+HOUR TO SECOND
+MINUTE TO SECOND
+
+
+
+类型time with time zone是 SQL 标准定义的，但是该定义显示出了一些会影响可用性的性质。在大多数情况下， date、time、timestamp without time zone和timestamp with time zone的组合就应该能提供任何应用所需的全范围的日期/时间功能。
+
+### 日期
+
+![](https://pic.imgdb.cn/item/6261667d239250f7c5cede78.jpg)
+
+### 时间
+
+![](https://pic.imgdb.cn/item/626166cd239250f7c5cf9122.jpg)
+
+![](https://pic.imgdb.cn/item/626166e3239250f7c5cfc64d.jpg)
+
+### 时间戳
+
+![](https://pic.imgdb.cn/item/62616701239250f7c5d00ff2.jpg)
+
+### 特殊值
+
+![](https://pic.imgdb.cn/item/6261672a239250f7c5d07547.jpg)
+
+### 日期/时间输出
+
+![](https://pic.imgdb.cn/item/6261674b239250f7c5d0c2ce.jpg)
+
+### 间隔输入
+
+![](https://pic.imgdb.cn/item/6261678e239250f7c5d16cdc.jpg)
+
+## 布尔类型
+
+![](https://pic.imgdb.cn/item/626167bb239250f7c5d1ea8e.jpg)
+
+## 枚举类型
+
+### 枚举类型的声明
+
+枚举类型可以使用CREATE TYPE命令创建，例如：
+
+```sql
+CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');
+```
+
+一旦被创建，枚举类型可以像很多其他类型一样在表和函数定义中使用：
+
+```sql
+CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');
+CREATE TABLE person (
+name text,
+current_mood mood
+);
+INSERT INTO person VALUES ('Moe', 'happy');
+SELECT * FROM person WHERE current_mood = 'happy';
+name | current_mood
+------+--------------
+Moe | happy
+(1 row)
+```
+
+### 排序
+
+一个枚举类型的值的排序是该类型被创建时所列出的值的顺序。枚举类型的所有标准的比较操作符以及相关聚集函数都被支持。例如：
+
+```sql
+INSERT INTO person VALUES ('Larry', 'sad');
+INSERT INTO person VALUES ('Curly', 'ok');
+SELECT * FROM person WHERE current_mood > 'sad';
+name | current_mood
+-------+--------------
+Moe | happy
+Curly | ok
+(2 rows)
+SELECT * FROM person WHERE current_mood > 'sad' ORDER BY current_mood;
+name | current_mood
+-------+--------------
+Curly | ok
+Moe | happy
+(2 rows)
+SELECT name
+FROM person
+WHERE current_mood = (SELECT MIN(current_mood) FROM person);
+name
+-------
+Larry
+(1 row)
+```
+
+### 类型安全性
+
+每一种枚举数据类型都是独立的并且不能和其他枚举类型相比较。看这样一个例子：
+
+```sql
+CREATE TYPE happiness AS ENUM ('happy', 'very happy', 'ecstatic');
+CREATE TABLE holidays (
+num_weeks integer,
+happiness happiness
+);
+INSERT INTO holidays(num_weeks,happiness) VALUES (4, 'happy');
+INSERT INTO holidays(num_weeks,happiness) VALUES (6, 'very happy');
+INSERT INTO holidays(num_weeks,happiness) VALUES (8, 'ecstatic');
+INSERT INTO holidays(num_weeks,happiness) VALUES (2, 'sad');
+ERROR: invalid input value for enum happiness: "sad"
+SELECT person.name, holidays.num_weeks FROM person, holidays
+```
+
+## 几何类型
+
+![](https://pic.imgdb.cn/item/6261683e239250f7c5d338a3.jpg)
+
+## 网络地址类型
+
+![](https://pic.imgdb.cn/item/6261685c239250f7c5d37fae.jpg)
+
+## 位串类型
+
+位串就是一串 1 和 0 的串。它们可以用于存储和可视化位掩码。我们有两种类型的 SQL 位类型：bit(n)和bit varying(n)，其中 n是一个正整数。
+
+```sql
+CREATE TABLE test (a BIT(3), b BIT VARYING(5));
+INSERT INTO test VALUES (B'101', B'00');
+INSERT INTO test VALUES (B'10', B'101');
+ERROR: bit string length 2 does not match type bit(3)
+INSERT INTO test VALUES (B'10'::bit(3), B'101');
+SELECT * FROM test;
+```
+
+## 文本搜索类型
+
+​	PostgreSQL提供两种数据类型，它们被设计用来支持全文搜索，全文搜索是一种在自然语言的文档集合中搜索以定位那些最匹配一个查询的文档的活动。tsvector类型表示一个为文本搜索优化的形式下的文档，tsquery类型表示一个文本查询。第 12 章提供了对于这种功能的详细解释，并且第 9.13 节总结了相关的函数和操作符。
+
+### tsvector
+
+​	一个tsvector值是一个排序的可区分词位的列表，词位是被正规化合并了同一个词的不同变种的词（详见第 12 章）。排序和去重是在输入期间自动完成的，如下例所示：
+
+```sql
+SELECT 'a fat cat sat on a mat and ate a fat rat'::tsvector;
+tsvector
+----------------------------------------------------
+'a' 'and' 'ate' 'cat' 'fat' 'mat' 'on' 'rat' 'sat'
+```
+
+```sql
+# 要表示包含空白或标点的词位，将它们用引号包围：
+SELECT $$the lexeme ' ' contains spaces$$::tsvector;
+tsvector
+-------------------------------------------
+' ' 'contains' 'lexeme' 'spaces' 'the'
+```
+
+### tsquery
+
+一个tsquery值存储要用于搜索的词位，并且使用布尔操作符&（AND）、|（OR）和!（NOT）来组合它们，还有短语搜索操作符`<->`（FOLLOWED BY）。也有一种 FOLLOWED BY 操作符的变体`<N>`，其中N是一个整数常量，它指定要搜索的两个词位之间的距离。`<->`等效于`<1>`。
+
+```sql
+SELECT 'fat & rat'::tsquery;
+tsquery
+---------------
+'fat' & 'rat'
+SELECT 'fat & (rat | cat)'::tsquery;
+tsquery
+---------------------------
+'fat' & ( 'rat' | 'cat' )
+SELECT 'fat & rat & ! cat'::tsquery;
+tsquery
+------------------------
+'fat' & 'rat' & !'cat'
+```
+
+## UUID类型
+
+![](https://pic.imgdb.cn/item/62616969239250f7c5d5f535.jpg)
+
+## XML类型
+
+​	xml数据类型可以被用来存储XML数据。它比直接在一个text域中存储XML数据的优势在于，它会检查输入值的结构是不是良好，并且有支持函数用于在其上执行类型安全的操作，参见第 9.14 节。使用这种数据类型要求在安装时用configure --with-libxml选项编译。
+
+### 创建XML值
+
+![](https://pic.imgdb.cn/item/6261699b239250f7c5d6662f.jpg)
+
+## JSON 类型
+
+​	有两种 JSON 数据类型：json 和 jsonb。它们 几乎接受完全相同的值集合作为输入。主要的实际区别之一是 效率。json数据类型存储输入文本的精准拷贝，处理函数必须在每 次执行时必须重新解析该数据。而jsonb数据被存储在一种分解好的 二进制格式中，它在输入时要稍慢一些，因为需要做附加的转换。但是 jsonb在处理时要快很多，因为不需要解析。jsonb也支持索引，这也是一个令人瞩目的优势。
+
+​	通常，除非有特别特殊的需要（例如遗留的对象键顺序假设），大多数应用应该 更愿意把JSON 数据存储为jsonb。
+
+​	PostgreSQL对每个数据库只允许一种 字符集编码。因此 JSON 类型不可能严格遵守 JSON 规范，除非数据库编码 是 UTF8。尝试直接包括数据库编码中无法表示的字符将会失败。反过来，能在数据库编码中表示但是不在 UTF8 中的字符是被允许的。
+
+![](https://pic.imgdb.cn/item/62616a11239250f7c5d777e4.jpg)
+
+### jsonb 索引
+
+GIN 索引可以被用来有效地搜索在大量jsonb文档（数据）中出现 的键或者键值对。提供了两种 GIN “操作符类”，它们在性能和灵活 性方面做出了不同的平衡。
+
+![](https://pic.imgdb.cn/item/62616a66239250f7c5d85e10.jpg)
+
+![](https://pic.imgdb.cn/item/62616a89239250f7c5d8b69b.jpg)
+
+![](https://pic.imgdb.cn/item/62616af7239250f7c5d9cbc6.jpg)
+
