@@ -1,4 +1,7 @@
 ```sql
+create database test03 encoding 'UTF8' lc_collate 'en_US.utf8' lc_ctype 'en_US.utf8'  template template0;
+
+
 CREATE TABLE weather (
 	city varchar(80),
 	temp_lo int, -- 最低温度
@@ -582,4 +585,213 @@ DELETE FROM products
 WHERE obsoletion_date = 'today'
 RETURNING *;
 ```
+
+# 查询
+
+## 表表达式
+
+### LATERAL子查询
+
+​	可以在出现于FROM中的子查询前放置关键词LATERAL。这允许它们引用前面的FROM项提
+供的列（如果没有LATERAL，每一个子查询将被独立计算，并且因此不能被其他FROM项
+交叉引用）。
+
+​	如果一个FROM项包含LATERAL交叉引用，计算过程如下：对于提供交叉引用列的FROM项
+的每一行，或者多个提供这些列的多个FROM项的行集合，LATERAL项将被使用该行或者
+行集中的列值进行计算。得到的结果行将和它们被计算出来的行进行正常的连接。对于来自
+这些列的源表的每一行或行集，该过程将重复。
+
+```sql
+SELECT * FROM foo, LATERAL (SELECT * FROM bar WHERE bar.id = foo.bar_id) ss;
+```
+
+这不是非常有用，因为它和一种更简单的形式得到的结果完全一样：
+
+```sql
+SELECT * FROM foo, bar WHERE bar.id = foo.bar_id;
+```
+
+### GROUPING SETS、CUBE和ROLLUP
+
+![](https://pic.imgdb.cn/item/6260c6bf239250f7c5682b0e.jpg)
+
+
+
+
+
+![](https://pic.imgdb.cn/item/6260c6de239250f7c5687833.jpg)
+
+
+![](https://pic.imgdb.cn/item/6260c6f4239250f7c568a7d4.jpg)
+
+
+
+![](https://pic.imgdb.cn/item/6260c712239250f7c568e552.jpg)
+
+## 组合查询
+
+两个查询的结果可以用集合操作并、交、差进行组合。语法是
+
+```sql
+query1 UNION [ALL] query2
+query1 INTERSECT [ALL] query2
+query1 EXCEPT [ALL] query2
+```
+
+
+
+## LIMIT和OFFSET
+
+```sql
+SELECT select_list
+FROM table_expression
+[ ORDER BY ... ]
+[ LIMIT { number | ALL } ] [ OFFSET number ]
+```
+
+## VALUES列表
+
+VALUES提供了一种生成“常量表”的方法，它可以被使用在一个查询中而不需要实际在磁
+盘上创建一个表。语法是：
+
+```sql
+VALUES ( expression [, ...] ) [, ...]
+```
+
+每一个被圆括号包围的表达式列表生成表中的一行。列表都必须具有相同数据的元素（即表
+中列的数目），并且在每个列表中对应的项必须具有可兼容的数据类型。分配给结果的每一
+列的实际数据类型使用和UNION相同的规则确定（参见第 10.5 节）。
+一个例子：
+
+```sql
+VALUES (1, 'one'), (2, 'two'), (3, 'three');
+```
+
+将会返回一个有两列三行的表。它实际上等效于：
+
+```sql
+SELECT 1 AS column1, 'one' AS column2
+UNION ALL
+SELECT 2, 'two'
+UNION ALL
+SELECT 3, 'three';
+```
+
+## WITH查询（公共表表达式）
+
+### WITH中的SELECT
+
+```sql
+WITH regional_sales AS (
+SELECT region, SUM(amount) AS total_sales
+FROM orders
+GROUP BY region
+), top_regions AS (
+SELECT region
+FROM regional_sales
+WHERE total_sales > (SELECT SUM(total_sales)/10 FROM regional_sales)
+)
+SELECT region,
+product,
+SUM(quantity) AS product_units,
+SUM(amount) AS product_sales
+FROM orders
+WHERE region IN (SELECT region FROM top_regions)
+GROUP BY region, product;
+```
+
+## 递归查询
+
+```sql
+# 想下递归
+WITH RECURSIVE r AS (
+    SELECT * FROM public.crm_sys_menu WHERE id = v_pid
+    union ALL
+    SELECT public.crm_sys_menu.* FROM public.crm_sys_menu, r WHERE public.crm_sys_menu.p_id = r.id
+)
+select * from r;
+```
+
+
+
+1. 计算非递归项。对UNION（但不对UNION ALL），抛弃重复行。把所有剩余的行包括
+   在递归查询的结果中，并且也把它们放在一个临时的工作表中。
+
+2. 只要工作表不为空，重复下列步骤：
+a. 计算递归项，用当前工作表的内容替换递归自引用。对UNION（不是UNION
+ALL），抛弃重复行以及那些与之前结果行重复的行。将剩下的所有行包括在递归
+查询的结果中，并且也把它们放在一个临时的中间表中。
+b. 用中间表的内容替换工作表的内容，然后清空中间表。
+
+## WITH中的数据修改语句
+
+你可以在WITH中使用数据修改语句（INSERT、UPDATE或DELETE）。这允许你在同一个
+查询中执行多个而不同操作。一个例子：
+
+```sqk
+WITH moved_rows AS (
+DELETE FROM products
+WHERE
+"date" >= '2010-10-01' AND
+"date" < '2010-11-01'
+RETURNING *
+)
+INSERT INTO products_log
+SELECT * FROM moved_rows;
+```
+
+​	这个查询实际上从products把行移动到products_log。WITH中的DELETE删除来自products的指定行，以它的RETURNING子句返回它们的内容，并且接着主查询读该输出并将它插入到products_log。
+
+一个非特殊使用的例子：
+
+```sql
+WITH t AS (
+DELETE FROM foo
+)
+DELETE FROM bar;
+```
+
+这个例子将从表foo和bar中移除所有行。被报告给客户端的受影响行的数目可能只包括从bar中移除的行。
+
+# 数据类型
+
+![](https://pic.imgdb.cn/item/6260ef8e239250f7c5b851b6.jpg)
+
+![](https://pic.imgdb.cn/item/6260efa9239250f7c5b891e3.jpg)
+
+![](https://pic.imgdb.cn/item/6260efbe239250f7c5b8c750.jpg)
+
+## 数字类型
+
+![](https://pic.imgdb.cn/item/6260efde239250f7c5b911f2.jpg)
+
+![](https://pic.imgdb.cn/item/6260efe8239250f7c5b92b0d.jpg)
+
+### 序列整形
+
+```sql
+CREATE TABLE tablename (
+colname SERIAL
+);
+# 等价于以下语句：
+CREATE SEQUENCE tablename_colname_seq;
+CREATE TABLE tablename (
+colname integer NOT NULL DEFAULT nextval('tablename_colname_seq')
+);
+ALTER SEQUENCE tablename_colname_seq OWNED BY tablename.colname;
+```
+
+> **注意**
+>
+> 因为smallserial、serial和bigserial是用序列实现的，所以即使没有删除过行，在出现在列中的序列值可能有“空洞”或者间隙。如果一个从序列中分配的值被用在一行中，即使该行最终没有被成功地插入到表中，该值也被“用掉”了。例如，当插入事务回滚时就会发生这种情况。更多信息参见第 9.16 节中的nextval()。
+
+## 货币类型
+
+![](https://pic.imgdb.cn/item/6260f06d239250f7c5ba3003.jpg)
+
+## 字符类型
+
+![](https://pic.imgdb.cn/item/6260f088239250f7c5ba6541.jpg)
+
+![](https://pic.imgdb.cn/item/6260f0d4239250f7c5bafe79.jpg)
 
