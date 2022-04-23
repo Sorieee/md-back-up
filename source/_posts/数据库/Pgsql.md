@@ -1027,3 +1027,460 @@ GIN 索引可以被用来有效地搜索在大量jsonb文档（数据）中出�
 
 ![](https://pic.imgdb.cn/item/62616af7239250f7c5d9cbc6.jpg)
 
+## 数组
+
+```sql
+CREATE TABLE sal_emp (
+name text,
+pay_by_quarter integer[],
+schedule text[][]
+);
+# CREATE TABLE的语法允许指定数组的确切大小，例如：
+CREATE TABLE tictactoe (
+squares integer[3][3]
+);
+
+```
+
+​	然而，当前的实现忽略任何提供的数组尺寸限制，即其行为与未指定长度的数组相同。
+
+​	当前的实现也不会强制所声明的维度数。一个特定元素类型的数组全部被当作是相同的类型，而不论其尺寸或维度数。因此，在CREATE TABLE中声明数组的尺寸或维度数仅仅只是文档而已，它并不影响运行时的行为。
+
+另一种符合SQL标准的语法是使用关键词ARRAY，可以用来定义一维数组。pay_by_quarter可以这样定义：
+
+```
+pay_by_quarter integer ARRAY[4],
+```
+
+或者，不指定数组尺寸：
+
+```sql
+pay_by_quarter integer ARRAY,
+```
+
+但是和前面一样，PostgreSQL在任何情况下都不会强制尺寸限制。
+
+### 数组值输入
+
+```sql
+'{ val1 delim val2 delim ... }'
+'{{1,2,3},{4,5,6},{7,8,9}}'
+
+INSERT INTO sal_emp
+VALUES ('Bill',
+'{10000, 10000, 10000, 10000}',
+'{{"meeting", "lunch"}, {"training", "presentation"}}');
+```
+
+### 访问数组
+
+现在，我们可以在该表上运行一些查询。首先，我们展示如何访问一个数组中的一个元素。下面的查询检索在第二季度工资发生变化的雇员的名字：
+
+```sql
+SELECT name FROM sal_emp WHERE pay_by_quarter[1] <> pay_by_quarter[2];
+
+SELECT schedule[1:2][2] FROM sal_emp WHERE name = 'Bill';
+```
+
+`如果数组本身为空或者任何一个下标表达式为空，访问数组下标表达式将会返回空值。如果下标超过了数组边界，下标表达式也会返回空值（这种情况不会抛出错误）。例如，如果schedule目前具有的维度是
+
+```
+[1:3][1:2]
+```
+
+，那么引用`schedule[3][3]`将得到NULL。相似地，使用错误的下标号引用一个数组会得到空值而不是错误。
+
+任何数组值的当前维度可以使用array_dims函数获得：
+
+```sql
+SELECT array_dims(schedule) FROM sal_emp WHERE name = 'Carol';
+array_dims
+------------
+[1:2][1:2]
+(1 row)
+```
+
+array_length将返回一个指定数组维度的长度：
+
+```sql
+SELECT array_length(schedule, 1) FROM sal_emp WHERE name = 'Carol';
+```
+
+cardinality返回一个数组中在所有维度上的元素总数。 这实际上是调用unnest将会得到的行数：
+
+```sql
+SELECT cardinality(schedule) FROM sal_emp WHERE name = 'Carol';
+cardinality
+-------------
+4
+(1 row)
+```
+
+### 修改数组
+
+```sql
+# 一个数组值可以被整个替换：
+UPDATE sal_emp SET pay_by_quarter = '{25000,25000,27000,27000}'
+WHERE name = 'Carol';
+# 或者使用ARRAY表达式语法：
+UPDATE sal_emp SET pay_by_quarter = ARRAY[25000,25000,27000,27000]
+WHERE name = 'Carol';
+# 一个数组也可以在一个元素上被更新：
+UPDATE sal_emp SET pay_by_quarter[4] = 15000
+WHERE name = 'Bill';
+# 或者在一个切片上被更新：
+UPDATE sal_emp SET pay_by_quarter[1:2] = '{27000,27000}'
+WHERE name = 'Carol';
+# 也可以使用省略lower-bound或者 upper-bound的切片语法，但是只能用于 更新一个不是NULL 或者零维的数组值（否则无法替换现有的下标界线）。
+
+# 新的数组值也可以通过串接操作符||构建：
+SELECT ARRAY[1,2] || ARRAY[3,4];
+?column?
+-----------
+{1,2,3,4}
+(1 row)
+
+SELECT ARRAY[5,6] || ARRAY[[1,2],[3,4]];
+?column?
+---------------------
+{{5,6},{1,2},{3,4}}
+(1 row)
+```
+
+串接操作符允许把一个单独的元素加入到一个一维数组的开头或末尾。它也能接受两个N维数组，或者一个N维数组和一个N+1维数组。
+
+```sql
+# 当一个单独的元素被加入到一个一维数组的开头或末尾时，其结果是一个和数组操作数具有相同下界下标的新数组。例如：
+SELECT array_dims(1 || '[0:1]={2,3}'::int[]);
+array_dims
+------------
+[0:2]
+(1 row)
+SELECT array_dims(ARRAY[1,2] || 3);
+array_dims
+------------
+[1:3]
+(1 row)
+# 当两个具有相同维度数的数组被串接时，其结果保留左操作数的外维度的下界下标。结果将是一个数组，它由左操作数的每一个元素以及紧接着的右操作数的每一个元素。例如：
+SELECT array_dims(ARRAY[1,2] || ARRAY[3,4,5]);
+array_dims
+------------
+[1:5]
+(1 row)
+SELECT array_dims(ARRAY[[1,2],[3,4]] || ARRAY[[5,6],[7,8],[9,0]]);
+array_dims
+------------
+[1:5][1:2]
+(1 row)
+当一个N维数组被放在另一个N+1维数组的前面或者后面时，结果和上面的例子相似。每一
+个N维子数组实际上是N+1维数组外维度的一个元素。例如：
+SELECT array_dims(ARRAY[1,2] || ARRAY[[3,4],[5,6]]);
+array_dims
+------------
+[1:3][1:2]
+(1 row)
+一个数组也可以通过使用函数array_prepend、array_append或array_cat构建。前两个函数仅支
+持一维数组，但array_cat支持多维数组。 一些例子：
+SELECT array_prepend(1, ARRAY[2,3]);
+array_prepend
+---------------
+{1,2,3}
+(1 row)
+SELECT array_append(ARRAY[1,2], 3);
+array_append
+--------------
+{1,2,3}
+(1 row)
+SELECT array_cat(ARRAY[1,2], ARRAY[3,4]);
+array_cat
+-----------
+{1,2,3,4}
+(1 row)
+SELECT array_cat(ARRAY[[1,2],[3,4]], ARRAY[5,6]);
+array_cat
+---------------------
+{{1,2},{3,4},{5,6}}
+(1 row)
+SELECT array_cat(ARRAY[5,6], ARRAY[[1,2],[3,4]]);
+array_cat
+---------------------
+{{5,6},{1,2},{3,4}}
+```
+
+```sql
+SELECT ARRAY[1, 2] || '{3, 4}'; -- 没有指定类型的文字被当做一个数组
+?column?
+-----------
+{1,2,3,4}
+SELECT ARRAY[1, 2] || '7'; -- 这个也是
+ERROR: malformed array literal: "7"
+SELECT ARRAY[1, 2] || NULL; -- 未修饰的 NULL 也是如此
+?column?
+----------
+{1,2}
+(1 row)
+SELECT array_append(ARRAY[1, 2], NULL); -- 这可能才是想要的意思
+array_append
+--------------
+{1,2,NULL}
+```
+
+### 在数组中搜索
+
+```sql
+SELECT * FROM sal_emp WHERE pay_by_quarter[1] = 10000 OR
+pay_by_quarter[2] = 10000 OR
+pay_by_quarter[3] = 10000 OR
+pay_by_quarter[4] = 10000;
+
+SELECT * FROM sal_emp WHERE 10000 = ANY (pay_by_quarter);
+
+# 此外，我们还可以查找所有元素值都为10000的数组所在的行：
+SELECT * FROM sal_emp WHERE 10000 = ALL (pay_by_quarter);
+# 另外，generate_subscripts函数也可以用来完成类似的查找。例如：
+SELECT * FROM
+(SELECT pay_by_quarter,
+generate_subscripts(pay_by_quarter, 1) AS s
+FROM sal_emp) AS foo
+WHERE pay_by_quarter[s] = 10000;
+```
+
+我们也可以使用&&操作符来搜索一个数组，它会检查左操作数是否与右操作数重叠。例如：
+
+```sql
+SELECT * FROM sal_emp WHERE pay_by_quarter && ARRAY[10000];
+```
+
+​	你也可以使用array_position和array_positions在一个 数组中搜索特定值。前者返回值在数组中第一次出现的位置的下标。后者返回一个数组， 其中有该值在数组中的所有出现位置的下标。例如：
+
+```sql
+SELECT array_position(ARRAY['sun','mon','tue','wed','thu','fri','sat'], 'mon');
+array_positions
+-----------------
+2
+SELECT array_positions(ARRAY[1, 4, 3, 1, 3, 4, 2, 1], 1);
+array_positions
+-----------------
+{1,4,8}
+```
+
+> 数组不是集合，在其中搜索指定数组元素可能是数据设计失误的表现。考虑使用一个独立的表来替代，其中每一行都对应于一个数组元素。这将更有利于搜索，并且对于大量元素的可扩展性更好。
+
+## 复合类型
+
+​	一个复合类型表示一行或一个记录的结构，它本质上就是一个域名和它们数据类型的列表。PostgreSQL允许把复合类型用在很多能用简单类型的地方。例如，一个表的一列可以被声明为一种复合类型。
+
+### 复合类型的声明
+
+```sql
+CREATE TYPE complex AS (
+r double precision,
+i double precision
+);
+CREATE TYPE inventory_item AS (
+name text,
+supplier_id integer,
+price numeric
+);
+```
+
+该语法堪比CREATE TABLE，不过只能指定域名和类型，当前不能包括约束（例如NOT NULL）。注意AS关键词是必不可少的，如果没有它，系统将认为用户想要的是一种不同类 型的CREATE TYPE命令，并且你将得到奇怪的语法错误。
+
+定义了类型之后，我们可以用它们来创建表：
+
+```sql
+CREATE TABLE on_hand (
+item inventory_item,
+count integer
+);
+
+INSERT INTO on_hand VALUES (ROW('fuzzy dice', 42, 1.99), 1000);
+# or functions:
+CREATE FUNCTION price_extension(inventory_item, integer) RETURNS numeric
+AS 'SELECT $1.price * $2' LANGUAGE SQL;
+```
+
+### 构造组合值
+
+```sql
+'( val1 , val2 , ... )'
+'("fuzzy dice",42,1.99)'
+```
+
+这将是上文定义的inventory_item类型的一个合法值。要让一个域为 NULL，在列表中它的位置上根本不写字符。例如，这个常量指定其第三个域为 NULL：
+
+```sql
+'("fuzzy dice",42,)'
+```
+
+如果你写一个空字符串而不是 NULL，写上两个引号：
+
+```sql
+'("",42,)'  
+```
+
+### 访问复合类型
+
+```sql
+SELECT item.name FROM on_hand WHERE item.price > 9.99;
+SELECT (item).name FROM on_hand WHERE (item).price > 9.99;
+SELECT (on_hand.item).name FROM on_hand WHERE (on_hand.item).price > 9.99;
+```
+
+### 修改复合类型
+
+```sql
+INSERT INTO mytab (complex_col) VALUES((1.1,2.2));
+UPDATE mytab SET complex_col = ROW(1.1,2.2) WHERE ...;
+UPDATE mytab SET complex_col.r = (complex_col).r + 1 WHERE ...;
+INSERT INTO mytab (complex_col.r, complex_col.i) VALUES(1.1, 2.2);
+```
+
+### 在查询中使用复合类型
+
+​	在PostgreSQL中，在查询中引用表名（或别名） 是对该表的当前行的复合类型的有效引用。例如，如果我们有下面这样一个表 inventory_item：
+
+```sql
+SELECT c FROM inventory_item c;
+```
+
+​	不过请注意，简单名称首先匹配列名然后再匹配表名， 所以这个示例能有效是因为查询表中没有列的名字为c。
+
+## 范围类型
+
+​	范围类型是表达某种元素类型（称为范围的subtype）的一个值的范围的数据类型。例如，timestamp的范围可以被用来表达一个会议室被保留的时间范围。在这种情况下，数据类型是tsrange（“timestamp range”的简写）而timestamp是 subtype。subtype 必须具有一种总体的顺序，这样对于元素值是在一个范围值之内、之前或之后就是界线清楚的。
+
+### 内建范围类型
+
+PostgreSQL 带有下列内建范围类型：
+• int4range — integer的范围
+• int8range — bigint的范围
+• numrange — numeric的范围
+• tsrange — 不带时区的 timestamp的范围
+• tstzrange — 带时区的 timestamp的范围
+• daterange — date的范围
+此外，你可以定义自己的范围类型，详见CREATE TYPE。
+
+### 例子
+
+```sql
+CREATE TABLE reservation (room int, during tsrange);
+INSERT INTO reservation VALUES
+(1108, '[2010-01-01 14:30, 2010-01-01 15:30)');
+-- 包含
+SELECT int4range(10, 20) @> 3;
+-- 重叠
+SELECT numrange(11.1, 22.2) && numrange(20.0, 30.0);
+-- 抽取上界
+SELECT upper(int8range(15, 25));
+-- 计算交集
+SELECT int4range(10, 20) * int4range(15, 25);
+-- 范围为空吗？
+SELECT isempty(numrange(1, 5));
+```
+
+### 包含和排除边界
+
+​	每一个非空范围都有两个界限，下界和上界。这些值之间的所有点都被包括在范围内。一个包含界限意味着边界点本身也被包括在范围内，而一个排除边界意味着边界点不被包括在范围内。
+
+### 无限（无界）范围
+
+​	一个范围的下界可以被忽略，意味着所有小于上界的点都被包括在范围中。同样，如果范围的上界被忽略，那么所有比上界大的的都被包括在范围中。如果上下界都被忽略，该元素类型的所有值都被认为在该范围中。
+
+### 范围输入/输出
+
+一个范围值的输入必须遵循下列模式之一：
+
+```sql
+(lower-bound,upper-bound)
+(lower-bound,upper-bound]
+[lower-bound,upper-bound)
+[lower-bound,upper-bound]
+empty
+ 
+ -- 包括 3，不包括 7，并且包括 3 和 7 之间的所有点
+SELECT '[3,7)'::int4range;
+-- 既不包括 3 也不包括 7，但是包括之间的所有点
+SELECT '(3,7)'::int4range;
+-- 只包括单独一个点 4
+SELECT '[4,4]'::int4range;
+-- 不包括点（并且将被标准化为 '空'）
+SELECT '[4,4)'::int4range;
+```
+
+### 构造范围
+
+```sql
+-- 完整形式是：下界、上界以及指示界限包含性/排除性的文本参数。
+SELECT numrange(1.0, 14.0, '(]');
+-- 如果第三个参数被忽略，则假定为 '[)'。
+SELECT numrange(1.0, 14.0);
+-- 尽管这里指定了 '(]'，显示时该值将被转换成标准形式，因为 int8range 是一种离散范围类型（见下文）。
+SELECT int8range(1, 14, '(]');
+-- 为一个界限使用 NULL 导致范围在那一边是无界的。
+SELECT numrange(NULL, 2.2);
+```
+
+### 离散范围类型
+
+​	一种范围的元素类型具有一个良定义的“步长”，例如integer或date。在这些类型中，如果两个元素之间没有合法值，它们可以被说成是相邻。这与连续范围相反，连续范围中总是（或者几乎总是）可以在两个给定值之间标识其他元素值。例如，numeric类型之上的一个范围就是连续的，timestamp上的范围也是（尽管timestamp具有有限的精度，并且在理论上可以被当做离散的，最好认为它是连续的，因为通常并不关心它的步长）。
+
+### 定义新的范围类型
+
+```sql
+CREATE TYPE floatrange AS RANGE (
+subtype = float8,
+subtype_diff = float8mi
+);
+SELECT '[1.234, 5.678]'::floatrange;
+```
+
+因为float8没有有意义的“步长”，我们在这个例子中没有定义一个正规化函数。
+
+### 索引
+
+```sql
+# 可以为范围类型的表列创建 GiST 和 SP-GiST 索引。例如，要创建一个 GiST 索引：
+CREATE INDEX reservation_idx ON reservation USING GIST (during);
+# 一个 GiST 或 SP-GiST 索引可以加速涉及以下范围操作符的查询： =、 &&、 <@、 @>、<<、 >>、 -|-、 &<以及 &> （详见表 9.50）。
+```
+
+### 范围上的约束
+
+​	虽然UNIQUE是标量值的一种自然约束，它通常不适合于范围类型。反而，一种排除约束常常更加适合（见CREATE TABLE ... CONSTRAINT ... EXCLUDE）。排除约束允许在一个范围类型上说明诸如“non-overlapping”的约束。例如：
+
+```sql
+CREATE TABLE reservation (
+during tsrange,
+EXCLUDE USING GIST (during WITH &&)
+);
+```
+
+该约束将阻止任何重叠值同时存在于表中：
+
+## 对象标识符类型
+
+​	对象标识符（OID）被PostgreSQL用来在内部作为多个系统表的主键。OID不会被添加到用户创建的表中，除非在创建表时指定了WITH OIDS或者default_with_oids配置变量被启用。类型oid表示一个对象标识符。也有多个oid的别名类型：regproc、regprocedure、regoper、regoperator、regclass、regtype、regrole、regnames8p.2ac4e显、regconfig和regdictionary示了一个概览。
+
+
+
+​	OID的别名类型除了特定的输入和输出例程之外没有别的操作。这些例程可以接受并显示系统对象的符号名，而不是类型oid使用的原始数字值。别名类型使查找对象的OID值变得简单。例如，要检查与一个表mytable有关的pg_attribute行，你可以写：
+
+```sql
+SELECT * FROM pg_attribute WHERE attrelid = 'mytable'::regclass;
+```
+
+![](Pgsql.assets/62638808239250f7c5af544a.jpg)
+
+## pg_lsn Type
+
+​	pg_lsn数据类型可以被用来存储 LSN（日志序列号）数据，LSN 是一个指向 WAL 中的位置的指针。这个类型是XLogRecPtr的一种表达并且是 PostgreSQL的一种内部系统类型。
+
+​	在内部，一个 LSN 是一个 64 位整数，表示在预写式日志流中的一个字节位置。它被打印成两个最高 8 位的十六进制数，中间用斜线分隔，例如16/B374D848。 pg_lsn类型支持标准的比较操作符，如=和 >。两个 LSN 可以用-操作符做减法， 结果将是分隔两个预写式日志位置的字节数。
+
+## 伪类型
+
+![](https://pic.imgdb.cn/item/62638908239250f7c5b1cdcf.jpg)
+
+![](https://pic.imgdb.cn/item/62638915239250f7c5b1f844.jpg)
+
