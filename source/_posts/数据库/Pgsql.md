@@ -1470,7 +1470,7 @@ EXCLUDE USING GIST (during WITH &&)
 SELECT * FROM pg_attribute WHERE attrelid = 'mytable'::regclass;
 ```
 
-![](Pgsql.assets/62638808239250f7c5af544a.jpg)
+![](https://pic.imgdb.cn/item/6266b556239250f7c52da9ad.jpg)
 
 ## pg_lsn Type
 
