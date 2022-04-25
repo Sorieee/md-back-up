@@ -1484,3 +1484,396 @@ SELECT * FROM pg_attribute WHERE attrelid = 'mytable'::regclass;
 
 ![](https://pic.imgdb.cn/item/62638915239250f7c5b1f844.jpg)
 
+# 函数和操作符
+
+![](https://pic.imgdb.cn/item/62668f41239250f7c5a4a192.jpg)
+
+![](https://pic.imgdb.cn/item/62669026239250f7c5a6c0ea.jpg)
+
+## 数学函数和操作符
+
+![](https://pic.imgdb.cn/item/6266904f239250f7c5a71caa.jpg)
+
+![](https://pic.imgdb.cn/item/62669060239250f7c5a7473e.jpg)
+
+![](https://pic.imgdb.cn/item/6266906d239250f7c5a76606.jpg)
+
+![](https://pic.imgdb.cn/item/6266907b239250f7c5a78b1c.jpg)
+
+
+
+![](https://pic.imgdb.cn/item/62669091239250f7c5a7c568.jpg)
+
+## 字符串函数和操作符
+
+![](https://pic.imgdb.cn/item/626690ad239250f7c5a80666.jpg)
+
+![](https://pic.imgdb.cn/item/626690c4239250f7c5a8419f.jpg)
+
+![](https://pic.imgdb.cn/item/626690d3239250f7c5a8639f.jpg)
+
+![](https://pic.imgdb.cn/item/626690e0239250f7c5a883f7.jpg)
+
+![](https://pic.imgdb.cn/item/626690ef239250f7c5a8aa30.jpg)
+
+![](https://pic.imgdb.cn/item/626690fc239250f7c5a8c5ba.jpg)
+
+![](https://pic.imgdb.cn/item/6266910c239250f7c5a8eb2c.jpg)
+
+![](https://pic.imgdb.cn/item/62669119239250f7c5a909a7.jpg)
+
+![](https://pic.imgdb.cn/item/6266912f239250f7c5a93bf1.jpg)
+
+## 模式匹配
+
+![](https://pic.imgdb.cn/item/62669227239250f7c5ab806a.jpg)
+
+一些例子：
+```sql
+'abc' LIKE 'abc' true
+'abc' LIKE 'a%' true
+'abc' LIKE '_b_' true
+'abc' LIKE 'c' false
+```
+
+> **注意**
+>
+> 如果你关掉了standard_conforming_strings，你在文串常量中写的任何反斜线都需要被双写。详见第 4.1.2.1 节。
+
+### SIMILAR TO正则表达式
+
+```sql
+string SIMILAR TO pattern [ESCAPE escape-character]
+string NOT SIMILAR TO pattern [ESCAPE escape-character]
+```
+
+除了这些从LIKE借用的功能之外，SIMILAR TO支持下面这些从 POSIX 正则表达式借用的 模式匹配元字符：
+
+* `|`表示选择（两个候选之一）。
+* `*`表示重复前面的项零次或更多次。
+*  `+`表示重复前面的项一次或更多次。
+* `?`表示重复前面的项零次或一次。
+* `{m}`表示重复前面的项刚好m次。
+* `{m,}`表示重复前面的项m次或更多次。
+* `{m,n}`表示重复前面的项至少m次并且不超过n次。
+* 可以使用圆括号()把多个项组合成一个逻辑项。
+*  一个方括号表达式[...]声明一个字符类，就像 POSIX 正则表达式一样。
+  注意
+
+![](https://pic.imgdb.cn/item/62669314239250f7c5ada95c.jpg)
+
+![](https://pic.imgdb.cn/item/62669335239250f7c5adfd1d.jpg)
+
+### POSIX正则表达式
+
+![](https://pic.imgdb.cn/item/62669359239250f7c5ae5732.jpg)
+
+```sql
+substring('foobar' from 'o.b') oob
+substring('foobar' from 'o(.)b') o
+regexp_replace('foobarbaz', 'b..', 'X')
+fooXbaz
+regexp_replace('foobarbaz', 'b..', 'X', 'g')
+fooXX
+regexp_replace('foobarbaz', 'b(..)', E'X\\1Y', 'g')
+fooXarYXazY
+
+SELECT regexp_match('foobarbequebaz', 'bar.*que');
+regexp_match
+--------------
+{barbeque}
+(1 row)
+SELECT regexp_match('foobarbequebaz', '(bar)(beque)');
+regexp_match
+--------------
+{bar,beque}
+(1 row)
+
+# 在通常情况下，您只需要匹配的整个子字符串或NULL来匹配，请写下类似的内容
+SELECT (regexp_match('foobarbequebaz', 'bar.*que'))[1];
+regexp_match
+--------------
+barbeque
+(1 row)
+
+
+```
+
+![](https://pic.imgdb.cn/item/626693f3239250f7c5afc53c.jpg)
+
+![](https://pic.imgdb.cn/item/626693ff239250f7c5afe2c6.jpg)
+
+## 数据类型格式化函数
+
+![](https://pic.imgdb.cn/item/62669456239250f7c5b0a9dc.jpg)
+
+![](https://pic.imgdb.cn/item/62669469239250f7c5b0d662.jpg)
+
+![](https://pic.imgdb.cn/item/62669477239250f7c5b0f7cb.jpg)
+
+## 时间/日期函数和操作符
+
+![](https://pic.imgdb.cn/item/6266951d239250f7c5b282e1.jpg)
+
+
+
+![](https://pic.imgdb.cn/item/62669562239250f7c5b31dd9.jpg)
+
+![](https://pic.imgdb.cn/item/62669574239250f7c5b34802.jpg)
+
+![](https://pic.imgdb.cn/item/62669582239250f7c5b36a2a.jpg)
+
+### EXTRACT, date_part
+
+![](https://pic.imgdb.cn/item/6266959d239250f7c5b3aaaf.jpg)
+
+![](https://pic.imgdb.cn/item/626695ae239250f7c5b3d486.jpg)
+
+![](https://pic.imgdb.cn/item/626695ba239250f7c5b3f269.jpg)
+
+![](https://pic.imgdb.cn/item/626695c6239250f7c5b4120b.jpg)
+
+![](https://pic.imgdb.cn/item/626695d9239250f7c5b4409b.jpg)
+
+### date_trunc
+
+![](https://pic.imgdb.cn/item/62669607239250f7c5b4a3e9.jpg)
+
+### AT TIME ZONE
+
+AT TIME ZONE结构允许把时间戳转换成不同的时区。
+
+### 当前日期/时间
+
+PostgreSQL提供了许多返回当前日期和时间的函数。这些 SQL 标准的函数全部都按照当前事务的开始时刻返回值：
+```sql
+CURRENT_DATE
+CURRENT_TIME
+CURRENT_TIMESTAMP
+CURRENT_TIME(precision)
+CURRENT_TIMESTAMP(precision)
+LOCALTIME
+LOCALTIMESTAMP
+LOCALTIME(precision)
+LOCALTIMESTAMP(precision)
+```
+
+CURRENT_TIME和CURRENT_TIMESTAMP传递带有时区的
+值；LOCALTIME和LOCALTIMESTAMP传递的值不带时区
+
+PostgreSQL同样也提供了返回当前语句开始时间的函数， 它们会返回函数被调用时的真实当前时间。这些非 SQL 标准的函数列表如下：
+
+```sql
+transaction_timestamp()
+statement_timestamp()
+clock_timestamp()
+timeofday()
+now()
+```
+
+### 延时执行
+
+![](https://pic.imgdb.cn/item/6266966c239250f7c5b58968.jpg)
+
+## 枚举支持函数
+
+![](https://pic.imgdb.cn/item/62669696239250f7c5b5f99f.jpg)
+
+## 文本搜索函数和操作符
+
+略
+
+## JSON 函数和操作符
+
+![](https://pic.imgdb.cn/item/626696f4239250f7c5b6e8d4.jpg)
+
+**表 9.44. 额外的jsonb操作符**
+
+![](https://pic.imgdb.cn/item/6266972c239250f7c5b770d8.jpg)
+
+**表 9.45. JSON 创建函数**
+
+![](https://pic.imgdb.cn/item/62669781239250f7c5b84f5b.jpg)
+
+![](https://pic.imgdb.cn/item/6266978f239250f7c5b876d0.jpg)
+
+其他 略
+
+## 序列操作函数
+
+![](https://pic.imgdb.cn/item/626697b4239250f7c5b8e456.jpg)
+
+## 条件表达式
+
+### CASE
+
+![](https://pic.imgdb.cn/item/626697d6239250f7c5b94012.jpg)
+
+### COALESCE
+
+```sql
+COALESCE(value [, ...])
+```
+
+COALESCE函数返回它的第一个非空参数的值。当且仅当所有参数都为空时才会返回空。它常用于在为显示目的检索数据时用缺省值替换空值。
+
+### NULLIF
+
+```sql
+NULLIF(value1, value2)
+```
+
+当value1和value2相等时，NULLIF返回一个空值。 否则它返回value1。 这些可以用于执行前文给出的COALESCE例子的逆操作：
+
+### GREATEST和LEAST
+
+![](https://pic.imgdb.cn/item/62669824239250f7c5b9eb5a.jpg)
+
+### 聚集函数
+
+![](https://pic.imgdb.cn/item/62669858239250f7c5ba8109.jpg)
+
+![](https://pic.imgdb.cn/item/62669863239250f7c5ba9e69.jpg)
+
+## 窗口函数
+
+![](https://pic.imgdb.cn/item/626698b7239250f7c5bb7e6f.jpg)
+
+![](https://pic.imgdb.cn/item/626698c3239250f7c5bb9d7f.jpg)
+
+## 子查询表达式
+
+* EXISTS
+* IN
+* NOT IN
+  * 通常，表达式或者子查询行里的空值是按照 SQL 布尔表达式的一般规则进行组合
+    的。 如果两个行对应的成员都非空并且相等，那么认为这两行相等；如果任意对应成员为非空且不等，那么这两行不等； 否则这样的行比较的结果是未知（空值）。如果所有行的结果要么是不等， 要么是空值，并且至少有一个空值，那么NOT IN的结果是空值。
+
+### ANY/SOME
+
+![](https://pic.imgdb.cn/item/6266991f239250f7c5bc82d0.jpg)
+
+### ALL
+
+![](https://pic.imgdb.cn/item/62669948239250f7c5bce287.jpg)
+
+## 系统信息函数
+
+![](https://pic.imgdb.cn/item/626699af239250f7c5bdfae7.jpg)
+
+# 类型转换
+
+略
+
+# 索引
+
+```sql
+CREATE INDEX test1_id_index ON test1 (id);
+```
+
+索引的名字test1_id_index可以自由选择，但我们最好选择一个能让我们想起该索引用途的名字。
+
+为了移除一个索引，可以使用DROP INDEX命令。索引可以随时被创建或删除。
+
+
+
+一旦一个索引被创建，就不再需要进一步的干预：系统会在表更新时更新索引，而且会在它觉得使用索引比顺序扫描表效率更高时使用索引。但我们可能需要定期地运行ANALYZE命令来更新统计信息以便查询规划器能做出正确的决定。
+
+## 索引类型
+
+​	PostgreSQL提供了多种索引类型： B-tree、Hash、GiST、SP-GiST 、GIN 和 BRIN。
+
+B-tree索引也可以用于检索排序数据。这并不会总是比简单扫描和排序更快，但是总是有用的。
+
+Hash索引只能处理简单等值比较。不论何时当一个索引列涉及到一个使用了=操作符的比较时，查询规划器将考虑使用一个Hash索引。下面的命令将创建一个Hash索引：
+
+```sql
+CREATE INDEX name ON table USING HASH (column);
+```
+
+​	GiST索引并不是一种单独的索引，而是可以用于实现很多不同索引策略的基础设施。相应地，可以使用一个GiST索引的特定操作符根据索引策略（操作符类）而变化。作为一个例子，PostgreSQL的标准捐献包中包括了用于多种二维几何数据类型的GiST操作符类，它用来支持使用下列操作符的索引化查询。
+
+## 多列索引
+
+```sql
+CREATE INDEX test2_mm_idx ON test2 (major, minor);
+```
+
+目前，只有 B-tree、GiST、GIN 和 BRIN 索引类型支持多列索引，最多可以指定32个列。
+
+限制可以在源代码文件pg_config_manual.h中修改，但是修改后需要重新编译PostgreSQL。
+
+## 索引和ORDER BY
+
+​	除了简单地查找查询要返回的行外，一个索引可能还需要将它们以指定的顺序传递。这使得查询中的ORDER BY不需要独立的排序步骤。在PostgreSQL当前支持的索引类型中，只有Btree可以产生排序后的输出，其他索引类型会把行以一种没有指定的且与实现相关的顺序返回。
+
+![](https://pic.imgdb.cn/item/62669b8f239250f7c5c2e6d8.jpg)
+
+### 组合多个索引
+
+​	只有查询子句中在索引列上使用了索引操作符类中的操作符并且通过AND连接时才能使用单一索引。例如，给定一个(a, b) 上的索引，查询条件WHERE a = 5 AND b = 6可以使用该索引，而查询WHERE a = 5 OR b = 6不能直接使用该索引。
+
+## 唯一索引
+
+索引也可以被用来强制列值的唯一性，或者是多个列组合值的唯一性。
+
+```sql
+CREATE UNIQUE INDEX name ON table (column [, ...]);
+```
+
+不需要手工在唯一列上创建索引，如果那样做也只是重复了自动创建的索引而
+已。
+
+### 表达式索引
+
+```sql
+SELECT * FROM test1 WHERE lower(col1) = 'value';
+```
+
+这种查询可以利用一个建立在lower(col1)函数结果之上的索引：
+
+```sql
+CREATE INDEX test1_lower_col1_idx ON test1 (lower(col1));
+```
+
+## 部分索引
+
+```sql
+CREATE INDEX access_log_client_ip_ix ON access_log (client_ip)
+WHERE NOT (client_ip > inet '192.168.100.0' AND
+client_ip < inet '192.168.100.255');
+```
+
+## 操作符类和操作符族
+
+一个索引定义可以为索引中的每一列都指定一个操作符类。
+```sql
+CREATE INDEX name ON table (column opclass [sort options] [, ...]);
+```
+
+操作符类text_pattern_ops、varchar_pattern_ops和 bpchar_pattern_ops分别支持类
+型text、varchar和 char上的B树索引。它们与默认操作符类的区别是值的比较是严格按照字符进行而不是根据区域相关的排序规则。这使得这些操作符类适合于当一个数据库没有使用标准“C”区域时被使用在涉及模式匹配表达式（LIKE或POSIX正则表达式）的查询中。
+一个例子是，你可以这样索引一个varchar列：
+
+```sql
+CREATE INDEX test_index ON test_table (col varchar_pattern_ops);
+```
+
+## 索引和排序规则
+
+一个索引在每一个索引列上只能支持一种排序规则。如果需要多种排序规则，你可能需要多个索引。
+
+## 只用索引的扫描
+
+​	PostgreSQL中的所有索引都是二级索引，表示每一个索引都被存储在表的主数据区域（在PostgreSQL术语中被称为该表的堆）之外。这意味着在一次普通索引扫描中，每次取一行需要从索引和堆中取得数据。此外，虽然满足一个给定的可索引WHERE条件的索引项通常在索引中都靠拢在一起，但是它们所引用的表行可能分布在堆中的任何地方。因此一次索引扫描的堆访问部分可能会涉及到很多对堆的随机访问，这可能会很慢，尤其在传统的磁盘上（如第 11.5 节中所述，位图扫描试图通过有序地执行堆访问来减轻这种开销，但是效果也就那样而已）。
+
+## 检查索引使用
+
+* 总是先运行ANALYZE。这个命令会收集有关表中值分布情况的统计信息。估计一个查询将要返回的行数需要这些信息，而结果行数则被规划器用来为每一个可能的查询计划分配实际的代价。如果没有任何真实的统计信息，将会假定一些默认值，这几乎肯定是不准确的。在没有运行的情况下检查一个应用的索引使用情况是注定要失败的。详见第 24.1.3 节和第 24.1.6 节。
+* 使用真实数据进行实验。使用测试数据来建立索引将会告诉你测试数据需要什么样的索引，但这并不代表真实数据的需要。
+
+
+
+* 如果索引没有被用到，强制使用它们将会对测试非常有用。有一些运行时参数可以关闭多种计划类型（参见第 19.7.1 节）。例如，关闭顺序扫描（enable_seqscan）以及嵌套循环连接（enable_nestloop）将强制系统使用一种不同的计划。如果系统仍然选择使用一个顺序扫描或嵌套循环连接，则索引没有被使用的原因可能更加根本，例如查询条件不匹配索引（哪种查询能够使用哪种索引已经在前面的小节中解释过了）
+* 如果强制索引使用确实使用了索引，则有两种可能性：系统是正确的并且索引确实不合适，或者查询计划的代价估计并没有反映真实情况。因此你应该对用索引的查询和不用索引的查询计时。此时EXPLAIN ANALYZE命令就能发挥作用了
+* 如果发现代价估计是错误的，也分为两种可能性。总代价是用每个计划节点的每行代价乘以计划节点的选择度估计来计算的。计划节点的代价估计可以通过运行时参数调整（如第 19.7.2 节所述）。不准确的选择度估计可能是由于缺乏统计信息，可以通过调节统计信息收集参数（见ALTER TABLE）来改进。
