@@ -1,3 +1,5 @@
+https://www.runoob.com/python3/python3-tutorial.html
+
 # 基础语法
 
 ## 编码
@@ -634,3 +636,6 @@ print (tinydict.values()) # 输出所有值
 | [ord(x)](https://www.runoob.com/python3/python-func-ord.html) | 将一个字符转换为它的整数值                          |
 | [hex(x)](https://www.runoob.com/python3/python-func-hex.html) | 将一个整数转换为一个十六进制字符串                  |
 | [oct(x)](https://www.runoob.com/python3/python-func-oct.html) | 将一个整数转换为一个八进制字符串                    |
+
+# Python3 数据类型转换
+

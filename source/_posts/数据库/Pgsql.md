@@ -1877,3 +1877,227 @@ CREATE INDEX test_index ON test_table (col varchar_pattern_ops);
 * 如果索引没有被用到，强制使用它们将会对测试非常有用。有一些运行时参数可以关闭多种计划类型（参见第 19.7.1 节）。例如，关闭顺序扫描（enable_seqscan）以及嵌套循环连接（enable_nestloop）将强制系统使用一种不同的计划。如果系统仍然选择使用一个顺序扫描或嵌套循环连接，则索引没有被使用的原因可能更加根本，例如查询条件不匹配索引（哪种查询能够使用哪种索引已经在前面的小节中解释过了）
 * 如果强制索引使用确实使用了索引，则有两种可能性：系统是正确的并且索引确实不合适，或者查询计划的代价估计并没有反映真实情况。因此你应该对用索引的查询和不用索引的查询计时。此时EXPLAIN ANALYZE命令就能发挥作用了
 * 如果发现代价估计是错误的，也分为两种可能性。总代价是用每个计划节点的每行代价乘以计划节点的选择度估计来计算的。计划节点的代价估计可以通过运行时参数调整（如第 19.7.2 节所述）。不准确的选择度估计可能是由于缺乏统计信息，可以通过调节统计信息收集参数（见ALTER TABLE）来改进。
+
+# 全文搜索
+
+## 介绍
+
+​	文本搜索操作符已经在数据库中存在很多年了。PostgreSQL对文本数据类型提供了~、~*、LIKE和ILIKE操作符，但是它们缺少现代信息系统所要求的很多基本属性。
+
+全文索引允许文档被预处理并且保存一个索引用于以后快速的搜索。预处理包括：
+
+​	将文档解析成记号。标识出多种类型的记号是有所帮助的，例如数字、词、复杂的词、电子邮件地址，这样它们可以被以不同的方式处理。原则上记号分类取决于相关的应用，但是对于大部分目的都可以使用一套预定义的分类。PostgreSQL使用一个解析器来执行这个步骤。其中提供了一个标准的解析器，并且为特定的需要也可以创建定制的解析器。
+
+​	将记号转换成词位。和一个记号一样，一个词位是一个字符串，但是它已经被正规化，这样同一个词的不同形式被变成一样。例如，正规化几乎总是包括将大写字母转换成小写形式，并且经常涉及移除后缀（例如英语中的s或es）。这允许搜索找到同一个词的变体形式，而不需要冗长地输入所有可能的变体。此外，这个步骤通常会消除停用词，它们是那些太普通的词，它们对于搜索是无用的（简而言之，记号是文档文本的原始片段，而词位是那些被认为对索引和搜索有用的词）。PostgreSQL使用词典来执行这个步骤。已经提供了多种标准词典，并且为特定的需要也可以创建定制的词典。
+
+### 基本文本匹配
+
+​	PostgreSQL中的全文搜索基于匹配操作符@@，它在一个tsvector（文档）匹配一个tsquery（查询）时返回true。哪种数据类型写在前面没有影响：
+
+```sql
+SELECT 'a fat cat sat on a mat and ate a fat rat'::tsvector @@ 'cat & rat'::tsquery;
+?column?
+----------
+t
+SELECT 'fat & cow'::tsquery @@ 'a fat cat sat on a mat and ate a fat rat'::tsvector;
+?column?
+----------
+f
+```
+
+正如以上例子所建议的，一个tsquery并不只是一个未经处理的文本， 顶多一个tsvector是这样。一个tsquery包含搜索术语， 它们必须是已经正规化的词位，并且可以使用AND 、OR、NOT 以及 FOLLOWED BY 操作符结合多个术语 （语法细节请见第 8.11.2 节）。有几个函数to_tsquery、plainto_tsquery以及phraseto_tsquery可用于将用户书写的文本转换为正确的tsquery，它们会主要采用正则化出现在文本中的词的方法。相似地，to_tsvector被用来解析和正规化一个文档字符串。因此在实际上一个文本搜索匹配可能
+看起来更像：
+
+```sql
+SELECT to_tsvector('fat cats ate fat rats') @@ to_tsquery('fat & rat');
+?column?
+----------
+t
+```
+
+在tsquery中，&（AND）操作符指定它的两个参数都必须出现在文档中才表示匹配。类似地，|（OR）操作符指定至少一个参数必须出现，而!（NOT）操作符指定它的参数不出现才能匹配。 例如，查询fat & ! rat匹配包含fat但是不包含 rat的文档。
+
+
+
+在<->（FOLLOWED BY） tsquery操作符的帮助下搜索可能的短语，只有该操作符的参数的匹配是相邻的并且符合给定顺序时，该操作符才算是匹配。例如：
+
+```sql
+SELECT to_tsvector('fatal error') @@ to_tsquery('fatal <-> error');
+?column?
+----------
+t
+
+SELECT to_tsvector('error is not fatal') @@ to_tsquery('fatal <-> error');
+?column?
+----------
+f
+```
+
+FOLLOWED BY 操作符还有一种更一般的版本，形式是`<N>`，其中N是一个表示匹配词位位置之间的差。`<1>`和`<->`相同，而`<2>`允许刚好一个其他词位出现在匹配之间，以此类推。当有些词是停用词时，`phraseto_tsquery`函数利用这个操作符来构造一个能够匹配多词短语的tsquery。例如：
+
+一种有时候有用的特殊情况是，`<0>`可以被用来要求两个匹配同一个词的模式。
+
+## 表和索引
+
+### 搜索一个表
+
+```sql
+SELECT title
+FROM pgweb
+WHERE to_tsvector('english', body) @@ to_tsquery('english', 'friend');
+```
+
+以上的查询指定要使用english配置来解析和正规化字符串。我们也可以忽略配置参数：
+
+```sql
+SELECT title
+FROM pgweb
+WHERE to_tsvector(body) @@ to_tsquery('friend');
+```
+
+### 创建索引
+
+```sql
+CREATE INDEX pgweb_idx ON pgweb USING GIN(to_tsvector('english', body));
+```
+
+索引甚至可以连接列：
+
+```sql
+CREATE INDEX pgweb_idx ON pgweb USING GIN(to_tsvector('english', title || ' ' || body));
+```
+
+另一种方法是创建一个单独的tsvector列来保存to_tsvector的输出。这个例子是title和body的连接，使用coalesce来保证当其他域为NULL时一个域仍然能留在索引中：
+
+```sql
+ALTER TABLE pgweb ADD COLUMN textsearchable_index_col tsvector;
+UPDATE pgweb SET textsearchable_index_col =
+to_tsvector('english', coalesce(title,'') || ' ' || coalesce(body,''));
+```
+
+然后我们创建一个GIN索引来加速搜索：
+
+```sql
+CREATE INDEX textsearch_idx ON pgweb USING GIN(textsearchable_index_col);
+```
+
+## 空值文本搜索
+
+​	要实现全文搜索必须要有一个从文档创建tsvector以及从用户查询创建tsquery的函数。而且我们需要一种有用的顺序返回结果，因此我们需要一个函数能够根据文档与查询的相关性比较文档。还有一点重要的是要能够很好地显示结果。PostgreSQL对所有这些函数都提供了支持。
+
+### 解析文档
+
+PostgreSQL提供了函数to_tsvector将一个文档转换成tsvector数据类型。
+
+```sql
+to_tsvector([ config regconfig, ] document text) returns tsvector
+```
+
+to_tsvector把一个文本文档解析成记号，把记号缩减成词位，并且返回一个tsvector，它列出
+了词位以及词位在文档中的位置。文档被根据指定的或默认的文本搜索配置来处理。下面是
+一个简单例子：
+
+```sql
+SELECT to_tsvector('english', 'a fat cat sat on a mat - it ate a fat rats');
+
+to_tsvector
+-----------------------------------------------------
+'ate':9 'cat':3 'fat':2,11 'mat':7 'rat':12 'sat':4
+```
+
+### 解析查询
+
+​	PostgreSQL提供了函数to_tsquery、plainto_tsquery和phraseto_tsquery用来把一个查询转换成tsquery数据类型。to_tsquery提供了比plainto_tsquery和phraseto_tsquery更多的特性，但是它对其输入要求更加严格。
+
+```sql
+to_tsquery([ config regconfig, ] querytext text) returns tsqueryz
+```
+
+*可以被附加到一个词位来指定前缀匹配：
+
+```sql
+SELECT to_tsquery('supern:*A & star:A*B');
+to_tsquery
+--------------------------
+'supern':*A & 'star':*AB
+```
+
+### 排名搜索结果
+
+​	排名处理尝试度量文档和一个特定查询的接近程度，这样当有很多匹配时最相关的那些可以被先显示。PostgreSQL提供了两种预定义的排名函数，它们考虑词法、临近性和结构信息；即，它们考虑查询词在文档中出现得有多频繁，文档中的词有多接近，以及词出现的文档部分有多重要。不过，相关性的概念是模糊的并且与应用非常相关。不同的应用可能要求额外的信息用于排名，例如，文档修改时间。内建的排名函数只是例子。你可以编写你自己的排名函数和/或把它们的结果与附加因素整合在一起来适应你的特定需求。
+
+目前可用的两种排名函数是：
+
+```sql
+ts_rank([ weights float4[], ] vector tsvector, query tsquery [, normalization integer ]) returns float4
+```
+
+基于向量的匹配词位的频率来排名向量。
+
+```sql
+ts_rank_cd([ weights float4[], ] vector tsvector, query tsquery [, normalization integer ]) returns float4
+```
+
+对这两个函数，可选的权重参数提供了为词实例赋予更多或更少权重的能力，这种能力是依据它们被标注的情况的。权重数组指定每一类词应该得到多重的权重，按照如下的顺序：
+{D-权重, C-权重, B-权重, A-权重}
+如果没有提供权重，那么将使用这些默认值：
+{0.1, 0.2, 0.4, 1.0}
+
+
+
+由于一个较长的文档有更多的机会包含一个查询术语，因此考虑文档的尺寸是合理的，例如一个一百个词的文档中有一个搜索词的五个实例而零一个一千个词的文档中有该搜索词的五个实例，则前者比后者更相关。两种排名函数都采用一个整数正规化选项，它指定文档长度是否影响其排名以及如何影响。该整数选项控制多个行为，因此它是一个位掩码：你可以使用|指定一个或多个行为（例如，2|4）。
+
+* 0（默认值）忽略文档长度
+* 1 用 1 + 文档长度的对数除排名
+* 2 用文档长度除排名
+* 4 用长度之间的平均调和距离除排名（只被ts_rank_cd实现）
+* 8 用文档中唯一词的数量除排名
+* 16 用 1 + 文档中唯一词数量的对数除排名
+* 32 用排名 + 1 除排名
+
+```sql
+SELECT title, ts_rank_cd(textsearch, query, 32 /* rank/(rank+1) */ ) AS rank
+FROM apod, to_tsquery('neutrino|(dark & matter)') query
+WHERE query @@ textsearch
+ORDER BY rank DESC
+LIMIT 10;
+title | rank
+-----------------------------------------------+-------------------
+Neutrinos in the Sun | 0.756097569485493
+The Sudbury Neutrino Detector | 0.705882361190954
+A MACHO View of Galactic Dark Matter | 0.668123210574724
+Hot Gas and Dark Matter | 0.65655958650282
+The Virgo Cluster: Hot Plasma and Dark Matter | 0.656301290640973
+Rafting for Solar Neutrinos | 0.655172410958162
+NGC 4650A: Strange Galaxy and Dark Matter | 0.650072921219637
+Hot Gas and Dark Matter | 0.617195790024749
+Ice Fishing for Cosmic Neutrinos | 0.615384618911517
+Weak Lensing Distorts the Universe | 0.450010798361481
+```
+
+
+
+### 加亮结果
+
+​	要表示搜索结果，理想的方式是显示每一个文档的一个部分并且显示它是怎样与查询相关的。通常，搜索引擎显示文档片段时会对其中的搜索术语进行标记。PostgreSQL提供了一个函数ts_headline来实现这个功能。
+
+```sql
+ts_headline([ config regconfig, ] document text, query tsquery [, options text ]) returns text
+```
+
+## 额外特性
+
+### 操纵文档
+
+略
+
+### 操纵查询
+
+略
+
+#### 查询重写
+
+略
+
+### 用于自动更新的触发器
+
