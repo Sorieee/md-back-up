@@ -1582,3 +1582,2743 @@ Python 支持格式化字符串的输出 。尽管这样可能会用到非常复
 
 在 Python 中，字符串格式化使用与 C 中 sprintf 函数一样的语法。
 
+```python
+#!/usr/bin/python3
+ 
+print ("我叫 %s 今年 %d 岁!" % ('小明', 10))
+```
+
+以上实例输出结果：
+
+```
+我叫 小明 今年 10 岁!
+```
+
+python字符串格式化符号:
+
+
+
+| 符  号 | 描述                                 |
+| :----- | :----------------------------------- |
+| %c     | 格式化字符及其ASCII码                |
+| %s     | 格式化字符串                         |
+| %d     | 格式化整数                           |
+| %u     | 格式化无符号整型                     |
+| %o     | 格式化无符号八进制数                 |
+| %x     | 格式化无符号十六进制数               |
+| %X     | 格式化无符号十六进制数（大写）       |
+| %f     | 格式化浮点数字，可指定小数点后的精度 |
+| %e     | 用科学计数法格式化浮点数             |
+| %E     | 作用同%e，用科学计数法格式化浮点数   |
+| %g     | %f和%e的简写                         |
+| %G     | %f 和 %E 的简写                      |
+| %p     | 用十六进制数格式化变量的地址         |
+
+格式化操作符辅助指令:
+
+| 符号  | 功能                                                         |
+| :---- | :----------------------------------------------------------- |
+| *     | 定义宽度或者小数点精度                                       |
+| -     | 用做左对齐                                                   |
+| +     | 在正数前面显示加号( + )                                      |
+| <sp>  | 在正数前面显示空格                                           |
+| #     | 在八进制数前面显示零('0')，在十六进制前面显示'0x'或者'0X'(取决于用的是'x'还是'X') |
+| 0     | 显示的数字前面填充'0'而不是默认的空格                        |
+| %     | '%%'输出一个单一的'%'                                        |
+| (var) | 映射变量(字典参数)                                           |
+| m.n.  | m 是显示的最小总宽度,n 是小数点后的位数(如果可用的话)        |
+
+Python2.6 开始，新增了一种格式化字符串的函数 [str.format()](https://www.runoob.com/python/att-string-format.html)，它增强了字符串格式化的功能。
+
+## Python三引号
+
+python三引号允许一个字符串跨多行，字符串中可以包含换行符、制表符以及其他特殊字符。实例如下
+
+```python
+#!/usr/bin/python3
+ 
+para_str = """这是一个多行字符串的实例
+多行字符串可以使用制表符
+TAB ( \t )。
+也可以使用换行符 [ \n ]。
+"""
+print (para_str)
+```
+
+以上实例执行结果为：
+
+```
+这是一个多行字符串的实例
+多行字符串可以使用制表符
+TAB (    )。
+也可以使用换行符 [ 
+ ]。
+```
+
+三引号让程序员从引号和特殊字符串的泥潭里面解脱出来，自始至终保持一小块字符串的格式是所谓的WYSIWYG（所见即所得）格式的。
+
+一个典型的用例是，当你需要一块HTML或者SQL时，这时用字符串组合，特殊字符串转义将会非常的繁琐。
+
+```python
+errHTML = '''
+<HTML><HEAD><TITLE>
+Friends CGI Demo</TITLE></HEAD>
+<BODY><H3>ERROR</H3>
+<B>%s</B><P>
+<FORM><INPUT TYPE=button VALUE=Back
+ONCLICK="window.history.back()"></FORM>
+</BODY></HTML>
+'''
+cursor.execute('''
+CREATE TABLE users (  
+login VARCHAR(8), 
+uid INTEGER,
+prid INTEGER)
+''')
+```
+
+## f-string
+
+f-string 是 python3.6 之后版本添加的，称之为字面量格式化字符串，是新的格式化字符串的语法。
+
+之前我们习惯用百分号 (%):
+
+```python
+>>> name = 'Runoob'
+>>> 'Hello %s' % name
+'Hello Runoob'
+```
+
+**f-string** 格式化字符串以 **f** 开头，后面跟着字符串，字符串中的表达式用大括号 {} 包起来，它会将变量或表达式计算后的值替换进去，实例如下：
+
+```python
+>>> name = 'Runoob'
+>>> f'Hello {name}'  # 替换变量
+'Hello Runoob'
+>>> f'{1+2}'         # 使用表达式
+'3'
+
+>>> w = {'name': 'Runoob', 'url': 'www.runoob.com'}
+>>> f'{w["name"]}: {w["url"]}'
+'Runoob: www.runoob.com'
+```
+
+用了这种方式明显更简单了，不用再去判断使用 %s，还是 %d。
+
+在 Python 3.8 的版本中可以使用 **=** 符号来拼接运算表达式与结果
+
+```python
+>>> x = 1
+>>> print(f'{x+1}')   # Python 3.6
+2
+
+>>> x = 1
+>>> print(f'{x+1=}')   # Python 3.8
+x+1=2
+```
+
+## Python 的字符串内建函数
+
+Python 的字符串常用内建函数如下：
+
+
+
+| 序号 | 方法及描述                                                   |
+| :--- | :----------------------------------------------------------- |
+| 1    | [capitalize()](https://www.runoob.com/python3/python3-string-capitalize.html) 将字符串的第一个字符转换为大写 |
+| 2    | [center(width, fillchar)](https://www.runoob.com/python3/python3-string-center.html)返回一个指定的宽度 width 居中的字符串，fillchar 为填充的字符，默认为空格。 |
+| 3    | [count(str, beg= 0,end=len(string))](https://www.runoob.com/python3/python3-string-count.html) 返回 str 在 string 里面出现的次数，如果 beg 或者 end 指定则返回指定范围内 str 出现的次数 |
+| 4    | [bytes.decode(encoding="utf-8", errors="strict")](https://www.runoob.com/python3/python3-string-decode.html) Python3 中没有 decode 方法，但我们可以使用 bytes 对象的 decode() 方法来解码给定的 bytes 对象，这个 bytes 对象可以由 str.encode() 来编码返回。 |
+| 5    | [encode(encoding='UTF-8',errors='strict')](https://www.runoob.com/python3/python3-string-encode.html) 以 encoding 指定的编码格式编码字符串，如果出错默认报一个ValueError 的异常，除非 errors 指定的是'ignore'或者'replace' |
+| 6    | [endswith(suffix, beg=0, end=len(string))](https://www.runoob.com/python3/python3-string-endswith.html) 检查字符串是否以 obj 结束，如果beg 或者 end 指定则检查指定的范围内是否以 obj 结束，如果是，返回 True,否则返回 False. |
+| 7    | [expandtabs(tabsize=8)](https://www.runoob.com/python3/python3-string-expandtabs.html) 把字符串 string 中的 tab 符号转为空格，tab 符号默认的空格数是 8 。 |
+| 8    | [find(str, beg=0, end=len(string))](https://www.runoob.com/python3/python3-string-find.html) 检测 str 是否包含在字符串中，如果指定范围 beg 和 end ，则检查是否包含在指定范围内，如果包含返回开始的索引值，否则返回-1 |
+| 9    | [index(str, beg=0, end=len(string))](https://www.runoob.com/python3/python3-string-index.html) 跟find()方法一样，只不过如果str不在字符串中会报一个异常。 |
+| 10   | [isalnum()](https://www.runoob.com/python3/python3-string-isalnum.html) 如果字符串至少有一个字符并且所有字符都是字母或数字则返 回 True，否则返回 False |
+| 11   | [isalpha()](https://www.runoob.com/python3/python3-string-isalpha.html) 如果字符串至少有一个字符并且所有字符都是字母或中文字则返回 True, 否则返回 False |
+| 12   | [isdigit()](https://www.runoob.com/python3/python3-string-isdigit.html) 如果字符串只包含数字则返回 True 否则返回 False.. |
+| 13   | [islower()](https://www.runoob.com/python3/python3-string-islower.html) 如果字符串中包含至少一个区分大小写的字符，并且所有这些(区分大小写的)字符都是小写，则返回 True，否则返回 False |
+| 14   | [isnumeric()](https://www.runoob.com/python3/python3-string-isnumeric.html) 如果字符串中只包含数字字符，则返回 True，否则返回 False |
+| 15   | [isspace()](https://www.runoob.com/python3/python3-string-isspace.html) 如果字符串中只包含空白，则返回 True，否则返回 False. |
+| 16   | [istitle()](https://www.runoob.com/python3/python3-string-istitle.html) 如果字符串是标题化的(见 title())则返回 True，否则返回 False |
+| 17   | [isupper()](https://www.runoob.com/python3/python3-string-isupper.html) 如果字符串中包含至少一个区分大小写的字符，并且所有这些(区分大小写的)字符都是大写，则返回 True，否则返回 False |
+| 18   | [join(seq)](https://www.runoob.com/python3/python3-string-join.html) 以指定字符串作为分隔符，将 seq 中所有的元素(的字符串表示)合并为一个新的字符串 |
+| 19   | [len(string)](https://www.runoob.com/python3/python3-string-len.html) 返回字符串长度 |
+| 20   | [ljust(width[, fillchar\])](https://www.runoob.com/python3/python3-string-ljust.html) 返回一个原字符串左对齐,并使用 fillchar 填充至长度 width 的新字符串，fillchar 默认为空格。 |
+| 21   | [lower()](https://www.runoob.com/python3/python3-string-lower.html) 转换字符串中所有大写字符为小写. |
+| 22   | [lstrip()](https://www.runoob.com/python3/python3-string-lstrip.html) 截掉字符串左边的空格或指定字符。 |
+| 23   | [maketrans()](https://www.runoob.com/python3/python3-string-maketrans.html) 创建字符映射的转换表，对于接受两个参数的最简单的调用方式，第一个参数是字符串，表示需要转换的字符，第二个参数也是字符串表示转换的目标。 |
+| 24   | [max(str)](https://www.runoob.com/python3/python3-string-max.html) 返回字符串 str 中最大的字母。 |
+| 25   | [min(str)](https://www.runoob.com/python3/python3-string-min.html) 返回字符串 str 中最小的字母。 |
+| 26   | [replace(old, new [, max\])](https://www.runoob.com/python3/python3-string-replace.html) 把 将字符串中的 old 替换成 new,如果 max 指定，则替换不超过 max 次。 |
+| 27   | [rfind(str, beg=0,end=len(string))](https://www.runoob.com/python3/python3-string-rfind.html) 类似于 find()函数，不过是从右边开始查找. |
+| 28   | [rindex( str, beg=0, end=len(string))](https://www.runoob.com/python3/python3-string-rindex.html) 类似于 index()，不过是从右边开始. |
+| 29   | [rjust(width,[, fillchar\])](https://www.runoob.com/python3/python3-string-rjust.html) 返回一个原字符串右对齐,并使用fillchar(默认空格）填充至长度 width 的新字符串 |
+| 30   | [rstrip()](https://www.runoob.com/python3/python3-string-rstrip.html) 删除字符串末尾的空格或指定字符。 |
+| 31   | [split(str="", num=string.count(str))](https://www.runoob.com/python3/python3-string-split.html) 以 str 为分隔符截取字符串，如果 num 有指定值，则仅截取 num+1 个子字符串 |
+| 32   | [splitlines([keepends\])](https://www.runoob.com/python3/python3-string-splitlines.html) 按照行('\r', '\r\n', \n')分隔，返回一个包含各行作为元素的列表，如果参数 keepends 为 False，不包含换行符，如果为 True，则保留换行符。 |
+| 33   | [startswith(substr, beg=0,end=len(string))](https://www.runoob.com/python3/python3-string-startswith.html) 检查字符串是否是以指定子字符串 substr 开头，是则返回 True，否则返回 False。如果beg 和 end 指定值，则在指定范围内检查。 |
+| 34   | [strip([chars\])](https://www.runoob.com/python3/python3-string-strip.html) 在字符串上执行 lstrip()和 rstrip() |
+| 35   | [swapcase()](https://www.runoob.com/python3/python3-string-swapcase.html) 将字符串中大写转换为小写，小写转换为大写 |
+| 36   | [title()](https://www.runoob.com/python3/python3-string-title.html) 返回"标题化"的字符串,就是说所有单词都是以大写开始，其余字母均为小写(见 istitle()) |
+| 37   | [translate(table, deletechars="")](https://www.runoob.com/python3/python3-string-translate.html) 根据 table 给出的表(包含 256 个字符)转换 string 的字符, 要过滤掉的字符放到 deletechars 参数中 |
+| 38   | [upper()](https://www.runoob.com/python3/python3-string-upper.html) 转换字符串中的小写字母为大写 |
+| 39   | [zfill (width)](https://www.runoob.com/python3/python3-string-zfill.html) 返回长度为 width 的字符串，原字符串右对齐，前面填充0 |
+| 40   | [isdecimal()](https://www.runoob.com/python3/python3-string-isdecimal.html) 检查字符串是否只包含十进制字符，如果是返回 true，否则返回 false。 |
+
+# Python3 列表
+
+序列是 Python 中最基本的数据结构。
+
+序列中的每个值都有对应的位置值，称之为索引，第一个索引是 0，第二个索引是 1，依此类推。
+
+Python 有 6 个序列的内置类型，但最常见的是列表和元组。
+
+列表都可以进行的操作包括索引，切片，加，乘，检查成员。
+
+此外，Python 已经内置确定序列的长度以及确定最大和最小的元素的方法。
+
+列表是最常用的 Python 数据类型，它可以作为一个方括号内的逗号分隔值出现。
+
+列表的数据项不需要具有相同的类型
+
+创建一个列表，只要把逗号分隔的不同的数据项使用方括号括起来即可。如下所示：
+
+```python
+list1 = ['Google', 'Runoob', 1997, 2000]
+list2 = [1, 2, 3, 4, 5 ]
+list3 = ["a", "b", "c", "d"]
+list4 = ['red', 'green', 'blue', 'yellow', 'white', 'black']
+```
+
+## 访问列表中的值
+
+与字符串的索引一样，列表索引从 **0** 开始，第二个索引是 **1**，依此类推。
+
+通过索引列表可以进行截取、组合等操作。
+
+![img](https://www.runoob.com/wp-content/uploads/2014/05/positive-indexes-1.png)
+
+```python
+#!/usr/bin/python3
+
+list = ['red', 'green', 'blue', 'yellow', 'white', 'black']
+print( list[0] )
+print( list[1] )
+print( list[2] )
+```
+
+以上实例输出结果：
+
+```
+red
+green
+blue
+```
+
+索引也可以从尾部开始，最后一个元素的索引为 **-1**，往前一位为 **-2**，以此类推。
+
+![img](https://www.runoob.com/wp-content/uploads/2014/05/negative-indexes.png)
+
+```python
+#!/usr/bin/python3
+
+list = ['red', 'green', 'blue', 'yellow', 'white', 'black']
+print( list[-1] )
+print( list[-2] )
+print( list[-3] )
+```
+
+以上实例输出结果：
+
+```
+black
+white
+yellow
+```
+
+使用下标索引来访问列表中的值，同样你也可以使用方括号 **[]** 的形式截取字符，如下所示：
+
+![img](https://www.runoob.com/wp-content/uploads/2014/05/first-slice.png)
+
+## 更新列表
+
+你可以对列表的数据项进行修改或更新，你也可以使用 append() 方法来添加列表项，如下所示：
+
+```python
+#!/usr/bin/python3
+ 
+list = ['Google', 'Runoob', 1997, 2000]
+ 
+print ("第三个元素为 : ", list[2])
+list[2] = 2001
+print ("更新后的第三个元素为 : ", list[2])
+ 
+list1 = ['Google', 'Runoob', 'Taobao']
+list1.append('Baidu')
+print ("更新后的列表 : ", list1)
+```
+
+**注意：**我们会在接下来的章节讨论 [append()](https://www.runoob.com/python3/python3-att-list-append.html) 方法的使用。
+
+以上实例输出结果：
+
+```
+第三个元素为 :  1997
+更新后的第三个元素为 :  2001
+更新后的列表 :  ['Google', 'Runoob', 'Taobao', 'Baidu']
+```
+
+## 删除列表元素
+
+可以使用 del 语句来删除列表的的元素，如下实例：
+
+```python
+#!/usr/bin/python3
+ 
+list = ['Google', 'Runoob', 1997, 2000]
+ 
+print ("原始列表 : ", list)
+del list[2]
+print ("删除第三个元素 : ", list)
+```
+
+以上实例输出结果：
+
+```
+原始列表 :  ['Google', 'Runoob', 1997, 2000]
+删除第三个元素 :  ['Google', 'Runoob', 2000]
+```
+
+**注意：**我们会在接下来的章节讨论 remove() 方法的使用
+
+------
+
+## Python列表脚本操作符
+
+列表对 + 和 * 的操作符与字符串相似。+ 号用于组合列表，* 号用于重复列表。
+
+如下所示：
+
+| Python 表达式                         | 结果                         | 描述                 |
+| :------------------------------------ | :--------------------------- | :------------------- |
+| len([1, 2, 3])                        | 3                            | 长度                 |
+| [1, 2, 3] + [4, 5, 6]                 | [1, 2, 3, 4, 5, 6]           | 组合                 |
+| ['Hi!'] * 4                           | ['Hi!', 'Hi!', 'Hi!', 'Hi!'] | 重复                 |
+| 3 in [1, 2, 3]                        | True                         | 元素是否存在于列表中 |
+| for x in [1, 2, 3]: print(x, end=" ") | 1 2 3                        | 迭代                 |
+
+------
+
+## Python列表截取与拼接
+
+Python的列表截取与字符串操作类型，如下所示：
+
+```python
+L=['Google', 'Runoob', 'Taobao']
+```
+
+操作：
+
+| Python 表达式 | 结果                 | 描述                                               |
+| :------------ | :------------------- | :------------------------------------------------- |
+| L[2]          | 'Taobao'             | 读取第三个元素                                     |
+| L[-2]         | 'Runoob'             | 从右侧开始读取倒数第二个元素: count from the right |
+| L[1:]         | ['Runoob', 'Taobao'] | 输出从第二个元素开始后的所有元素                   |
+
+```python
+>>>L=['Google', 'Runoob', 'Taobao']
+>>> L[2]
+'Taobao'
+>>> L[-2]
+'Runoob'
+>>> L[1:]
+['Runoob', 'Taobao']
+>>>
+```
+
+列表还支持拼接操作：
+
+```python
+>>>squares = [1, 4, 9, 16, 25]
+>>> squares += [36, 49, 64, 81, 100]
+>>> squares
+[1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
+>>>
+```
+
+## 嵌套列表
+
+使用嵌套列表即在列表里创建其它列表，例如：
+
+```python
+>>>a = ['a', 'b', 'c']
+>>> n = [1, 2, 3]
+>>> x = [a, n]
+>>> x
+[['a', 'b', 'c'], [1, 2, 3]]
+>>> x[0]
+['a', 'b', 'c']
+>>> x[0][1]
+'b'
+```
+
+## Python列表函数&方法
+
+Python包含以下函数:
+
+| 序号 | 函数                                                         |
+| :--- | :----------------------------------------------------------- |
+| 1    | [len(list)](https://www.runoob.com/python3/python3-att-list-len.html) 列表元素个数 |
+| 2    | [max(list)](https://www.runoob.com/python3/python3-att-list-max.html) 返回列表元素最大值 |
+| 3    | [min(list)](https://www.runoob.com/python3/python3-att-list-min.html) 返回列表元素最小值 |
+| 4    | [list(seq)](https://www.runoob.com/python3/python3-att-list-list.html) 将元组转换为列表 |
+
+Python包含以下方法:
+
+| 序号 | 方法                                                         |
+| :--- | :----------------------------------------------------------- |
+| 1    | [list.append(obj)](https://www.runoob.com/python3/python3-att-list-append.html) 在列表末尾添加新的对象 |
+| 2    | [list.count(obj)](https://www.runoob.com/python3/python3-att-list-count.html) 统计某个元素在列表中出现的次数 |
+| 3    | [list.extend(seq)](https://www.runoob.com/python3/python3-att-list-extend.html) 在列表末尾一次性追加另一个序列中的多个值（用新列表扩展原来的列表） |
+| 4    | [list.index(obj)](https://www.runoob.com/python3/python3-att-list-index.html) 从列表中找出某个值第一个匹配项的索引位置 |
+| 5    | [list.insert(index, obj)](https://www.runoob.com/python3/python3-att-list-insert.html) 将对象插入列表 |
+| 6    | [list.pop([index=-1\])](https://www.runoob.com/python3/python3-att-list-pop.html) 移除列表中的一个元素（默认最后一个元素），并且返回该元素的值 |
+| 7    | [list.remove(obj)](https://www.runoob.com/python3/python3-att-list-remove.html) 移除列表中某个值的第一个匹配项 |
+| 8    | [list.reverse()](https://www.runoob.com/python3/python3-att-list-reverse.html) 反向列表中元素 |
+| 9    | [list.sort( key=None, reverse=False)](https://www.runoob.com/python3/python3-att-list-sort.html) 对原列表进行排序 |
+| 10   | [list.clear()](https://www.runoob.com/python3/python3-att-list-clear.html) 清空列表 |
+| 11   | [list.copy()](https://www.runoob.com/python3/python3-att-list-copy.html) 复制列表 |
+
+# Python3 元组
+
+Python 的元组与列表类似，不同之处在于元组的元素不能修改。
+
+元组使用小括号 **( )**，列表使用方括号 **[ ]**。
+
+元组创建很简单，只需要在括号中添加元素，并使用逗号隔开即可。
+
+![img](https://www.runoob.com/wp-content/uploads/2016/04/tup-2020-10-27-10-26-2.png)
+
+```python
+>>> tup1 = ('Google', 'Runoob', 1997, 2000)
+>>> tup2 = (1, 2, 3, 4, 5 )
+>>> tup3 = "a", "b", "c", "d"   #  不需要括号也可以
+>>> type(tup3)
+<class 'tuple'>
+```
+
+创建空元组
+
+```
+tup1 = ()
+```
+
+元组中只包含一个元素时，需要在元素后面添加逗号 **,** ，否则括号会被当作运算符使用：
+
+```python
+>>> tup1 = (50)
+>>> type(tup1)     # 不加逗号，类型为整型
+<class 'int'>
+
+>>> tup1 = (50,)
+>>> type(tup1)     # 加上逗号，类型为元组
+<class 'tuple'>
+```
+
+元组与字符串类似，下标索引从 0 开始，可以进行截取，组合等。
+
+![img](https://www.runoob.com/wp-content/uploads/2016/04/py-tup-10-26.png)
+
+## 访问元组
+
+元组可以使用下标索引来访问元组中的值，如下实例:
+
+```python
+#!/usr/bin/python3
+ 
+tup1 = ('Google', 'Runoob', 1997, 2000)
+tup2 = (1, 2, 3, 4, 5, 6, 7 )
+ 
+print ("tup1[0]: ", tup1[0])
+print ("tup2[1:5]: ", tup2[1:5])
+```
+
+以上实例输出结果：
+
+```
+tup1[0]:  Google
+tup2[1:5]:  (2, 3, 4, 5)
+```
+
+------
+
+## 修改元组
+
+元组中的元素值是不允许修改的，但我们可以对元组进行连接组合，如下实例:
+
+```python
+#!/usr/bin/python3
+ 
+tup1 = (12, 34.56)
+tup2 = ('abc', 'xyz')
+ 
+# 以下修改元组元素操作是非法的。
+# tup1[0] = 100
+ 
+# 创建一个新的元组
+tup3 = tup1 + tup2
+print (tup3)
+```
+
+以上实例输出结果：
+
+```
+(12, 34.56, 'abc', 'xyz')
+```
+
+## 删除元组
+
+元组中的元素值是不允许删除的，但我们可以使用del语句来删除整个元组，如下实例:
+
+```python
+#!/usr/bin/python3
+ 
+tup = ('Google', 'Runoob', 1997, 2000)
+ 
+print (tup)
+del tup
+print ("删除后的元组 tup : ")
+print (tup)
+```
+
+以上实例元组被删除后，输出变量会有异常信息，输出如下所示：
+
+```
+删除后的元组 tup : 
+Traceback (most recent call last):
+  File "test.py", line 8, in <module>
+    print (tup)
+NameError: name 'tup' is not defined
+```
+
+## 元组运算符
+
+与字符串一样，元组之间可以使用 **+** 号和 ***** 号进行运算。这就意味着他们可以组合和复制，运算后会生成一个新的元组。
+
+| Python 表达式                                | 结果                         | 描述         |
+| :------------------------------------------- | :--------------------------- | :----------- |
+| `len((1, 2, 3))`                             | 3                            | 计算元素个数 |
+| `(1, 2, 3) + (4, 5, 6)`                      | (1, 2, 3, 4, 5, 6)           | 连接         |
+| `('Hi!',) * 4`                               | ('Hi!', 'Hi!', 'Hi!', 'Hi!') | 复制         |
+| `3 in (1, 2, 3)`                             | True                         | 元素是否存在 |
+| `for x in (1, 2, 3):     print (x, end=" ")` | 1 2 3                        | 迭代         |
+
+## 元组索引，截取
+
+因为元组也是一个序列，所以我们可以访问元组中的指定位置的元素，也可以截取索引中的一段元素，如下所示：
+
+元组：
+
+```
+tup = ('Google', 'Runoob', 'Taobao', 'Wiki', 'Weibo','Weixin')
+```
+
+![img](https://www.runoob.com/wp-content/uploads/2016/04/py-tup-7.png)
+
+| Python 表达式 | 结果                                            | 描述                                             |
+| :------------ | :---------------------------------------------- | :----------------------------------------------- |
+| tup[1]        | 'Runoob'                                        | 读取第二个元素                                   |
+| tup[-2]       | 'Weibo'                                         | 反向读取，读取倒数第二个元素                     |
+| tup[1:]       | ('Runoob', 'Taobao', 'Wiki', 'Weibo', 'Weixin') | 截取元素，从第二个开始后的所有元素。             |
+| tup[1:4]      | ('Runoob', 'Taobao', 'Wiki')                    | 截取元素，从第二个开始到第四个元素（索引为 3）。 |
+
+运行实例如下：
+
+```python
+>>> tup = ('Google', 'Runoob', 'Taobao', 'Wiki', 'Weibo','Weixin')
+>>> tup[1]
+'Runoob'
+>>> tup[-2]
+'Weibo'
+>>> tup[1:]
+('Runoob', 'Taobao', 'Wiki', 'Weibo', 'Weixin')
+>>> tup[1:4]
+('Runoob', 'Taobao', 'Wiki')
+>>>
+```
+
+## 元组内置函数
+
+Python元组包含了以下内置函数
+
+| 序号 | 方法及描述                               | 实例                                                         |
+| :--- | :--------------------------------------- | :----------------------------------------------------------- |
+| 1    | len(tuple) 计算元组元素个数。            | `>>> tuple1 = ('Google', 'Runoob', 'Taobao') >>> len(tuple1) 3 >>> ` |
+| 2    | max(tuple) 返回元组中元素最大值。        | `>>> tuple2 = ('5', '4', '8') >>> max(tuple2) '8' >>> `      |
+| 3    | min(tuple) 返回元组中元素最小值。        | `>>> tuple2 = ('5', '4', '8') >>> min(tuple2) '4' >>> `      |
+| 4    | tuple(iterable) 将可迭代系列转换为元组。 | `>>> list1= ['Google', 'Taobao', 'Runoob', 'Baidu'] >>> tuple1=tuple(list1) >>> tuple1 ('Google', 'Taobao', 'Runoob', 'Baidu')` |
+
+### 关于元组是不可变的
+
+所谓元组的不可变指的是元组所指向的内存中的内容不可变。
+
+```python
+>>> tup = ('r', 'u', 'n', 'o', 'o', 'b')
+>>> tup[0] = 'g'     # 不支持修改元素
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+TypeError: 'tuple' object does not support item assignment
+>>> id(tup)     # 查看内存地址
+4440687904
+>>> tup = (1,2,3)
+>>> id(tup)
+4441088800    # 内存地址不一样了
+```
+
+# Python3 字典
+
+字典是另一种可变容器模型，且可存储任意类型对象。
+
+字典的每个键值 **key=>value** 对用冒号 **:** 分割，每个对之间用逗号(**,**)分割，整个字典包括在花括号 **{}** 中 ,格式如下所示：
+
+```
+d = {key1 : value1, key2 : value2, key3 : value3 }
+```
+
+**注意：****dict** 作为 Python 的关键字和内置函数，变量名不建议命名为 **dict**。
+
+![img](https://www.runoob.com/wp-content/uploads/2016/04/py-dict-3.png)
+
+键必须是唯一的，但值则不必。
+
+值可以取任何数据类型，但键必须是不可变的，如字符串，数字。
+
+一个简单的字典实例：
+
+```
+tinydict = {'name': 'runoob', 'likes': 123, 'url': 'www.runoob.com'}
+```
+
+![img](https://www.runoob.com/wp-content/uploads/2016/04/py-dict-2.png)
+
+也可如此创建字典：
+
+```
+tinydict1 = { 'abc': 456 }
+tinydict2 = { 'abc': 123, 98.6: 37 }
+```
+
+## 创建空字典
+
+使用大括号 **{ }** 创建空字典：
+
+```python
+# 使用大括号 {} 来创建空字典
+emptyDict = {}
+ 
+# 打印字典
+print(emptyDict)
+ 
+# 查看字典的数量
+print("Length:", len(emptyDict))
+ 
+# 查看类型
+print(type(emptyDict))
+```
+
+以上实例输出结果：
+
+```
+{}
+Length: 0
+<class 'dict'>
+```
+
+使用内建函数 **dict()** 创建字典：
+
+```python
+emptyDict = dict()
+ 
+# 打印字典
+print(emptyDict)
+ 
+# 查看字典的数量
+print("Length:",len(emptyDict))
+ 
+# 查看类型
+print(type(emptyDict))
+```
+
+以上实例输出结果：
+
+```
+{}
+Length: 0
+<class 'dict'>
+```
+
+------
+
+## 访问字典里的值
+
+把相应的键放入到方括号中，如下实例:
+
+```python
+#!/usr/bin/python3
+ 
+tinydict = {'Name': 'Runoob', 'Age': 7, 'Class': 'First'}
+ 
+print ("tinydict['Name']: ", tinydict['Name'])
+print ("tinydict['Age']: ", tinydict['Age'])
+```
+
+以上实例输出结果：
+
+```
+tinydict['Name']:  Runoob
+tinydict['Age']:  7
+```
+
+如果用字典里没有的键访问数据，会输出错误如下：
+
+```python
+#!/usr/bin/python3
+ 
+tinydict = {'Name': 'Runoob', 'Age': 7, 'Class': 'First'}
+ 
+print ("tinydict['Alice']: ", tinydict['Alice'])
+```
+
+以上实例输出结果：
+
+```
+Traceback (most recent call last):
+  File "test.py", line 5, in <module>
+    print ("tinydict['Alice']: ", tinydict['Alice'])
+KeyError: 'Alice'
+```
+
+------
+
+## 修改字典
+
+向字典添加新内容的方法是增加新的键/值对，修改或删除已有键/值对如下实例:
+
+```python
+#!/usr/bin/python3
+ 
+tinydict = {'Name': 'Runoob', 'Age': 7, 'Class': 'First'}
+ 
+tinydict['Age'] = 8               # 更新 Age
+tinydict['School'] = "菜鸟教程"  # 添加信息
+ 
+ 
+print ("tinydict['Age']: ", tinydict['Age'])
+print ("tinydict['School']: ", tinydict['School'])
+```
+
+以上实例输出结果：
+
+```
+tinydict['Age']:  8
+tinydict['School']:  菜鸟教程
+```
+
+
+
+------
+
+## 删除字典元素
+
+能删单一的元素也能清空字典，清空只需一项操作。
+
+显式删除一个字典用del命令，如下实例：
+
+```python
+#!/usr/bin/python3
+ 
+tinydict = {'Name': 'Runoob', 'Age': 7, 'Class': 'First'}
+ 
+del tinydict['Name'] # 删除键 'Name'
+tinydict.clear()     # 清空字典
+del tinydict         # 删除字典
+ 
+print ("tinydict['Age']: ", tinydict['Age'])
+print ("tinydict['School']: ", tinydict['School'])
+```
+
+但这会引发一个异常，因为用执行 del 操作后字典不再存在：
+
+```
+Traceback (most recent call last):
+  File "/runoob-test/test.py", line 9, in <module>
+    print ("tinydict['Age']: ", tinydict['Age'])
+NameError: name 'tinydict' is not defined
+```
+
+**注：**del() 方法后面也会讨论。
+
+
+
+### 字典键的特性
+
+字典值可以是任何的 python 对象，既可以是标准的对象，也可以是用户定义的，但键不行。
+
+两个重要的点需要记住：
+
+1）不允许同一个键出现两次。创建时如果同一个键被赋值两次，后一个值会被记住，如下实例：
+
+```python
+#!/usr/bin/python3
+ 
+tinydict = {'Name': 'Runoob', 'Age': 7, 'Name': '小菜鸟'}
+ 
+print ("tinydict['Name']: ", tinydict['Name'])
+```
+
+以上实例输出结果：
+
+```
+tinydict['Name']:  小菜鸟
+```
+
+2）键必须不可变，所以可以用数字，字符串或元组充当，而用列表就不行，如下实例：
+
+```python
+#!/usr/bin/python3
+ 
+tinydict = {['Name']: 'Runoob', 'Age': 7}
+ 
+print ("tinydict['Name']: ", tinydict['Name'])
+```
+
+以上实例输出结果：
+
+```
+Traceback (most recent call last):
+  File "test.py", line 3, in <module>
+    tinydict = {['Name']: 'Runoob', 'Age': 7}
+TypeError: unhashable type: 'list'
+```
+
+## 字典内置函数&方法
+
+Python字典包含了以下内置函数：
+
+| 序号 | 函数及描述                                                   | 实例                                                         |
+| :--- | :----------------------------------------------------------- | :----------------------------------------------------------- |
+| 1    | len(dict) 计算字典元素个数，即键的总数。                     | `>>> tinydict = {'Name': 'Runoob', 'Age': 7, 'Class': 'First'} >>> len(tinydict) 3` |
+| 2    | str(dict) 输出字典，可以打印的字符串表示。                   | `>>> tinydict = {'Name': 'Runoob', 'Age': 7, 'Class': 'First'} >>> str(tinydict) "{'Name': 'Runoob', 'Class': 'First', 'Age': 7}"` |
+| 3    | type(variable) 返回输入的变量类型，如果变量是字典就返回字典类型。 | `>>> tinydict = {'Name': 'Runoob', 'Age': 7, 'Class': 'First'} >>> type(tinydict) <class 'dict'>` |
+
+Python字典包含了以下内置方法：
+
+| 序号 | 函数及描述                                                   |
+| :--- | :----------------------------------------------------------- |
+| 1    | [dict.clear()](https://www.runoob.com/python3/python3-att-dictionary-clear.html) 删除字典内所有元素 |
+| 2    | [dict.copy()](https://www.runoob.com/python3/python3-att-dictionary-copy.html) 返回一个字典的浅复制 |
+| 3    | [dict.fromkeys()](https://www.runoob.com/python3/python3-att-dictionary-fromkeys.html) 创建一个新字典，以序列seq中元素做字典的键，val为字典所有键对应的初始值 |
+| 4    | [dict.get(key, default=None)](https://www.runoob.com/python3/python3-att-dictionary-get.html) 返回指定键的值，如果键不在字典中返回 default 设置的默认值 |
+| 5    | [key in dict](https://www.runoob.com/python3/python3-att-dictionary-in.html) 如果键在字典dict里返回true，否则返回false |
+| 6    | [dict.items()](https://www.runoob.com/python3/python3-att-dictionary-items.html) 以列表返回一个视图对象 |
+| 7    | [dict.keys()](https://www.runoob.com/python3/python3-att-dictionary-keys.html) 返回一个视图对象 |
+| 8    | [dict.setdefault(key, default=None)](https://www.runoob.com/python3/python3-att-dictionary-setdefault.html) 和get()类似, 但如果键不存在于字典中，将会添加键并将值设为default |
+| 9    | [dict.update(dict2)](https://www.runoob.com/python3/python3-att-dictionary-update.html) 把字典dict2的键/值对更新到dict里 |
+| 10   | [dict.values()](https://www.runoob.com/python3/python3-att-dictionary-values.html) 返回一个视图对象 |
+| 11   | [pop(key[,default\])](https://www.runoob.com/python3/python3-att-dictionary-pop.html) 删除字典给定键 key 所对应的值，返回值为被删除的值。key值必须给出。 否则，返回default值。 |
+| 12   | [popitem()](https://www.runoob.com/python3/python3-att-dictionary-popitem.html) 返回并删除字典中的最后一对键和值。 |
+
+# Python3 集合
+
+集合（set）是一个无序的不重复元素序列。
+
+可以使用大括号 **{ }** 或者 **set()** 函数创建集合，注意：创建一个空集合必须用 **set()** 而不是 **{ }**，因为 **{ }** 是用来创建一个空字典。
+
+创建格式：
+
+```
+parame = {value01,value02,...}
+或者
+set(value)
+```
+
+```python
+>>> basket = {'apple', 'orange', 'apple', 'pear', 'orange', 'banana'}
+>>> print(basket)                      # 这里演示的是去重功能
+{'orange', 'banana', 'pear', 'apple'}
+>>> 'orange' in basket                 # 快速判断元素是否在集合内
+True
+>>> 'crabgrass' in basket
+False
+
+>>> # 下面展示两个集合间的运算.
+...
+>>> a = set('abracadabra')
+>>> b = set('alacazam')
+>>> a                                  
+{'a', 'r', 'b', 'c', 'd'}
+>>> a - b                              # 集合a中包含而集合b中不包含的元素
+{'r', 'd', 'b'}
+>>> a | b                              # 集合a或b中包含的所有元素
+{'a', 'c', 'r', 'd', 'b', 'm', 'z', 'l'}
+>>> a & b                              # 集合a和b中都包含了的元素
+{'a', 'c'}
+>>> a ^ b                              # 不同时包含于a和b的元素
+{'r', 'd', 'b', 'm', 'z', 'l'}
+```
+
+类似列表推导式，同样集合支持集合推导式(Set comprehension):
+
+```python
+>>> a = {x for x in 'abracadabra' if x not in 'abc'}
+>>> a
+{'r', 'd'}
+```
+
+## 集合的基本操作
+
+### 1、添加元素
+
+**语法格式如下：**
+
+```
+s.add( x )
+```
+
+将元素 x 添加到集合 s 中，如果元素已存在，则不进行任何操作。
+
+还有一个方法，也可以添加元素，且参数可以是列表，元组，字典等，语法格式如下：
+
+```
+s.update( x )
+```
+
+x 可以有多个，用逗号分开。
+
+```python
+>>> thisset = set(("Google", "Runoob", "Taobao"))
+>>> thisset.update({1,3})
+>>> print(thisset)
+{1, 3, 'Google', 'Taobao', 'Runoob'}
+>>> thisset.update([1,4],[5,6])  
+>>> print(thisset)
+{1, 3, 4, 5, 6, 'Google', 'Taobao', 'Runoob'}
+>>>
+```
+
+### 2、移除元素
+
+**语法格式如下：**
+
+```
+s.remove( x )
+```
+
+将元素 x 从集合 s 中移除，如果元素不存在，则会发生错误。
+
+此外还有一个方法也是移除集合中的元素，且如果元素不存在，不会发生错误。格式如下所示：
+
+```
+s.discard( x )
+```
+
+我们也可以设置随机删除集合中的一个元素，语法格式如下：
+
+```
+s.pop() 
+```
+
+### 3、计算集合元素个数
+
+**语法格式如下：**
+
+```
+len(s)
+```
+
+### 4、清空集合
+
+**语法格式如下：**
+
+```
+s.clear()
+```
+
+### 集合内置方法完整列表
+
+| 方法                                                         | 描述                                                         |
+| :----------------------------------------------------------- | :----------------------------------------------------------- |
+| [add()](https://www.runoob.com/python3/ref-set-add.html)     | 为集合添加元素                                               |
+| [clear()](https://www.runoob.com/python3/ref-set-clear.html) | 移除集合中的所有元素                                         |
+| [copy()](https://www.runoob.com/python3/ref-set-copy.html)   | 拷贝一个集合                                                 |
+| [difference()](https://www.runoob.com/python3/ref-set-difference.html) | 返回多个集合的差集                                           |
+| [difference_update()](https://www.runoob.com/python3/ref-set-difference_update.html) | 移除集合中的元素，该元素在指定的集合也存在。                 |
+| [discard()](https://www.runoob.com/python3/ref-set-discard.html) | 删除集合中指定的元素                                         |
+| [intersection()](https://www.runoob.com/python3/ref-set-intersection.html) | 返回集合的交集                                               |
+| [intersection_update()](https://www.runoob.com/python3/ref-set-intersection_update.html) | 返回集合的交集。                                             |
+| [isdisjoint()](https://www.runoob.com/python3/ref-set-isdisjoint.html) | 判断两个集合是否包含相同的元素，如果没有返回 True，否则返回 False。 |
+| [issubset()](https://www.runoob.com/python3/ref-set-issubset.html) | 判断指定集合是否为该方法参数集合的子集。                     |
+| [issuperset()](https://www.runoob.com/python3/ref-set-issuperset.html) | 判断该方法的参数集合是否为指定集合的子集                     |
+| [pop()](https://www.runoob.com/python3/ref-set-pop.html)     | 随机移除元素                                                 |
+| [remove()](https://www.runoob.com/python3/ref-set-remove.html) | 移除指定元素                                                 |
+| [symmetric_difference()](https://www.runoob.com/python3/ref-set-symmetric_difference.html) | 返回两个集合中不重复的元素集合。                             |
+| [symmetric_difference_update()](https://www.runoob.com/python3/ref-set-symmetric_difference_update.html) | 移除当前集合中在另外一个指定集合相同的元素，并将另外一个指定集合中不同的元素插入到当前集合中。 |
+| [union()](https://www.runoob.com/python3/ref-set-union.html) | 返回两个集合的并集                                           |
+| [update()](https://www.runoob.com/python3/ref-set-update.html) | 给集合添加元素                                               |
+
+# Python3 条件控制
+
+Python 条件语句是通过一条或多条语句的执行结果（True 或者 False）来决定执行的代码块。
+
+可以通过下图来简单了解条件语句的执行过程:
+
+![img](https://www.runoob.com/wp-content/uploads/2013/11/if-condition.jpg)
+
+代码执行过程：
+
+![img](https://static.runoob.com/images/mix/python-if.webp)
+
+------
+
+## if 语句
+
+Python中if语句的一般形式如下所示：
+
+```python
+if condition_1:
+    statement_block_1
+elif condition_2:
+    statement_block_2
+else:
+    statement_block_3
+```
+
+* 如果 "condition_1" 为 True 将执行 "statement_block_1" 块语句
+* 如果 "condition_1" 为False，将判断 "condition_2"
+* 如果"condition_2" 为 True 将执行 "statement_block_2" 块语句
+* 如果 "condition_2" 为False，将执行"statement_block_3"块语句
+
+Python 中用 **elif** 代替了 **else if**，所以if语句的关键字为：**if – elif – else**。
+
+**注意：**
+
+* 1、每个条件后面要使用冒号 **:**，表示接下来是满足条件后要执行的语句块。
+* 2、使用缩进来划分语句块，相同缩进数的语句在一起组成一个语句块。
+* 3、在Python中没有switch – case语句。
+
+Gif 演示：
+
+![img](https://www.runoob.com/wp-content/uploads/2014/05/006faQNTgw1f5wnm0mcxrg30ci07o47l.gif)
+
+执行以上代码，输出结果为：
+
+```
+1 - if 表达式条件为 true
+100
+Good bye!
+```
+
+从结果可以看到由于变量 var2 为 0，所以对应的 if 内的语句没有执行。
+
+# Python3 循环语句
+
+本章节将为大家介绍 Python 循环语句的使用。
+
+Python 中的循环语句有 for 和 while。
+
+Python 循环语句的控制结构图如下所示：
+
+![img](https://www.runoob.com/wp-content/uploads/2015/12/loop.png)
+
+------
+
+## while 循环
+
+Python 中 while 语句的一般形式：
+
+```
+while 判断条件(condition)：
+    执行语句(statements)……
+```
+
+执行流程图如下：
+
+```python
+#!/usr/bin/env python3
+ 
+n = 100
+ 
+sum = 0
+counter = 1
+while counter <= n:
+    sum = sum + counter
+    counter += 1
+ 
+print("1 到 %d 之和为: %d" % (n,sum))
+```
+
+### 无限循环
+
+我们可以通过设置条件表达式永远不为 false 来实现无限循环，实例如下：
+
+```python
+#!/usr/bin/python3
+ 
+var = 1
+while var == 1 :  # 表达式永远为 true
+   num = int(input("输入一个数字  :"))
+   print ("你输入的数字是: ", num)
+ 
+print ("Good bye!")
+```
+
+你可以使用 **CTRL+C** 来退出当前的无限循环。
+
+无限循环在服务器上客户端的实时请求非常有用。
+
+### while 循环使用 else 语句
+
+如果 while 后面的条件语句为 false 时，则执行 else 的语句块。
+
+语法格式如下：
+
+```
+while <expr>:
+    <statement(s)>
+else:
+    <additional_statement(s)>
+```
+
+### 简单语句组
+
+类似if语句的语法，如果你的while循环体中只有一条语句，你可以将该语句与while写在同一行中， 如下所示：
+
+```python
+#!/usr/bin/python
+ 
+flag = 1
+ 
+while (flag): print ('欢迎访问菜鸟教程!')
+ 
+print ("Good bye!")
+```
+
+## for 语句
+
+Python for 循环可以遍历任何可迭代对象，如一个列表或者一个字符串。
+
+for循环的一般格式如下：
+
+```python
+for <variable> in <sequence>:
+    <statements>
+else:
+    <statements>
+```
+
+
+
+## range()函数
+
+如果你需要遍历数字序列，可以使用内置range()函数。它会生成数列，例如:
+
+```python
+>>>for i in range(5):
+...     print(i)
+...
+0
+1
+2
+3
+4
+
+>>>for i in range(5,9) :
+    print(i)
+ 
+    
+5
+6
+7
+8
+>>>
+```
+
+也可以使range以指定数字开始并指定不同的增量(甚至可以是负数，有时这也叫做'步长'):
+
+```python
+>>>for i in range(0, 10, 3) :
+    print(i)
+ 
+    
+0
+3
+6
+9
+>>>
+```
+
+```python
+>>>for i in range(-10, -100, -30) :
+    print(i)
+ 
+    
+-10
+-40
+-70
+>>>
+```
+
+```python
+>>>a = ['Google', 'Baidu', 'Runoob', 'Taobao', 'QQ']
+>>> for i in range(len(a)):
+...     print(i, a[i])
+... 
+0 Google
+1 Baidu
+2 Runoob
+3 Taobao
+4 QQ
+>>>
+```
+
+还可以使用range()函数来创建一个列表：
+
+```python
+>>>list(range(5))
+[0, 1, 2, 3, 4]
+>>>
+```
+
+**break** 语句可以跳出 for 和 while 的循环体。如果你从 for 或 while 循环中终止，任何对应的循环 else 块将不执行。
+
+**continue** 语句被用来告诉 Python 跳过当前循环块中的剩余语句，然后继续进行下一轮循环。
+
+## pass 语句
+
+Python pass是空语句，是为了保持程序结构的完整性。
+
+pass 不做任何事情，一般用做占位语句，如下实例
+
+```python
+>>>while True:
+...     pass  # 等待键盘中断 (Ctrl+C)
+```
+
+# Python3 迭代器与生成器
+
+------
+
+## 迭代器
+
+迭代是Python最强大的功能之一，是访问集合元素的一种方式。
+
+迭代器是一个可以记住遍历的位置的对象。
+
+迭代器对象从集合的第一个元素开始访问，直到所有的元素被访问完结束。迭代器只能往前不会后退。
+
+迭代器有两个基本的方法：**iter()** 和 **next()**。
+
+字符串，列表或元组对象都可用于创建迭代器：
+
+```python
+>>> list=[1,2,3,4]
+>>> it = iter(list)    # 创建迭代器对象
+>>> print (next(it))   # 输出迭代器的下一个元素
+1
+>>> print (next(it))
+2
+>>>
+```
+
+
+
+迭代器对象可以使用常规for语句进行遍历：
+
+```python
+#!/usr/bin/python3
+ 
+list=[1,2,3,4]
+it = iter(list)    # 创建迭代器对象
+for x in it:
+    print (x, end=" ")
+```
+
+执行以上程序，输出结果如下：
+
+```
+1 2 3 4
+```
+
+也可以使用 next() 函数：
+
+```python
+#!/usr/bin/python3
+ 
+import sys         # 引入 sys 模块
+ 
+list=[1,2,3,4]
+it = iter(list)    # 创建迭代器对象
+ 
+while True:
+    try:
+        print (next(it))
+    except StopIteration:
+        sys.exit()
+```
+
+### 创建一个迭代器
+
+把一个类作为一个迭代器使用需要在类中实现两个方法 __iter__() 与 __next__() 。
+
+如果你已经了解的面向对象编程，就知道类都有一个构造函数，Python 的构造函数为 __init__(), 它会在对象初始化的时候执行。
+
+更多内容查阅：[Python3 面向对象](https://www.runoob.com/python3/python3-class.html)
+
+__iter__() 方法返回一个特殊的迭代器对象， 这个迭代器对象实现了 __next__() 方法并通过 StopIteration 异常标识迭代的完成。
+
+__next__() 方法（Python 2 里是 next()）会返回下一个迭代器对象。
+
+创建一个返回数字的迭代器，初始值为 1，逐步递增 1：
+
+```python
+class MyNumbers:
+  def __iter__(self):
+    self.a = 1
+    return self
+ 
+  def __next__(self):
+    x = self.a
+    self.a += 1
+    return x
+ 
+myclass = MyNumbers()
+myiter = iter(myclass)
+ 
+print(next(myiter))
+print(next(myiter))
+print(next(myiter))
+print(next(myiter))
+print(next(myiter))
+```
+
+### StopIteration
+
+StopIteration 异常用于标识迭代的完成，防止出现无限循环的情况，在 __next__() 方法中我们可以设置在完成指定循环次数后触发 StopIteration 异常来结束迭代。
+
+在 20 次迭代后停止执行：
+
+```python
+class MyNumbers:
+  def __iter__(self):
+    self.a = 1
+    return self
+ 
+  def __next__(self):
+    if self.a <= 20:
+      x = self.a
+      self.a += 1
+      return x
+    else:
+      raise StopIteration
+ 
+myclass = MyNumbers()
+myiter = iter(myclass)
+ 
+for x in myiter:
+  print(x)
+```
+
+## 生成器
+
+在 Python 中，使用了 yield 的函数被称为生成器（generator）。
+
+跟普通函数不同的是，生成器是一个返回迭代器的函数，只能用于迭代操作，更简单点理解生成器就是一个迭代器。
+
+在调用生成器运行的过程中，每次遇到 yield 时函数会暂停并保存当前所有的运行信息，返回 yield 的值, 并在下一次执行 next() 方法时从当前位置继续运行。
+
+调用一个生成器函数，返回的是一个迭代器对象。
+
+以下实例使用 yield 实现斐波那契数列：
+
+```python
+#!/usr/bin/python3
+ 
+import sys
+ 
+def fibonacci(n): # 生成器函数 - 斐波那契
+    a, b, counter = 0, 1, 0
+    while True:
+        if (counter > n): 
+            return
+        yield a
+        a, b = b, a + b
+        counter += 1
+f = fibonacci(10) # f 是一个迭代器，由生成器返回生成
+ 
+while True:
+    try:
+        print (next(f), end=" ")
+    except StopIteration:
+        sys.exit()
+```
+
+https://blog.csdn.net/mieleizhi0522/article/details/82142856/
+
+# Python3 函数
+
+函数是组织好的，可重复使用的，用来实现单一，或相关联功能的代码段。
+
+函数能提高应用的模块性，和代码的重复利用率。你已经知道Python提供了许多内建函数，比如print()。但你也可以自己创建函数，这被叫做用户自定义函数。
+
+------
+
+## 定义一个函数
+
+你可以定义一个由自己想要功能的函数，以下是简单的规则：
+
+* 函数代码块以 **def** 关键词开头，后接函数标识符名称和圆括号 **()**。
+* 任何传入参数和自变量必须放在圆括号中间，圆括号之间可以用于定义参数。
+* 函数的第一行语句可以选择性地使用文档字符串—用于存放函数说明。
+* 函数内容以冒号 **:** 起始，并且缩进。
+* **return [表达式]** 结束函数，选择性地返回一个值给调用方，不带表达式的 return 相当于返回 None。
+
+![img](https://www.runoob.com/wp-content/uploads/2014/05/py-tup-10-26-1.png)
+
+------
+
+### 语法
+
+Python 定义函数使用 def 关键字，一般格式如下：
+
+```
+def 函数名（参数列表）:
+    函数体
+```
+
+默认情况下，参数值和参数名称是按函数声明中定义的顺序匹配起来的。
+
+```python
+#!/usr/bin/python3
+ 
+# 计算面积函数
+def area(width, height):
+    return width * height
+ 
+def print_welcome(name):
+    print("Welcome", name)
+ 
+print_welcome("Runoob")
+w = 4
+h = 5
+print("width =", w, " height =", h, " area =", area(w, h))
+```
+
+## 函数调用
+
+定义一个函数：给了函数一个名称，指定了函数里包含的参数，和代码块结构。
+
+这个函数的基本结构完成以后，你可以通过另一个函数调用执行，也可以直接从 Python 命令提示符执行。
+
+如下实例调用了 **printme()** 函数：
+
+```python
+#!/usr/bin/python3
+ 
+# 定义函数
+def printme( str ):
+   # 打印任何传入的字符串
+   print (str)
+   return
+ 
+# 调用函数
+printme("我要调用用户自定义函数!")
+printme("再次调用同一函数")
+```
+
+## 参数传递
+
+在 python 中，类型属于对象，对象有不同类型的区分，变量是没有类型的：
+
+```
+a=[1,2,3]
+
+a="Runoob"
+```
+
+以上代码中，**[1,2,3]** 是 List 类型，**"Runoob"** 是 String 类型，而变量 a 是没有类型，她仅仅是一个对象的引用（一个指针），可以是指向 List 类型对象，也可以是指向 String 类型对象。
+
+### 可更改(mutable)与不可更改(immutable)对象
+
+在 python 中，strings, tuples, 和 numbers 是不可更改的对象，而 list,dict 等则是可以修改的对象。
+
+* **不可变类型：**变量赋值 **a=5** 后再赋值 **a=10**，这里实际是新生成一个 int 值对象 10，再让 a 指向它，而 5 被丢弃，不是改变 a 的值，相当于新生成了 a。
+* **可变类型：**变量赋值 **la=[1,2,3,4]** 后再赋值 **la[2]=5** 则是将 list la 的第三个元素值更改，本身la没有动，只是其内部的一部分值被修改了。
+
+python 函数的参数传递：
+
+* **不可变类型：**类似 C++ 的值传递，如整数、字符串、元组。如 fun(a)，传递的只是 a 的值，没有影响 a 对象本身。如果在 fun(a) 内部修改 a 的值，则是新生成一个 a 的对象。
+* **可变类型：**类似 C++ 的引用传递，如 列表，字典。如 fun(la)，则是将 la 真正的传过去，修改后 fun 外部的 la 也会受影响
+
+python 中一切都是对象，严格意义我们不能说值传递还是引用传递，我们应该说传不可变对象和传可变对象。
+
+感觉就是值传递
+
+### python 传不可变对象实例
+
+通过 **id()** 函数来查看内存地址变化：
+
+```python
+def change(a):
+    print(id(a))   # 指向的是同一个对象
+    a=10
+    print(id(a))   # 一个新对象
+ 
+a=1
+print(id(a))
+change(a)
+```
+
+以上实例输出结果为：
+
+```
+4379369136
+4379369136
+4379369424
+```
+
+可以看见在调用函数前后，形参和实参指向的是同一个对象（对象 id 相同），在函数内部修改形参后，形参指向的是不同的 id。
+
+### 传可变对象实例
+
+可变对象在函数里修改了参数，那么在调用这个函数的函数里，原始的参数也被改变了。例如：
+
+```python
+#!/usr/bin/python3
+ 
+# 可写函数说明
+def changeme( mylist ):
+   "修改传入的列表"
+   mylist.append([1,2,3,4])
+   print ("函数内取值: ", mylist)
+   return
+ 
+# 调用changeme函数
+mylist = [10,20,30]
+changeme( mylist )
+print ("函数外取值: ", mylist)
+```
+
+## 参数
+
+以下是调用函数时可使用的正式参数类型：
+
+* 必需参数
+* 关键字参数
+* 默认参数
+* 不定长参数
+
+### 必需参数
+
+必需参数须以正确的顺序传入函数。调用时的数量必须和声明时的一样。
+
+调用 printme() 函数，你必须传入一个参数，不然会出现语法错误：
+
+```python
+#!/usr/bin/python3
+ 
+#可写函数说明
+def printme( str ):
+   "打印任何传入的字符串"
+   print (str)
+   return
+ 
+# 调用 printme 函数，不加参数会报错
+printme()
+```
+
+### 关键字参数
+
+关键字参数和函数调用关系紧密，函数调用使用关键字参数来确定传入的参数值。
+
+使用关键字参数允许函数调用时参数的顺序与声明时不一致，因为 Python 解释器能够用参数名匹配参数值。
+
+以下实例在函数 printme() 调用时使用参数名：
+
+```python
+#!/usr/bin/python3
+ 
+#可写函数说明
+def printme( str ):
+   "打印任何传入的字符串"
+   print (str)
+   return
+ 
+#调用printme函数
+printme( str = "菜鸟教程")
+```
+
+以上实例输出结果：
+
+```
+菜鸟教程
+```
+
+以下实例中演示了函数参数的使用不需要使用指定顺序：
+
+```python
+#!/usr/bin/python3
+ 
+#可写函数说明
+def printinfo( name, age ):
+   "打印任何传入的字符串"
+   print ("名字: ", name)
+   print ("年龄: ", age)
+   return
+ 
+#调用printinfo函数
+printinfo( age=50, name="runoob" )
+```
+
+以上实例输出结果：
+
+```
+名字:  runoob
+年龄:  50
+```
+
+### 默认参数
+
+调用函数时，如果没有传递参数，则会使用默认参数。以下实例中如果没有传入 age 参数，则使用默认值：
+
+```python
+#!/usr/bin/python3
+ 
+#可写函数说明
+def printinfo( name, age = 35 ):
+   "打印任何传入的字符串"
+   print ("名字: ", name)
+   print ("年龄: ", age)
+   return
+ 
+#调用printinfo函数
+printinfo( age=50, name="runoob" )
+print ("------------------------")
+printinfo( name="runoob" )
+```
+
+以上实例输出结果：
+
+```
+名字:  runoob
+年龄:  50
+------------------------
+名字:  runoob
+年龄:  35
+```
+
+### 不定长参数
+
+你可能需要一个函数能处理比当初声明时更多的参数。这些参数叫做不定长参数，和上述 2 种参数不同，声明时不会命名。基本语法如下：
+
+```
+def functionname([formal_args,] *var_args_tuple ):
+   "函数_文档字符串"
+   function_suite
+   return [expression]
+```
+
+加了星号 ***** 的参数会以元组(tuple)的形式导入，存放所有未命名的变量参数。
+
+```python
+#!/usr/bin/python3
+  
+# 可写函数说明
+def printinfo( arg1, *vartuple ):
+   "打印任何传入的参数"
+   print ("输出: ")
+   print (arg1)
+   print (vartuple)
+ 
+# 调用printinfo 函数
+printinfo( 70, 60, 50 )
+```
+
+以上实例输出结果：
+
+```
+输出: 
+70
+(60, 50)
+```
+
+
+
+如果在函数调用时没有指定参数，它就是一个空元组。我们也可以不向函数传递未命名的变量。如下实例：
+
+```python
+#!/usr/bin/python3
+ 
+# 可写函数说明
+def printinfo( arg1, *vartuple ):
+   "打印任何传入的参数"
+   print ("输出: ")
+   print (arg1)
+   for var in vartuple:
+      print (var)
+   return
+ 
+# 调用printinfo 函数
+printinfo( 10 )
+printinfo( 70, 60, 50 )
+```
+
+以上实例输出结果：
+
+```
+输出:
+10
+输出:
+70
+60
+50
+```
+
+还有一种就是参数带两个星号`**`基本语法如下：
+
+```
+def functionname([formal_args,] **var_args_dict ):
+   "函数_文档字符串"
+   function_suite
+   return [expression]
+```
+
+加了两个星号 `**` 的参数会以字典的形式导入。
+
+```python
+#!/usr/bin/python3
+  
+# 可写函数说明
+def printinfo( arg1, **vardict ):
+   "打印任何传入的参数"
+   print ("输出: ")
+   print (arg1)
+   print (vardict)
+ 
+# 调用printinfo 函数
+printinfo(1, a=2,b=3)
+```
+
+以上实例输出结果：
+
+```
+输出: 
+1
+{'a': 2, 'b': 3}
+```
+
+声明函数时，参数中星号 ***** 可以单独出现，例如:
+
+```
+def f(a,b,*,c):
+    return a+b+c
+```
+
+如果单独出现星号 ***** 后的参数必须用关键字传入。
+
+```
+>>> def f(a,b,*,c):
+...     return a+b+c
+... 
+>>> f(1,2,3)   # 报错
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+TypeError: f() takes 2 positional arguments but 3 were given
+>>> f(1,2,c=3) # 正常
+6
+>>>
+```
+
+## 匿名函数
+
+Python 使用 **lambda** 来创建匿名函数。
+
+所谓匿名，意即不再使用 **def** 语句这样标准的形式定义一个函数。
+
+* **lambda** 只是一个表达式，函数体比 **def** 简单很多。
+* lambda 的主体是一个表达式，而不是一个代码块。仅仅能在 lambda 表达式中封装有限的逻辑进去。
+* lambda 函数拥有自己的命名空间，且不能访问自己参数列表之外或全局命名空间里的参数。
+* 虽然 lambda 函数看起来只能写一行，却不等同于 C 或 C++ 的内联函数，后者的目的是调用小函数时不占用栈内存从而增加运行效率。
+
+### 语法
+
+lambda 函数的语法只包含一个语句，如下：
+
+```
+lambda [arg1 [,arg2,.....argn]]:expression
+```
+
+设置参数 a 加上 10:
+
+```python
+x = lambda a : a + 10
+print(x(5))
+```
+
+```python
+#!/usr/bin/python3
+ 
+# 可写函数说明
+sum = lambda arg1, arg2: arg1 + arg2
+ 
+# 调用sum函数
+print ("相加后的值为 : ", sum( 10, 20 ))
+print ("相加后的值为 : ", sum( 20, 20 ))
+```
+
+我们可以将匿名函数封装在一个函数内，这样可以使用同样的代码来创建多个匿名函数。
+
+以下实例将匿名函数封装在 myfunc 函数中，通过传入不同的参数来创建不同的匿名函数：
+
+```python
+def myfunc(n):
+  return lambda a : a * n
+ 
+mydoubler = myfunc(2)
+mytripler = myfunc(3)
+ 
+print(mydoubler(11))
+print(mytripler(11))
+```
+
+以上实例输出结果：
+
+```
+22
+33
+```
+
+------
+
+## return语句
+
+**return [表达式]** 语句用于退出函数，选择性地向调用方返回一个表达式。不带参数值的return语句返回None。
+
+## 强制位置参数
+
+Python3.8 新增了一个函数形参语法 / 用来指明函数形参必须使用指定位置参数，不能使用关键字参数的形式。
+
+在以下的例子中，形参 a 和 b 必须使用指定位置参数，c 或 d 可以是位置形参或关键字形参，而 e 和 f 要求为关键字形参:
+
+```
+def f(a, b, /, c, d, *, e, f):
+    print(a, b, c, d, e, f)
+```
+
+以下使用方法是正确的:
+
+```
+f(10, 20, 30, d=40, e=50, f=60)
+```
+
+以下使用方法会发生错误:
+
+```
+f(10, b=20, c=30, d=40, e=50, f=60)   # b 不能使用关键字参数的形式
+f(10, 20, 30, 40, 50, f=60)           # e 必须使用关键字参数的形式
+```
+
+# Python3 数据结构
+
+------
+
+## 列表
+
+Python中列表是可变的，这是它区别于字符串和元组的最重要的特点，一句话概括即：列表可以修改，而字符串和元组不能。
+
+以下是 Python 中列表的方法：
+
+| 方法              | 描述                                                         |
+| :---------------- | :----------------------------------------------------------- |
+| list.append(x)    | 把一个元素添加到列表的结尾，相当于 a[len(a):] = [x]。        |
+| list.extend(L)    | 通过添加指定列表的所有元素来扩充列表，相当于 a[len(a):] = L。 |
+| list.insert(i, x) | 在指定位置插入一个元素。第一个参数是准备插入到其前面的那个元素的索引，例如 a.insert(0, x) 会插入到整个列表之前，而 a.insert(len(a), x) 相当于 a.append(x) 。 |
+| list.remove(x)    | 删除列表中值为 x 的第一个元素。如果没有这样的元素，就会返回一个错误。 |
+| list.pop([i])     | 从列表的指定位置移除元素，并将其返回。如果没有指定索引，a.pop()返回最后一个元素。元素随即从列表中被移除。（方法中 i 两边的方括号表示这个参数是可选的，而不是要求你输入一对方括号，你会经常在 Python 库参考手册中遇到这样的标记。） |
+| list.clear()      | 移除列表中的所有项，等于del a[:]。                           |
+| list.index(x)     | 返回列表中第一个值为 x 的元素的索引。如果没有匹配的元素就会返回一个错误。 |
+| list.count(x)     | 返回 x 在列表中出现的次数。                                  |
+| list.sort()       | 对列表中的元素进行排序。                                     |
+| list.reverse()    | 倒排列表中的元素。                                           |
+| list.copy()       | 返回列表的浅复制，等于a[:]。                                 |
+
+## 将列表当做堆栈使用
+
+列表方法使得列表可以很方便的作为一个堆栈来使用，堆栈作为特定的数据结构，最先进入的元素最后一个被释放（后进先出）。用 append() 方法可以把一个元素添加到堆栈顶。用不指定索引的 pop() 方法可以把一个元素从堆栈顶释放出。例如：
+
+```python
+>>> stack = [3, 4, 5]
+>>> stack.append(6)
+>>> stack.append(7)
+>>> stack
+[3, 4, 5, 6, 7]
+>>> stack.pop()
+7
+>>> stack
+[3, 4, 5, 6]
+>>> stack.pop()
+6
+>>> stack.pop()
+5
+>>> stack
+[3, 4]
+```
+
+## 将列表当作队列使用
+
+也可以把列表当做队列用，只是在队列里第一加入的元素，第一个取出来；但是拿列表用作这样的目的效率不高。在列表的最后添加或者弹出元素速度快，然而在列表里插入或者从头部弹出速度却不快（因为所有其他的元素都得一个一个地移动）。
+
+```python
+>>> from collections import deque
+>>> queue = deque(["Eric", "John", "Michael"])
+>>> queue.append("Terry")           # Terry arrives
+>>> queue.append("Graham")          # Graham arrives
+>>> queue.popleft()                 # The first to arrive now leaves
+'Eric'
+>>> queue.popleft()                 # The second to arrive now leaves
+'John'
+>>> queue                           # Remaining queue in order of arrival
+deque(['Michael', 'Terry', 'Graham'])
+```
+
+## 列表推导式
+
+列表推导式提供了从序列创建列表的简单途径。通常应用程序将一些操作应用于某个序列的每个元素，用其获得的结果作为生成新列表的元素，或者根据确定的判定条件创建子序列。
+
+每个列表推导式都在 for 之后跟一个表达式，然后有零到多个 for 或 if 子句。返回结果是一个根据表达从其后的 for 和 if 上下文环境中生成出来的列表。如果希望表达式推导出一个元组，就必须使用括号。
+
+这里我们将列表中每个数值乘三，获得一个新的列表：
+
+```python
+>>> vec = [2, 4, 6]
+>>> [3*x for x in vec]
+[6, 12, 18]
+```
+
+现在我们玩一点小花样：
+
+```python
+>>> [[x, x**2] for x in vec]
+[[2, 4], [4, 16], [6, 36]]
+```
+
+```python
+>>> freshfruit = ['  banana', '  loganberry ', 'passion fruit  ']
+>>> [weapon.strip() for weapon in freshfruit]
+['banana', 'loganberry', 'passion fruit']
+```
+
+我们可以用 if 子句作为过滤器：
+
+```python
+>>> [3*x for x in vec if x > 3]
+[12, 18]
+>>> [3*x for x in vec if x < 2]
+[]
+```
+
+以下是一些关于循环和其它技巧的演示：
+
+```python
+>>> vec1 = [2, 4, 6]
+>>> vec2 = [4, 3, -9]
+>>> [x*y for x in vec1 for y in vec2]
+[8, 6, -18, 16, 12, -36, 24, 18, -54]
+>>> [x+y for x in vec1 for y in vec2]
+[6, 5, -7, 8, 7, -5, 10, 9, -3]
+>>> [vec1[i]*vec2[i] for i in range(len(vec1))]
+[8, 12, -54]
+```
+
+列表推导式可以使用复杂表达式或嵌套函数：
+
+```python
+>>> [str(round(355/113, i)) for i in range(1, 6)]
+['3.1', '3.14', '3.142', '3.1416', '3.14159']
+```
+
+## 嵌套列表解析
+
+Python的列表还可以嵌套。
+
+以下实例展示了3X4的矩阵列表：
+
+```python
+>>> matrix = [
+...     [1, 2, 3, 4],
+...     [5, 6, 7, 8],
+...     [9, 10, 11, 12],
+... ]
+```
+
+以下实例将3X4的矩阵列表转换为4X3列表：
+
+```python
+>>> [[row[i] for row in matrix] for i in range(4)]
+[[1, 5, 9], [2, 6, 10], [3, 7, 11], [4, 8, 12]]
+```
+
+另外一种实现方法：
+
+```python
+>>> transposed = []
+>>> for i in range(4):
+...     transposed.append([row[i] for row in matrix])
+...
+>>> transposed
+[[1, 5, 9], [2, 6, 10], [3, 7, 11], [4, 8, 12]]
+```
+
+## del 语句
+
+使用 del 语句可以从一个列表中根据索引来删除一个元素，而不是值来删除元素。这与使用 pop() 返回一个值不同。可以用 del 语句从列表中删除一个切割，或清空整个列表（我们以前介绍的方法是给该切割赋一个空列表）。例如：
+
+```python
+>>> a = [-1, 1, 66.25, 333, 333, 1234.5]
+>>> del a[0]
+>>> a
+[1, 66.25, 333, 333, 1234.5]
+>>> del a[2:4]
+>>> a
+[1, 66.25, 1234.5]
+>>> del a[:]
+>>> a
+[]
+```
+
+也可以用 del 删除实体变量：
+
+```
+>>> del a
+```
+
+## 元组和序列
+
+元组由若干逗号分隔的值组成，例如：
+
+```python
+>>> t = 12345, 54321, 'hello!'
+>>> t[0]
+12345
+>>> t
+(12345, 54321, 'hello!')
+>>> # Tuples may be nested:
+... u = t, (1, 2, 3, 4, 5)
+>>> u
+((12345, 54321, 'hello!'), (1, 2, 3, 4, 5))
+```
+
+如你所见，元组在输出时总是有括号的，以便于正确表达嵌套结构。在输入时可能有或没有括号， 不过括号通常是必须的（如果元组是更大的表达式的一部分）。
+
+------
+
+## 集合
+
+集合是一个无序不重复元素的集。基本功能包括关系测试和消除重复元素。
+
+可以用大括号({})创建集合。注意：如果要创建一个空集合，你必须用 set() 而不是 {} ；后者创建一个空的字典，下一节我们会介绍这个数据结构。
+
+以下是一个简单的演示：
+
+```python
+>>> basket = {'apple', 'orange', 'apple', 'pear', 'orange', 'banana'}
+>>> print(basket)                      # 删除重复的
+{'orange', 'banana', 'pear', 'apple'}
+>>> 'orange' in basket                 # 检测成员
+True
+>>> 'crabgrass' in basket
+False
+
+>>> # 以下演示了两个集合的操作
+...
+>>> a = set('abracadabra')
+>>> b = set('alacazam')
+>>> a                                  # a 中唯一的字母
+{'a', 'r', 'b', 'c', 'd'}
+>>> a - b                              # 在 a 中的字母，但不在 b 中
+{'r', 'd', 'b'}
+>>> a | b                              # 在 a 或 b 中的字母
+{'a', 'c', 'r', 'd', 'b', 'm', 'z', 'l'}
+>>> a & b                              # 在 a 和 b 中都有的字母
+{'a', 'c'}
+>>> a ^ b                              # 在 a 或 b 中的字母，但不同时在 a 和 b 中
+{'r', 'd', 'b', 'm', 'z', 'l'}
+```
+
+集合也支持推导式：
+
+```python
+>>> a = {x for x in 'abracadabra' if x not in 'abc'}
+>>> a
+{'r', 'd'}
+```
+
+## 字典
+
+另一个非常有用的 Python 内建数据类型是字典。
+
+序列是以连续的整数为索引，与此不同的是，字典以关键字为索引，关键字可以是任意不可变类型，通常用字符串或数值。
+
+理解字典的最佳方式是把它看做无序的键=>值对集合。在同一个字典之内，关键字必须是互不相同。
+
+一对大括号创建一个空的字典：{}。
+
+这是一个字典运用的简单例子：
+
+```python
+>>> tel = {'jack': 4098, 'sape': 4139}
+>>> tel['guido'] = 4127
+>>> tel
+{'sape': 4139, 'guido': 4127, 'jack': 4098}
+>>> tel['jack']
+4098
+>>> del tel['sape']
+>>> tel['irv'] = 4127
+>>> tel
+{'guido': 4127, 'irv': 4127, 'jack': 4098}
+>>> list(tel.keys())
+['irv', 'guido', 'jack']
+>>> sorted(tel.keys())
+['guido', 'irv', 'jack']
+>>> 'guido' in tel
+True
+>>> 'jack' not in tel
+False
+```
+
+构造函数 dict() 直接从键值对元组列表中构建字典。如果有固定的模式，列表推导式指定特定的键值对：
+
+```python
+>>> dict([('sape', 4139), ('guido', 4127), ('jack', 4098)])
+{'sape': 4139, 'jack': 4098, 'guido': 4127}
+```
+
+此外，字典推导可以用来创建任意键和值的表达式词典：
+
+```python
+>>> {x: x**2 for x in (2, 4, 6)}
+{2: 4, 4: 16, 6: 36}
+```
+
+如果关键字只是简单的字符串，使用关键字参数指定键值对有时候更方便：
+
+```python
+>>> dict(sape=4139, guido=4127, jack=4098)
+{'sape': 4139, 'jack': 4098, 'guido': 4127}
+```
+
+## 遍历技巧
+
+在字典中遍历时，关键字和对应的值可以使用 items() 方法同时解读出来：
+
+```python
+>>> knights = {'gallahad': 'the pure', 'robin': 'the brave'}
+>>> for k, v in knights.items():
+...     print(k, v)
+...
+gallahad the pure
+robin the brave
+```
+
+在序列中遍历时，索引位置和对应值可以使用 enumerate() 函数同时得到：
+
+```python
+>>> for i, v in enumerate(['tic', 'tac', 'toe']):
+...     print(i, v)
+...
+0 tic
+1 tac
+2 toe
+```
+
+同时遍历两个或更多的序列，可以使用 zip() 组合：
+
+```python
+>>> questions = ['name', 'quest', 'favorite color']
+>>> answers = ['lancelot', 'the holy grail', 'blue']
+>>> for q, a in zip(questions, answers):
+...     print('What is your {0}?  It is {1}.'.format(q, a))
+...
+What is your name?  It is lancelot.
+What is your quest?  It is the holy grail.
+What is your favorite color?  It is blue.
+```
+
+要反向遍历一个序列，首先指定这个序列，然后调用 reversed() 函数：
+
+```python
+>>> for i in reversed(range(1, 10, 2)):
+...     print(i)
+...
+9
+7
+5
+3
+1
+```
+
+要按顺序遍历一个序列，使用 sorted() 函数返回一个已排序的序列，并不修改原值：
+
+```python
+>>> basket = ['apple', 'orange', 'apple', 'pear', 'orange', 'banana']
+>>> for f in sorted(set(basket)):
+...     print(f)
+...
+apple
+banana
+orange
+pear
+```
+
+# Python3 模块
+
+在前面的几个章节中我们基本上是用 python 解释器来编程，如果你从 Python 解释器退出再进入，那么你定义的所有的方法和变量就都消失了。
+
+为此 Python 提供了一个办法，把这些定义存放在文件中，为一些脚本或者交互式的解释器实例使用，这个文件被称为模块。
+
+模块是一个包含所有你定义的函数和变量的文件，其后缀名是.py。模块可以被别的程序引入，以使用该模块中的函数等功能。这也是使用 python 标准库的方法。
+
+下面是一个使用 python 标准库中模块的例子。
+
+```python
+#!/usr/bin/python3
+# 文件名: using_sys.py
+ 
+import sys
+ 
+print('命令行参数如下:')
+for i in sys.argv:
+   print(i)
+ 
+print('\n\nPython 路径为：', sys.path, '\n')
+```
+
+执行结果如下所示：
+
+```python
+$ python using_sys.py 参数1 参数2
+命令行参数如下:
+using_sys.py
+参数1
+参数2
+
+
+Python 路径为： ['/root', '/usr/lib/python3.4', '/usr/lib/python3.4/plat-x86_64-linux-gnu', '/usr/lib/python3.4/lib-dynload', '/usr/local/lib/python3.4/dist-packages', '/usr/lib/python3/dist-packages'] 
+```
+
+* 1、import sys 引入 python 标准库中的 sys.py 模块；这是引入某一模块的方法。
+* 2、sys.argv 是一个包含命令行参数的列表。
+* 3、sys.path 包含了一个 Python 解释器自动查找所需模块的路径的列表。
+
+## import 语句
+
+想使用 Python 源文件，只需在另一个源文件里执行 import 语句，语法如下：
+
+```
+import module1[, module2[,... moduleN]
+```
+
+当解释器遇到 import 语句，如果模块在当前的搜索路径就会被导入。
+
+搜索路径是一个解释器会先进行搜索的所有目录的列表。如想要导入模块 support，需要把命令放在脚本的顶端：
+
+test.py 引入 support 模块：
+
+```python
+#!/usr/bin/python3
+# Filename: test.py
+ 
+# 导入模块
+import support
+ 
+# 现在可以调用模块里包含的函数了
+support.print_func("Runoob")
+```
+
+以上实例输出结果：
+
+```
+$ python3 test.py 
+Hello :  Runoob
+```
+
+一个模块只会被导入一次，不管你执行了多少次import。这样可以防止导入模块被一遍又一遍地执行。
+
+当我们使用import语句的时候，Python解释器是怎样找到对应的文件的呢？
+
+这就涉及到Python的搜索路径，搜索路径是由一系列目录名组成的，Python解释器就依次从这些目录中去寻找所引入的模块。
+
+这看起来很像环境变量，事实上，也可以通过定义环境变量的方式来确定搜索路径。
+
+搜索路径是在Python编译或安装的时候确定的，安装新的库应该也会修改。搜索路径被存储在sys模块中的path变量，做一个简单的实验，在交互式解释器中，输入以下代码：
+
+```
+>>> import sys
+>>> sys.path
+['', '/usr/lib/python3.4', '/usr/lib/python3.4/plat-x86_64-linux-gnu', '/usr/lib/python3.4/lib-dynload', '/usr/local/lib/python3.4/dist-packages', '/usr/lib/python3/dist-packages']
+>>> 
+```
+
+sys.path 输出是一个列表，其中第一项是空串''，代表当前目录（若是从一个脚本中打印出来的话，可以更清楚地看出是哪个目录），亦即我们执行python解释器的目录（对于脚本的话就是运行的脚本所在的目录）。
+
+因此若像我一样在当前目录下存在与要引入模块同名的文件，就会把要引入的模块屏蔽掉。
+
+了解了搜索路径的概念，就可以在脚本中修改sys.path来引入一些不在搜索路径中的模块。
+
+现在，在解释器的当前目录或者 sys.path 中的一个目录里面来创建一个fibo.py的文件，代码如下：
+
+## from … import 语句
+
+Python 的 from 语句让你从模块中导入一个指定的部分到当前命名空间中，语法如下：
+
+```
+from modname import name1[, name2[, ... nameN]]
+```
+
+例如，要导入模块 fibo 的 fib 函数，使用如下语句：
+
+```python
+>>> from fibo import fib, fib2
+>>> fib(500)
+1 1 2 3 5 8 13 21 34 55 89 144 233 377
+```
+
+这个声明不会把整个fibo模块导入到当前的命名空间中，它只会将fibo里的fib函数引入进来。
+
+
+
+------
+
+## from … import * 语句
+
+把一个模块的所有内容全都导入到当前的命名空间也是可行的，只需使用如下声明：
+
+```
+from modname import *
+```
+
+这提供了一个简单的方法来导入一个模块中的所有项目。然而这种声明不该被过多地使用。
+
+## 深入模块
+
+模块除了方法定义，还可以包括可执行的代码。这些代码一般用来初始化这个模块。这些代码只有在第一次被导入时才会被执行。
+
+每个模块有各自独立的符号表，在模块内部为所有的函数当作全局符号表来使用。
+
+所以，模块的作者可以放心大胆的在模块内部使用这些全局变量，而不用担心把其他用户的全局变量搞混。
+
+从另一个方面，当你确实知道你在做什么的话，你也可以通过 modname.itemname 这样的表示法来访问模块内的函数。
+
+模块是可以导入其他模块的。在一个模块（或者脚本，或者其他地方）的最前面使用 import 来导入一个模块，当然这只是一个惯例，而不是强制的。被导入的模块的名称将被放入当前操作的模块的符号表中。
+
+还有一种导入的方法，可以使用 import 直接把模块内（函数，变量的）名称导入到当前操作模块。比如:
+
+```
+>>> from fibo import fib, fib2
+>>> fib(500)
+1 1 2 3 5 8 13 21 34 55 89 144 233 377
+```
+
+这种导入的方法不会把被导入的模块的名称放在当前的字符表中（所以在这个例子里面，fibo 这个名称是没有定义的）。
+
+这还有一种方法，可以一次性的把模块中的所有（函数，变量）名称都导入到当前模块的字符表:
+
+```
+>>> from fibo import *
+>>> fib(500)
+1 1 2 3 5 8 13 21 34 55 89 144 233 377
+```
+
+这将把所有的名字都导入进来，但是那些由单一下划线（_）开头的名字不在此例。大多数情况， Python程序员不使用这种方法，因为引入的其它来源的命名，很可能覆盖了已有的定义。
+
+------
+
+## __name__属性
+
+一个模块被另一个程序第一次引入时，其主程序将运行。如果我们想在模块被引入时，模块中的某一程序块不执行，我们可以用__name__属性来使该程序块仅在该模块自身运行时执行。
+
+```
+#!/usr/bin/python3
+# Filename: using_name.py
+
+if __name__ == '__main__':
+   print('程序自身在运行')
+else:
+   print('我来自另一模块')
+```
+
+运行输出如下：
+
+```
+$ python using_name.py
+程序自身在运行
+$ python
+>>> import using_name
+我来自另一模块
+>>>
+```
+
+**说明：** 每个模块都有一个__name__属性，当其值是'__main__'时，表明该模块自身在运行，否则是被引入。
+
+说明：**__name__** 与 **__main__** 底下是双下划线， **_ _** 是这样去掉中间的那个空格。
+
+## dir() 函数
+
+内置的函数 dir() 可以找到模块内定义的所有名称。以一个字符串列表的形式返回:
+
+```python
+>>> import fibo, sys
+>>> dir(fibo)
+['__name__', 'fib', 'fib2']
+>>> dir(sys)  
+['__displayhook__', '__doc__', '__excepthook__', '__loader__', '__name__',
+ '__package__', '__stderr__', '__stdin__', '__stdout__',
+ '_clear_type_cache', '_current_frames', '_debugmallocstats', '_getframe',
+ '_home', '_mercurial', '_xoptions', 'abiflags', 'api_version', 'argv',
+ 'base_exec_prefix', 'base_prefix', 'builtin_module_names', 'byteorder',
+ 'call_tracing', 'callstats', 'copyright', 'displayhook',
+ 'dont_write_bytecode', 'exc_info', 'excepthook', 'exec_prefix',
+ 'executable', 'exit', 'flags', 'float_info', 'float_repr_style',
+ 'getcheckinterval', 'getdefaultencoding', 'getdlopenflags',
+ 'getfilesystemencoding', 'getobjects', 'getprofile', 'getrecursionlimit',
+ 'getrefcount', 'getsizeof', 'getswitchinterval', 'gettotalrefcount',
+ 'gettrace', 'hash_info', 'hexversion', 'implementation', 'int_info',
+ 'intern', 'maxsize', 'maxunicode', 'meta_path', 'modules', 'path',
+ 'path_hooks', 'path_importer_cache', 'platform', 'prefix', 'ps1',
+ 'setcheckinterval', 'setdlopenflags', 'setprofile', 'setrecursionlimit',
+ 'setswitchinterval', 'settrace', 'stderr', 'stdin', 'stdout',
+ 'thread_info', 'version', 'version_info', 'warnoptions']
+```
+
+如果没有给定参数，那么 dir() 函数会罗列出当前定义的所有名称:
+
+```
+>>> a = [1, 2, 3, 4, 5]
+>>> import fibo
+>>> fib = fibo.fib
+>>> dir() # 得到一个当前模块中定义的属性列表
+['__builtins__', '__name__', 'a', 'fib', 'fibo', 'sys']
+>>> a = 5 # 建立一个新的变量 'a'
+>>> dir()
+['__builtins__', '__doc__', '__name__', 'a', 'sys']
+>>>
+>>> del a # 删除变量名a
+>>>
+>>> dir()
+['__builtins__', '__doc__', '__name__', 'sys']
+>>>
+```
+
+------
+
+## 标准模块
+
+Python 本身带着一些标准的模块库，在 Python 库参考文档中将会介绍到（就是后面的"库参考文档"）。
+
+有些模块直接被构建在解析器里，这些虽然不是一些语言内置的功能，但是他却能很高效的使用，甚至是系统级调用也没问题。
+
+这些组件会根据不同的操作系统进行不同形式的配置，比如 winreg 这个模块就只会提供给 Windows 系统。
+
+应该注意到这有一个特别的模块 sys ，它内置在每一个 Python 解析器中。变量 sys.ps1 和 sys.ps2 定义了主提示符和副提示符所对应的字符串:
+
+```
+>>> import sys
+>>> sys.ps1
+'>>> '
+>>> sys.ps2
+'... '
+>>> sys.ps1 = 'C> '
+C> print('Runoob!')
+Runoob!
+C> 
+```
+
+------
+
+## 包
+
+包是一种管理 Python 模块命名空间的形式，采用"点模块名称"。
+
+比如一个模块的名称是 A.B， 那么他表示一个包 A中的子模块 B 。
+
+就好像使用模块的时候，你不用担心不同模块之间的全局变量相互影响一样，采用点模块名称这种形式也不用担心不同库之间的模块重名的情况。
+
+这样不同的作者都可以提供 NumPy 模块，或者是 Python 图形库。
+
+不妨假设你想设计一套统一处理声音文件和数据的模块（或者称之为一个"包"）。
+
+现存很多种不同的音频文件格式（基本上都是通过后缀名区分的，例如： .wav，:file:.aiff，:file:.au，），所以你需要有一组不断增加的模块，用来在不同的格式之间转换。
+
+并且针对这些音频数据，还有很多不同的操作（比如混音，添加回声，增加均衡器功能，创建人造立体声效果），所以你还需要一组怎么也写不完的模块来处理这些操作。
+
+这里给出了一种可能的包结构（在分层的文件系统中）:
+
+```
+sound/                          顶层包
+      __init__.py               初始化 sound 包
+      formats/                  文件格式转换子包
+              __init__.py
+              wavread.py
+              wavwrite.py
+              aiffread.py
+              aiffwrite.py
+              auread.py
+              auwrite.py
+              ...
+      effects/                  声音效果子包
+              __init__.py
+              echo.py
+              surround.py
+              reverse.py
+              ...
+      filters/                  filters 子包
+              __init__.py
+              equalizer.py
+              vocoder.py
+              karaoke.py
+              ...
+```
+
+在导入一个包的时候，Python 会根据 sys.path 中的目录来寻找这个包中包含的子目录。
+
+目录只有包含一个叫做 __init__.py 的文件才会被认作是一个包，主要是为了避免一些滥俗的名字（比如叫做 string）不小心的影响搜索路径中的有效模块。
+
+最简单的情况，放一个空的 :file:__init__.py就可以了。当然这个文件中也可以包含一些初始化代码或者为（将在后面介绍的） __all__变量赋值。
+
+用户可以每次只导入一个包里面的特定模块，比如:
+
+```
+import sound.effects.echo
+```
+
+这将会导入子模块:sound.effects.echo。 他必须使用全名去访问:
+
+```
+sound.effects.echo.echofilter(input, output, delay=0.7, atten=4)
+```
+
+还有一种导入子模块的方法是:
+
+```
+from sound.effects import echo
+```
+
+这同样会导入子模块: echo，并且他不需要那些冗长的前缀，所以他可以这样使用:
+
+```
+echo.echofilter(input, output, delay=0.7, atten=4)
+```
+
+还有一种变化就是直接导入一个函数或者变量:
+
+```
+from sound.effects.echo import echofilter
+```
+
+同样的，这种方法会导入子模块: echo，并且可以直接使用他的 echofilter() 函数:
+
+```
+echofilter(input, output, delay=0.7, atten=4)
+```
+
+注意当使用 **from package import item** 这种形式的时候，对应的 item 既可以是包里面的子模块（子包），或者包里面定义的其他名称，比如函数，类或者变量。
+
+import 语法会首先把 item 当作一个包定义的名称，如果没找到，再试图按照一个模块去导入。如果还没找到，抛出一个 **:exc:ImportError** 异常。
+
+反之，如果使用形如 **import item.subitem.subsubitem** 这种导入形式，除了最后一项，都必须是包，而最后一项则可以是模块或者是包，但是不可以是类，函数或者变量的名字。
+
+## 从一个包中导入*
+
+如果我们使用 **from sound.effects import \*** 会发生什么呢？
+
+Python 会进入文件系统，找到这个包里面所有的子模块，然后一个一个的把它们都导入进来。
+
+但这个方法在 Windows 平台上工作的就不是非常好，因为 Windows 是一个不区分大小写的系统。
+
+在 Windows 平台上，我们无法确定一个叫做 ECHO.py 的文件导入为模块是 echo 还是 Echo，或者是 ECHO。
+
+为了解决这个问题，我们只需要提供一个精确包的索引。
+
+导入语句遵循如下规则：如果包定义文件 **__init__.py** 存在一个叫做 **__all__** 的列表变量，那么在使用 **from package import \*** 的时候就把这个列表中的所有名字作为包内容导入。
+
+
+
+作为包的作者，可别忘了在更新包之后保证 **__all__** 也更新了啊。
+
+以下实例在 file:sounds/effects/__init__.py 中包含如下代码:
+
+
+
+```
+__all__ = ["echo", "surround", "reverse"]
+```
+
+这表示当你使用from sound.effects import *这种用法时，你只会导入包里面这三个子模块。
+
+如果 **__all__** 真的没有定义，那么使用**from sound.effects import \***这种语法的时候，就不会导入包 sound.effects 里的任何子模块。他只是把包sound.effects和它里面定义的所有内容导入进来（可能运行__init__.py里定义的初始化代码）。
+
+这会把 __init__.py 里面定义的所有名字导入进来。并且他不会破坏掉我们在这句话之前导入的所有明确指定的模块。看下这部分代码:
+
+```
+import sound.effects.echo
+import sound.effects.surround
+from sound.effects import *
+```
+
+这个例子中，在执行 from...import 前，包 sound.effects 中的 echo 和 surround 模块都被导入到当前的命名空间中了。（当然如果定义了 __all__ 就更没问题了）
+
+通常我们并不主张使用 ***** 这种方法来导入模块，因为这种方法经常会导致代码的可读性降低。不过这样倒的确是可以省去不少敲键的功夫，而且一些模块都设计成了只能通过特定的方法导入。
+
+记住，使用 **from Package import specific_submodule** 这种方法永远不会有错。事实上，这也是推荐的方法。除非是你要导入的子模块有可能和其他包的子模块重名。
+
+如果在结构中包是一个子包（比如这个例子中对于包sound来说），而你又想导入兄弟包（同级别的包）你就得使用导入绝对的路径来导入。比如，如果模块sound.filters.vocoder 要使用包 sound.effects 中的模块 echo，你就要写成 from sound.effects import echo。
+
+```
+from . import echo
+from .. import formats
+from ..filters import equalizer
+```
+
+无论是隐式的还是显式的相对导入都是从当前模块开始的。主模块的名字永远是"__main__"，一个Python应用程序的主模块，应当总是使用绝对路径引用。
+
+包还提供一个额外的属性__path__。这是一个目录列表，里面每一个包含的目录都有为这个包服务的__init__.py，你得在其他__init__.py被执行前定义哦。可以修改这个变量，用来影响包含在包里面的模块和子包。
+
+这个功能并不常用，一般用来扩展包里面的模块。
+
+# Python3 错误和异常
+
+作为 Python 初学者，在刚学习 Python 编程时，经常会看到一些报错信息，在前面我们没有提及，这章节我们会专门介绍。
+
+Python 有两种错误很容易辨认：语法错误和异常。
+
+Python assert（断言）用于判断一个表达式，在表达式条件为 false 的时候触发异常。
+
+![img](https://static.runoob.com/images/mix/assets-py.webp)
+
+## 语法错误
+
+Python 的语法错误或者称之为解析错，是初学者经常碰到的，如下实例
+
+```python
+>>> while True print('Hello world')
+  File "<stdin>", line 1, in ?
+    while True print('Hello world')
+                   ^
+SyntaxError: invalid syntax
+```
+
+这个例子中，函数 print() 被检查到有错误，是它前面缺少了一个冒号 **:** 。
+
+语法分析器指出了出错的一行，并且在最先找到的错误的位置标记了一个小小的箭头。
+
+## 异常
+
+即便 Python 程序的语法是正确的，在运行它的时候，也有可能发生错误。运行期检测到的错误被称为异常。
+
+大多数的异常都不会被程序处理，都以错误信息的形式展现在这里:
+
+```python
+>>> 10 * (1/0)             # 0 不能作为除数，触发异常
+Traceback (most recent call last):
+  File "<stdin>", line 1, in ?
+ZeroDivisionError: division by zero
+>>> 4 + spam*3             # spam 未定义，触发异常
+Traceback (most recent call last):
+  File "<stdin>", line 1, in ?
+NameError: name 'spam' is not defined
+>>> '2' + 2               # int 不能与 str 相加，触发异常
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+TypeError: can only concatenate str (not "int") to str
+```
+
+异常以不同的类型出现，这些类型都作为信息的一部分打印出来: 例子中的类型有 ZeroDivisionError，NameError 和 TypeError。
+
+错误信息的前面部分显示了异常发生的上下文，并以调用栈的形式显示具体信息。
+
+## 异常处理
+
+### try/except
+
+异常捕捉可以使用 **try/except** 语句。
+
+![img](https://www.runoob.com/wp-content/uploads/2019/07/try_except.png)
+
+以下例子中，让用户输入一个合法的整数，但是允许用户中断这个程序（使用 Control-C 或者操作系统提供的方法）。用户中断的信息会引发一个 KeyboardInterrupt 异常。
+
+```python
+while True:
+    try:
+        x = int(input("请输入一个数字: "))
+        break
+    except ValueError:
+        print("您输入的不是数字，请再次尝试输入！")
+```
+
+try 语句按照如下方式工作；
+
+* 首先，执行 try 子句（在关键字 try 和关键字 except 之间的语句）。
+* 如果没有异常发生，忽略 except 子句，try 子句执行后结束。
+* 如果在执行 try 子句的过程中发生了异常，那么 try 子句余下的部分将被忽略。如果异常的类型和 except 之后的名称相符，那么对应的 except 子句将被执行。
+* 如果一个异常没有与任何的 except 匹配，那么这个异常将会传递给上层的 try 中。
+
+一个 try 语句可能包含多个except子句，分别来处理不同的特定的异常。最多只有一个分支会被执行。
+
+处理程序将只针对对应的 try 子句中的异常进行处理，而不是其他的 try 的处理程序中的异常。
+
+一个except子句可以同时处理多个异常，这些异常将被放在一个括号里成为一个元组，例如:
+
+```python
+xcept (RuntimeError, TypeError, NameError):
+    pass
+```
+
+最后一个except子句可以忽略异常的名称，它将被当作通配符使用。你可以使用这种方法打印一个错误信息，然后再次把异常抛出。
+
+```python
+import sys
+
+try:
+    f = open('myfile.txt')
+    s = f.readline()
+    i = int(s.strip())
+except OSError as err:
+    print("OS error: {0}".format(err))
+except ValueError:
+    print("Could not convert data to an integer.")
+except:
+    print("Unexpected error:", sys.exc_info()[0])
+    raise
+```
+
+### try/except...else
+
+**try/except** 语句还有一个可选的 **else** 子句，如果使用这个子句，那么必须放在所有的 except 子句之后。
+
+else 子句将在 try 子句没有发生任何异常的时候执行。
+
+![img](https://www.runoob.com/wp-content/uploads/2019/07/try_except_else.png)
+
+以下实例在 try 语句中判断文件是否可以打开，如果打开文件时正常的没有发生异常则执行 else 部分的语句，读取文件内容：
+
+```python
+for arg in sys.argv[1:]:
+    try:
+        f = open(arg, 'r')
+    except IOError:
+        print('cannot open', arg)
+    else:
+        print(arg, 'has', len(f.readlines()), 'lines')
+        f.close()
+```
+
