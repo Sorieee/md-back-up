@@ -4322,3 +4322,1215 @@ for arg in sys.argv[1:]:
         f.close()
 ```
 
+使用 else 子句比把所有的语句都放在 try 子句里面要好，这样可以避免一些意想不到，而 except 又无法捕获的异常。
+
+异常处理并不仅仅处理那些直接发生在 try 子句中的异常，而且还能处理子句中调用的函数（甚至间接调用的函数）里抛出的异常。例如:
+
+```python
+>>> def this_fails():
+        x = 1/0
+   
+>>> try:
+        this_fails()
+    except ZeroDivisionError as err:
+        print('Handling run-time error:', err)
+   
+Handling run-time error: int division or modulo by zero
+```
+
+### try-finally 语句
+
+try-finally 语句无论是否发生异常都将执行最后的代码。
+
+![img](https://www.runoob.com/wp-content/uploads/2019/07/try_except_else_finally.png)
+
+以下实例中 finally 语句无论异常是否发生都会执行：
+
+```python
+try:
+    runoob()
+except AssertionError as error:
+    print(error)
+else:
+    try:
+        with open('file.log') as file:
+            read_data = file.read()
+    except FileNotFoundError as fnf_error:
+        print(fnf_error)
+finally:
+    print('这句话，无论异常是否发生都会执行。')
+```
+
+## 抛出异常
+
+Python 使用 raise 语句抛出一个指定的异常。
+
+raise语法格式如下：
+
+```
+raise [Exception [, args [, traceback]]]
+```
+
+![img](https://www.runoob.com/wp-content/uploads/2019/07/raise.png)
+
+以下实例如果 x 大于 5 就触发异常:
+
+```python
+x = 10
+if x > 5:
+    raise Exception('x 不能大于 5。x 的值为: {}'.format(x))
+```
+
+执行以上代码会触发异常：
+
+```
+Traceback (most recent call last):
+  File "test.py", line 3, in <module>
+    raise Exception('x 不能大于 5。x 的值为: {}'.format(x))
+Exception: x 不能大于 5。x 的值为: 10
+```
+
+raise 唯一的一个参数指定了要被抛出的异常。它必须是一个异常的实例或者是异常的类（也就是 Exception 的子类）。
+
+如果你只想知道这是否抛出了一个异常，并不想去处理它，那么一个简单的 raise 语句就可以再次把它抛出。
+
+```python
+>>> try:
+        raise NameError('HiThere')
+    except NameError:
+        print('An exception flew by!')
+        raise
+   
+An exception flew by!
+Traceback (most recent call last):
+  File "<stdin>", line 2, in ?
+NameError: HiThere
+```
+
+## 用户自定义异常
+
+你可以通过创建一个新的异常类来拥有自己的异常。异常类继承自 Exception 类，可以直接继承，或者间接继承，例如:
+
+```python
+>>> class MyError(Exception):
+        def __init__(self, value):
+            self.value = value
+        def __str__(self):
+            return repr(self.value)
+   
+>>> try:
+        raise MyError(2*2)
+    except MyError as e:
+        print('My exception occurred, value:', e.value)
+   
+My exception occurred, value: 4
+>>> raise MyError('oops!')
+Traceback (most recent call last):
+  File "<stdin>", line 1, in ?
+__main__.MyError: 'oops!'
+```
+
+在这个例子中，类 Exception 默认的 __init__() 被覆盖。
+
+当创建一个模块有可能抛出多种不同的异常时，一种通常的做法是为这个包建立一个基础异常类，然后基于这个基础类为不同的错误情况创建不同的子类:
+
+```python
+class Error(Exception):
+    """Base class for exceptions in this module."""
+    pass
+
+class InputError(Error):
+    """Exception raised for errors in the input.
+
+    Attributes:
+        expression -- input expression in which the error occurred
+        message -- explanation of the error
+    """
+
+    def __init__(self, expression, message):
+        self.expression = expression
+        self.message = message
+
+class TransitionError(Error):
+    """Raised when an operation attempts a state transition that's not
+    allowed.
+
+    Attributes:
+        previous -- state at beginning of transition
+        next -- attempted new state
+        message -- explanation of why the specific transition is not allowed
+    """
+
+    def __init__(self, previous, next, message):
+        self.previous = previous
+        self.next = next
+        self.message = message
+```
+
+大多数的异常的名字都以"Error"结尾，就跟标准的异常命名一样。
+
+------
+
+## 定义清理行为
+
+try 语句还有另外一个可选的子句，它定义了无论在任何情况下都会执行的清理行为。 例如:
+
+```python
+>>> try:
+...     raise KeyboardInterrupt
+... finally:
+...     print('Goodbye, world!')
+...
+Goodbye, world!
+Traceback (most recent call last):
+  File "<stdin>", line 2, in <module>
+KeyboardInterrupt
+```
+
+以上例子不管 try 子句里面有没有发生异常，finally 子句都会执行。
+
+如果一个异常在 try 子句里（或者在 except 和 else 子句里）被抛出，而又没有任何的 except 把它截住，那么这个异常会在 finally 子句执行后被抛出。
+
+下面是一个更加复杂的例子（在同一个 try 语句里包含 except 和 finally 子句）:
+
+```python
+>>> def divide(x, y):
+        try:
+            result = x / y
+        except ZeroDivisionError:
+            print("division by zero!")
+        else:
+            print("result is", result)
+        finally:
+            print("executing finally clause")
+   
+>>> divide(2, 1)
+result is 2.0
+executing finally clause
+>>> divide(2, 0)
+division by zero!
+executing finally clause
+>>> divide("2", "1")
+executing finally clause
+Traceback (most recent call last):
+  File "<stdin>", line 1, in ?
+  File "<stdin>", line 3, in divide
+TypeError: unsupported operand type(s) for /: 'str' and 'str'
+```
+
+## 预定义的清理行为
+
+一些对象定义了标准的清理行为，无论系统是否成功的使用了它，一旦不需要它了，那么这个标准的清理行为就会执行。
+
+这面这个例子展示了尝试打开一个文件，然后把内容打印到屏幕上:
+
+```python
+for line in open("myfile.txt"):
+    print(line, end="")
+```
+
+以上这段代码的问题是，当执行完毕后，文件会保持打开状态，并没有被关闭。
+
+关键词 with 语句就可以保证诸如文件之类的对象在使用完之后一定会正确的执行他的清理方法:
+
+```python
+with open("myfile.txt") as f:
+    for line in f:
+        print(line, end="")
+```
+
+以上这段代码执行完毕后，就算在处理过程中出问题了，文件 f 总是会关闭。
+
+更多 with 关键字内容参考：[Python with 关键字](https://www.runoob.com/python3/python-with.html)
+
+# Python3 面向对象
+
+Python从设计之初就已经是一门面向对象的语言，正因为如此，在Python中创建一个类和对象是很容易的。本章节我们将详细介绍Python的面向对象编程。
+
+如果你以前没有接触过面向对象的编程语言，那你可能需要先了解一些面向对象语言的一些基本特征，在头脑里头形成一个基本的面向对象的概念，这样有助于你更容易的学习Python的面向对象编程。
+
+接下来我们先来简单的了解下面向对象的一些基本特征。
+
+------
+
+## 面向对象技术简介
+
+- **类(Class):** 用来描述具有相同的属性和方法的对象的集合。它定义了该集合中每个对象所共有的属性和方法。对象是类的实例。
+- **方法：**类中定义的函数。
+- **类变量：**类变量在整个实例化的对象中是公用的。类变量定义在类中且在函数体之外。类变量通常不作为实例变量使用。
+- **数据成员：**类变量或者实例变量用于处理类及其实例对象的相关的数据。
+- **方法重写：**如果从父类继承的方法不能满足子类的需求，可以对其进行改写，这个过程叫方法的覆盖（override），也称为方法的重写。
+- **局部变量：**定义在方法中的变量，只作用于当前实例的类。
+- **实例变量：**在类的声明中，属性是用变量来表示的，这种变量就称为实例变量，实例变量就是一个用 self 修饰的变量。
+- **继承：**即一个派生类（derived class）继承基类（base class）的字段和方法。继承也允许把一个派生类的对象作为一个基类对象对待。例如，有这样一个设计：一个Dog类型的对象派生自Animal类，这是模拟"是一个（is-a）"关系（例图，Dog是一个Animal）。
+- **实例化：**创建一个类的实例，类的具体对象。
+- **对象：**通过类定义的数据结构实例。对象包括两个数据成员（类变量和实例变量）和方法。
+
+和其它编程语言相比，Python 在尽可能不增加新的语法和语义的情况下加入了类机制。
+
+Python中的类提供了面向对象编程的所有基本功能：类的继承机制允许多个基类，派生类可以覆盖基类中的任何方法，方法中可以调用基类中的同名方法。
+
+对象可以包含任意数量和类型的数据。
+
+## 类定义
+
+语法格式如下：
+
+```python
+class ClassName:
+    <statement-1>
+    .
+    .
+    .
+    <statement-N>
+```
+
+类实例化后，可以使用其属性，实际上，创建一个类之后，可以通过类名访问其属性。
+
+## 类对象
+
+类对象支持两种操作：属性引用和实例化。
+
+属性引用使用和 Python 中所有的属性引用一样的标准语法：**obj.name**。
+
+类对象创建后，类命名空间中所有的命名都是有效属性名。所以如果类定义是这样:
+
+```python
+class MyClass:
+    """一个简单的类实例"""
+    i = 12345
+    def f(self):
+        return 'hello world'
+ 
+# 实例化类
+x = MyClass()
+ 
+# 访问类的属性和方法
+print("MyClass 类的属性 i 为：", x.i)
+print("MyClass 类的方法 f 输出为：", x.f())
+```
+
+以上创建了一个新的类实例并将该对象赋给局部变量 x，x 为空的对象。
+
+执行以上程序输出结果为：
+
+```
+MyClass 类的属性 i 为： 12345
+MyClass 类的方法 f 输出为： hello world
+```
+
+类有一个名为 __init__() 的特殊方法（**构造方法**），该方法在类实例化时会自动调用，像下面这样：
+
+```python
+def __init__(self):
+    self.data = []
+```
+
+类定义了 __init__() 方法，类的实例化操作会自动调用 __init__() 方法。如下实例化类 MyClass，对应的 __init__() 方法就会被调用:
+
+```
+x = MyClass()
+```
+
+当然， __init__() 方法可以有参数，参数通过 __init__() 传递到类的实例化操作上。例如:
+
+```python
+#!/usr/bin/python3
+ 
+class Complex:
+    def __init__(self, realpart, imagpart):
+        self.r = realpart
+        self.i = imagpart
+x = Complex(3.0, -4.5)
+print(x.r, x.i)   # 输出结果：3.0 -4.5
+```
+
+### self代表类的实例，而非类
+
+类的方法与普通的函数只有一个特别的区别——它们必须有一个额外的**第一个参数名称**, 按照惯例它的名称是 self。
+
+```python
+class Test:
+    def prt(self):
+        print(self)
+        print(self.__class__)
+ 
+t = Test()
+t.prt()
+```
+
+以上实例执行结果为：
+
+```
+<__main__.Test instance at 0x100771878>
+__main__.Test
+```
+
+从执行结果可以很明显的看出，self 代表的是类的实例，代表当前对象的地址，而 self.class 则指向类。
+
+self 不是 python 关键字，我们把他换成 runoob 也是可以正常执行的
+
+```python
+class Test:
+    def prt(runoob):
+        print(runoob)
+        print(runoob.__class__)
+ 
+t = Test()
+t.prt()
+```
+
+以上实例执行结果为：
+
+```
+<__main__.Test instance at 0x100771878>
+__main__.Test
+```
+
+------
+
+## 类的方法
+
+在类的内部，使用 **def** 关键字来定义一个方法，与一般函数定义不同，类方法必须包含参数 self, 且为第一个参数，self 代表的是类的实例。
+
+```python
+#!/usr/bin/python3
+ 
+#类定义
+class people:
+    #定义基本属性
+    name = ''
+    age = 0
+    #定义私有属性,私有属性在类外部无法直接进行访问
+    __weight = 0
+    #定义构造方法
+    def __init__(self,n,a,w):
+        self.name = n
+        self.age = a
+        self.__weight = w
+    def speak(self):
+        print("%s 说: 我 %d 岁。" %(self.name,self.age))
+ 
+# 实例化类
+p = people('runoob',10,30)
+p.speak()
+```
+
+执行以上程序输出结果为：
+
+```
+runoob 说: 我 10 岁。
+```
+
+------
+
+## 继承
+
+Python 同样支持类的继承，如果一种语言不支持继承，类就没有什么意义。派生类的定义如下所示:
+
+```python
+class DerivedClassName(BaseClassName):
+    <statement-1>
+    .
+    .
+    .
+    <statement-N>
+```
+
+子类（派生类 DerivedClassName）会继承父类（基类 BaseClassName）的属性和方法。
+
+BaseClassName（实例中的基类名）必须与派生类定义在一个作用域内。除了类，还可以用表达式，基类定义在另一个模块中时这一点非常有用:
+
+
+
+```
+class DerivedClassName(modname.BaseClassName):
+```
+
+```python
+#!/usr/bin/python3
+ 
+#类定义
+class people:
+    #定义基本属性
+    name = ''
+    age = 0
+    #定义私有属性,私有属性在类外部无法直接进行访问
+    __weight = 0
+    #定义构造方法
+    def __init__(self,n,a,w):
+        self.name = n
+        self.age = a
+        self.__weight = w
+    def speak(self):
+        print("%s 说: 我 %d 岁。" %(self.name,self.age))
+ 
+#单继承示例
+class student(people):
+    grade = ''
+    def __init__(self,n,a,w,g):
+        #调用父类的构函
+        people.__init__(self,n,a,w)
+        self.grade = g
+    #覆写父类的方法
+    def speak(self):
+        print("%s 说: 我 %d 岁了，我在读 %d 年级"%(self.name,self.age,self.grade))
+ 
+ 
+ 
+s = student('ken',10,60,3)
+s.speak()
+```
+
+执行以上程序输出结果为：
+
+```
+ken 说: 我 10 岁了，我在读 3 年级
+```
+
+## 多继承
+
+Python同样有限的支持多继承形式。多继承的类定义形如下例:
+
+```python
+class DerivedClassName(Base1, Base2, Base3):
+    <statement-1>
+    .
+    .
+    .
+    <statement-N>
+```
+
+需要注意圆括号中父类的顺序，若是父类中有相同的方法名，而在子类使用时未指定，python从左至右搜索 即方法在子类中未找到时，从左到右查找父类中是否包含方法。
+
+```python
+#!/usr/bin/python3
+ 
+#类定义
+class people:
+    #定义基本属性
+    name = ''
+    age = 0
+    #定义私有属性,私有属性在类外部无法直接进行访问
+    __weight = 0
+    #定义构造方法
+    def __init__(self,n,a,w):
+        self.name = n
+        self.age = a
+        self.__weight = w
+    def speak(self):
+        print("%s 说: 我 %d 岁。" %(self.name,self.age))
+ 
+#单继承示例
+class student(people):
+    grade = ''
+    def __init__(self,n,a,w,g):
+        #调用父类的构函
+        people.__init__(self,n,a,w)
+        self.grade = g
+    #覆写父类的方法
+    def speak(self):
+        print("%s 说: 我 %d 岁了，我在读 %d 年级"%(self.name,self.age,self.grade))
+ 
+#另一个类，多重继承之前的准备
+class speaker():
+    topic = ''
+    name = ''
+    def __init__(self,n,t):
+        self.name = n
+        self.topic = t
+    def speak(self):
+        print("我叫 %s，我是一个演说家，我演讲的主题是 %s"%(self.name,self.topic))
+ 
+#多重继承
+class sample(speaker,student):
+    a =''
+    def __init__(self,n,a,w,g,t):
+        student.__init__(self,n,a,w,g)
+        speaker.__init__(self,n,t)
+ 
+test = sample("Tim",25,80,4,"Python")
+test.speak()   #方法名同，默认调用的是在括号中参数位置排前父类的方法
+```
+
+执行以上程序输出结果为：
+
+```
+我叫 Tim，我是一个演说家，我演讲的主题是 Python
+```
+
+## 方法重写
+
+如果你的父类方法的功能不能满足你的需求，你可以在子类重写你父类的方法，实例如下：
+
+```python
+#!/usr/bin/python3
+ 
+class Parent:        # 定义父类
+   def myMethod(self):
+      print ('调用父类方法')
+ 
+class Child(Parent): # 定义子类
+   def myMethod(self):
+      print ('调用子类方法')
+ 
+c = Child()          # 子类实例
+c.myMethod()         # 子类调用重写方法
+super(Child,c).myMethod() #用子类对象调用父类已被覆盖的方法
+```
+
+[super() 函数](https://www.runoob.com/python/python-func-super.html)是用于调用父类(超类)的一个方法。
+
+执行以上程序输出结果为：
+
+```
+调用子类方法
+调用父类方法
+```
+
+**更多文档：**
+
+[Python 子类继承父类构造函数说明](https://www.runoob.com/w3cnote/python-extends-init.html)
+
+------
+
+## 类属性与方法
+
+### 类的私有属性
+
+**__private_attrs**：两个下划线开头，声明该属性为私有，不能在类的外部被使用或直接访问。在类内部的方法中使用时 **self.__private_attrs**。
+
+### 类的方法
+
+在类的内部，使用 def 关键字来定义一个方法，与一般函数定义不同，类方法必须包含参数 **self**，且为第一个参数，**self** 代表的是类的实例。
+
+**self** 的名字并不是规定死的，也可以使用 **this**，但是最好还是按照约定使用 **self**。
+
+### 类的私有方法
+
+**__private_method**：两个下划线开头，声明该方法为私有方法，只能在类的内部调用 ，不能在类的外部调用。**self.__private_methods**。
+
+### 实例
+
+类的私有属性实例如下：
+
+```python
+#!/usr/bin/python3
+ 
+class JustCounter:
+    __secretCount = 0  # 私有变量
+    publicCount = 0    # 公开变量
+ 
+    def count(self):
+        self.__secretCount += 1
+        self.publicCount += 1
+        print (self.__secretCount)
+ 
+counter = JustCounter()
+counter.count()
+counter.count()
+print (counter.publicCount)
+print (counter.__secretCount)  # 报错，实例不能访问私有变量
+```
+
+执行以上程序输出结果为：
+
+```
+1
+2
+2
+Traceback (most recent call last):
+  File "test.py", line 16, in <module>
+    print (counter.__secretCount)  # 报错，实例不能访问私有变量
+AttributeError: 'JustCounter' object has no attribute '__secretCount'
+```
+
+类的私有方法实例如下：
+
+```python
+#!/usr/bin/python3
+ 
+class Site:
+    def __init__(self, name, url):
+        self.name = name       # public
+        self.__url = url   # private
+ 
+    def who(self):
+        print('name  : ', self.name)
+        print('url : ', self.__url)
+ 
+    def __foo(self):          # 私有方法
+        print('这是私有方法')
+ 
+    def foo(self):            # 公共方法
+        print('这是公共方法')
+        self.__foo()
+ 
+x = Site('菜鸟教程', 'www.runoob.com')
+x.who()        # 正常输出
+x.foo()        # 正常输出
+x.__foo()      # 报错
+```
+
+以上实例执行结果：
+
+![img](https://www.runoob.com/wp-content/uploads/2014/05/F5C2A308-3A88-42B4-B575-C719EB8F1CC4.jpg)
+
+### 类的专有方法：
+
+- **__init__ :** 构造函数，在生成对象时调用
+- **__del__ :** 析构函数，释放对象时使用
+- **__repr__ :** 打印，转换
+- **__setitem__ :** 按照索引赋值
+- **__getitem__:** 按照索引获取值
+- **__len__:** 获得长度
+- **__cmp__:** 比较运算
+- **__call__:** 函数调用
+- **__add__:** 加运算
+- **__sub__:** 减运算
+- **__mul__:** 乘运算
+- **__truediv__:** 除运算
+- **__mod__:** 求余运算
+- **__pow__:** 乘方
+
+### 运算符重载
+
+Python同样支持运算符重载，我们可以对类的专有方法进行重载，实例如下：
+
+```python
+#!/usr/bin/python3
+ 
+class Vector:
+   def __init__(self, a, b):
+      self.a = a
+      self.b = b
+ 
+   def __str__(self):
+      return 'Vector (%d, %d)' % (self.a, self.b)
+   
+   def __add__(self,other):
+      return Vector(self.a + other.a, self.b + other.b)
+ 
+v1 = Vector(2,10)
+v2 = Vector(5,-2)
+print (v1 + v2)
+```
+
+以上代码执行结果如下所示:
+
+```
+Vector(7,8)
+```
+
+# Python3 命名空间和作用域
+
+## 命名空间
+
+先看看官方文档的一段话：
+
+> A namespace is a mapping from names to objects.Most namespaces are currently implemented as Python dictionaries。
+
+命名空间(Namespace)是从名称到对象的映射，大部分的命名空间都是通过 Python 字典来实现的。
+
+命名空间提供了在项目中避免名字冲突的一种方法。各个命名空间是独立的，没有任何关系的，所以一个命名空间中不能有重名，但不同的命名空间是可以重名而没有任何影响。
+
+我们举一个计算机系统中的例子，一个文件夹(目录)中可以包含多个文件夹，每个文件夹中不能有相同的文件名，但不同文件夹中的文件可以重名。
+
+![img](https://www.runoob.com/wp-content/uploads/2019/09/0129A8E9-30FE-431D-8C48-399EA4841E9D.jpg)
+
+一般有三种命名空间：
+
+- **内置名称（built-in names**）， Python 语言内置的名称，比如函数名 abs、char 和异常名称 BaseException、Exception 等等。
+- **全局名称（global names）**，模块中定义的名称，记录了模块的变量，包括函数、类、其它导入的模块、模块级的变量和常量。
+- **局部名称（local names）**，函数中定义的名称，记录了函数的变量，包括函数的参数和局部定义的变量。（类中定义的也是）
+
+![img](https://www.runoob.com/wp-content/uploads/2014/05/types_namespace-1.png)
+
+命名空间查找顺序:
+
+假设我们要使用变量 runoob，则 Python 的查找顺序为：**局部的命名空间去 -> 全局命名空间 -> 内置命名空间**。
+
+如果找不到变量 runoob，它将放弃查找并引发一个 NameError 异常:
+
+```
+NameError: name 'runoob' is not defined。
+```
+
+命名空间的生命周期：
+
+命名空间的生命周期取决于对象的作用域，如果对象执行完成，则该命名空间的生命周期就结束。
+
+因此，我们无法从外部命名空间访问内部命名空间的对象。
+
+```python
+# var1 是全局名称
+var1 = 5
+def some_func():
+ 
+    # var2 是局部名称
+    var2 = 6
+    def some_inner_func():
+ 
+        # var3 是内嵌的局部名称
+        var3 = 7
+```
+
+如下图所示，相同的对象名称可以存在于多个命名空间中。
+
+![img](https://www.runoob.com/wp-content/uploads/2014/05/namespaces.png)
+
+------
+
+## 作用域
+
+> A scope is a textual region of a Python program where a namespace is directly accessible. "Directly accessible" here means that an unqualified reference to a name attempts to find the name in the namespace.
+
+作用域就是一个 Python 程序可以直接访问命名空间的正文区域。
+
+在一个 python 程序中，直接访问一个变量，会从内到外依次访问所有的作用域直到找到，否则会报未定义的错误。
+
+Python 中，程序的变量并不是在哪个位置都可以访问的，访问权限决定于这个变量是在哪里赋值的。
+
+变量的作用域决定了在哪一部分程序可以访问哪个特定的变量名称。Python 的作用域一共有4种，分别是：
+
+有四种作用域：
+
+- **L（Local）**：最内层，包含局部变量，比如一个函数/方法内部。
+- **E（Enclosing）**：包含了非局部(non-local)也非全局(non-global)的变量。比如两个嵌套函数，一个函数（或类） A 里面又包含了一个函数 B ，那么对于 B 中的名称来说 A 中的作用域就为 nonlocal。
+- **G（Global）**：当前脚本的最外层，比如当前模块的全局变量。
+- **B（Built-in）**： 包含了内建的变量/关键字等，最后被搜索。
+
+规则顺序： **L –> E –> G –> B**。
+
+在局部找不到，便会去局部外的局部找（例如闭包），再找不到就会去全局找，再者去内置中找。
+
+![img](https://www.runoob.com/wp-content/uploads/2014/05/1418490-20180906153626089-1835444372.png)
+
+```
+g_count = 0  # 全局作用域
+def outer():
+    o_count = 1  # 闭包函数外的函数中
+    def inner():
+        i_count = 2  # 局部作用域
+```
+
+内置作用域是通过一个名为 builtin 的标准模块来实现的，但是这个变量名自身并没有放入内置作用域内，所以必须导入这个文件才能够使用它。在Python3.0中，可以使用以下的代码来查看到底预定义了哪些变量:
+
+```
+>>> import builtins
+>>> dir(builtins)
+```
+
+Python 中只有模块（module），类（class）以及函数（def、lambda）才会引入新的作用域，其它的代码块（如 if/elif/else/、try/except、for/while等）是不会引入新的作用域的，也就是说这些语句内定义的变量，外部也可以访问，如下代码：
+
+```
+>>> if True:
+...  msg = 'I am from Runoob'
+... 
+>>> msg
+'I am from Runoob'
+>>> 
+```
+
+实例中 msg 变量定义在 if 语句块中，但外部还是可以访问的。
+
+如果将 msg 定义在函数中，则它就是局部变量，外部不能访问：
+
+```
+>>> def test():
+...     msg_inner = 'I am from Runoob'
+... 
+>>> msg_inner
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+NameError: name 'msg_inner' is not defined
+>>> 
+```
+
+从报错的信息上看，说明了 msg_inner 未定义，无法使用，因为它是局部变量，只有在函数内可以使用。
+
+### 全局变量和局部变量
+
+定义在函数内部的变量拥有一个局部作用域，定义在函数外的拥有全局作用域。
+
+局部变量只能在其被声明的函数内部访问，而全局变量可以在整个程序范围内访问。调用函数时，所有在函数内声明的变量名称都将被加入到作用域中。如下实例：
+
+```python
+#!/usr/bin/python3
+ 
+total = 0 # 这是一个全局变量
+# 可写函数说明
+def sum( arg1, arg2 ):
+    #返回2个参数的和."
+    total = arg1 + arg2 # total在这里是局部变量.
+    print ("函数内是局部变量 : ", total)
+    return total
+ 
+#调用sum函数
+sum( 10, 20 )
+print ("函数外是全局变量 : ", total)
+```
+
+以上实例输出结果：
+
+```
+函数内是局部变量 :  30
+函数外是全局变量 :  0
+```
+
+### global 和 nonlocal关键字
+
+当内部作用域想修改外部作用域的变量时，就要用到 global 和 nonlocal 关键字了。
+
+以下实例修改全局变量 num：
+
+```python
+#!/usr/bin/python3
+ 
+num = 1
+def fun1():
+    global num  # 需要使用 global 关键字声明
+    print(num) 
+    num = 123
+    print(num)
+fun1()
+print(num)
+```
+
+以上实例输出结果：
+
+```
+1
+123
+123
+```
+
+如果要修改嵌套作用域（enclosing 作用域，外层非全局作用域）中的变量则需要 nonlocal 关键字了，如下实例：
+
+```python
+#!/usr/bin/python3
+ 
+def outer():
+    num = 10
+    def inner():
+        nonlocal num   # nonlocal关键字声明
+        num = 100
+        print(num)
+    inner()
+    print(num)
+outer()
+```
+
+以上实例输出结果：
+
+```
+100
+100
+```
+
+另外有一种特殊情况，假设下面这段代码被运行：
+
+```python
+#!/usr/bin/python3
+ 
+a = 10
+def test():
+    a = a + 1
+    print(a)
+test()
+```
+
+以上程序执行，报错信息如下：
+
+```
+Traceback (most recent call last):
+  File "test.py", line 7, in <module>
+    test()
+  File "test.py", line 5, in test
+    a = a + 1
+UnboundLocalError: local variable 'a' referenced before assignment
+```
+
+错误信息为局部作用域引用错误，因为 test 函数中的 a 使用的是局部，未定义，无法修改。
+
+修改 a 为全局变量：
+
+```py
+#!/usr/bin/python3
+ 
+a = 10
+def test():
+    global a
+    a = a + 1
+    print(a)
+test()
+
+# 11
+```
+
+也可以通过函数参数传递：
+
+```python
+#!/usr/bin/python3
+ 
+a = 10
+def test(a):
+    a = a + 1
+    print(a)
+test(a)
+```
+
+# Python3 标准库概览
+
+## 操作系统接口
+
+os模块提供了不少与操作系统相关联的函数。
+
+```
+>>> import os
+>>> os.getcwd()      # 返回当前的工作目录
+'C:\\Python34'
+>>> os.chdir('/server/accesslogs')   # 修改当前的工作目录
+>>> os.system('mkdir today')   # 执行系统命令 mkdir 
+0
+```
+
+建议使用 "import os" 风格而非 "from os import *"。这样可以保证随操作系统不同而有所变化的 os.open() 不会覆盖内置函数 open()。
+
+在使用 os 这样的大型模块时内置的 dir() 和 help() 函数非常有用:
+
+```
+>>> import os
+>>> dir(os)
+<returns a list of all module functions>
+>>> help(os)
+<returns an extensive manual page created from the module's docstrings>
+```
+
+针对日常的文件和目录管理任务，:mod:shutil 模块提供了一个易于使用的高级接口:
+
+```
+>>> import shutil
+>>> shutil.copyfile('data.db', 'archive.db')
+>>> shutil.move('/build/executables', 'installdir')
+```
+
+------
+
+## 文件通配符
+
+glob模块提供了一个函数用于从目录通配符搜索中生成文件列表:
+
+```
+>>> import glob
+>>> glob.glob('*.py')
+['primes.py', 'random.py', 'quote.py']
+```
+
+------
+
+## 命令行参数
+
+通用工具脚本经常调用命令行参数。这些命令行参数以链表形式存储于 sys 模块的 argv 变量。例如在命令行中执行 "python demo.py one two three" 后可以得到以下输出结果:
+
+```
+>>> import sys
+>>> print(sys.argv)
+['demo.py', 'one', 'two', 'three']
+```
+
+------
+
+## 错误输出重定向和程序终止
+
+sys 还有 stdin，stdout 和 stderr 属性，即使在 stdout 被重定向时，后者也可以用于显示警告和错误信息。
+
+```
+>>> sys.stderr.write('Warning, log file not found starting a new one\n')
+Warning, log file not found starting a new one
+```
+
+大多脚本的定向终止都使用 "sys.exit()"。
+
+------
+
+## 字符串正则匹配
+
+re模块为高级字符串处理提供了正则表达式工具。对于复杂的匹配和处理，正则表达式提供了简洁、优化的解决方案:
+
+```
+>>> import re
+>>> re.findall(r'\bf[a-z]*', 'which foot or hand fell fastest')
+['foot', 'fell', 'fastest']
+>>> re.sub(r'(\b[a-z]+) \1', r'\1', 'cat in the the hat')
+'cat in the hat'
+```
+
+如果只需要简单的功能，应该首先考虑字符串方法，因为它们非常简单，易于阅读和调试:
+
+```
+>>> 'tea for too'.replace('too', 'two')
+'tea for two'
+```
+
+------
+
+## 数学
+
+math模块为浮点运算提供了对底层C函数库的访问:
+
+```
+>>> import math
+>>> math.cos(math.pi / 4)
+0.70710678118654757
+>>> math.log(1024, 2)
+10.0
+```
+
+random提供了生成随机数的工具。
+
+```
+>>> import random
+>>> random.choice(['apple', 'pear', 'banana'])
+'apple'
+>>> random.sample(range(100), 10)   # sampling without replacement
+[30, 83, 16, 4, 8, 81, 41, 50, 18, 33]
+>>> random.random()    # random float
+0.17970987693706186
+>>> random.randrange(6)    # random integer chosen from range(6)
+4
+```
+
+------
+
+## 访问 互联网
+
+有几个模块用于访问互联网以及处理网络通信协议。其中最简单的两个是用于处理从 urls 接收的数据的 urllib.request 以及用于发送电子邮件的 smtplib:
+
+```
+>>> from urllib.request import urlopen
+>>> for line in urlopen('http://tycho.usno.navy.mil/cgi-bin/timer.pl'):
+...     line = line.decode('utf-8')  # Decoding the binary data to text.
+...     if 'EST' in line or 'EDT' in line:  # look for Eastern Time
+...         print(line)
+
+<BR>Nov. 25, 09:43:32 PM EST
+
+>>> import smtplib
+>>> server = smtplib.SMTP('localhost')
+>>> server.sendmail('soothsayer@example.org', 'jcaesar@example.org',
+... """To: jcaesar@example.org
+... From: soothsayer@example.org
+...
+... Beware the Ides of March.
+... """)
+>>> server.quit()
+```
+
+注意第二个例子需要本地有一个在运行的邮件服务器。
+
+------
+
+## 日期和时间
+
+datetime模块为日期和时间处理同时提供了简单和复杂的方法。
+
+支持日期和时间算法的同时，实现的重点放在更有效的处理和格式化输出。
+
+该模块还支持时区处理:
+
+```
+>>> # dates are easily constructed and formatted
+>>> from datetime import date
+>>> now = date.today()
+>>> now
+datetime.date(2003, 12, 2)
+>>> now.strftime("%m-%d-%y. %d %b %Y is a %A on the %d day of %B.")
+'12-02-03. 02 Dec 2003 is a Tuesday on the 02 day of December.'
+
+>>> # dates support calendar arithmetic
+>>> birthday = date(1964, 7, 31)
+>>> age = now - birthday
+>>> age.days
+14368
+```
+
+------
+
+## 数据压缩
+
+以下模块直接支持通用的数据打包和压缩格式：zlib，gzip，bz2，zipfile，以及 tarfile。
+
+```
+>>> import zlib
+>>> s = b'witch which has which witches wrist watch'
+>>> len(s)
+41
+>>> t = zlib.compress(s)
+>>> len(t)
+37
+>>> zlib.decompress(t)
+b'witch which has which witches wrist watch'
+>>> zlib.crc32(s)
+226805979
+```
+
+------
+
+## 性能度量
+
+有些用户对了解解决同一问题的不同方法之间的性能差异很感兴趣。Python 提供了一个度量工具，为这些问题提供了直接答案。
+
+例如，使用元组封装和拆封来交换元素看起来要比使用传统的方法要诱人的多,timeit 证明了现代的方法更快一些。
+
+```
+>>> from timeit import Timer
+>>> Timer('t=a; a=b; b=t', 'a=1; b=2').timeit()
+0.57535828626024577
+>>> Timer('a,b = b,a', 'a=1; b=2').timeit()
+0.54962537085770791
+```
+
+相对于 timeit 的细粒度，:mod:profile 和 pstats 模块提供了针对更大代码块的时间度量工具。
+
+------
+
+## 测试模块
+
+开发高质量软件的方法之一是为每一个函数开发测试代码，并且在开发过程中经常进行测试
+
+doctest模块提供了一个工具，扫描模块并根据程序中内嵌的文档字符串执行测试。
+
+测试构造如同简单的将它的输出结果剪切并粘贴到文档字符串中。
+
+通过用户提供的例子，它强化了文档，允许 doctest 模块确认代码的结果是否与文档一致:
+
+```
+def average(values):
+    """Computes the arithmetic mean of a list of numbers.
+
+    >>> print(average([20, 30, 70]))
+    40.0
+    """
+    return sum(values) / len(values)
+
+import doctest
+doctest.testmod()   # 自动验证嵌入测试
+```
+
+unittest模块不像 doctest模块那么容易使用，不过它可以在一个独立的文件里提供一个更全面的测试集:
+
+```
+import unittest
+
+class TestStatisticalFunctions(unittest.TestCase):
+
+    def test_average(self):
+        self.assertEqual(average([20, 30, 70]), 40.0)
+        self.assertEqual(round(average([1, 5, 7]), 1), 4.3)
+        self.assertRaises(ZeroDivisionError, average, [])
+        self.assertRaises(TypeError, average, 20, 30, 70)
+
+unittest.main() # Calling from the command line invokes all tests
+```
+

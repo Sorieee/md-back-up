@@ -2101,3 +2101,734 @@ ts_headline([ config regconfig, ] document text, query tsquery [, options text ]
 
 ### 用于自动更新的触发器
 
+​	当使用一个单独的列来存储你的文档的tsvector表示时，有必要创建一个触发器在文档内容列改变时更新tsvector列。两个内建触发器函数可以用于这个目的，或者你可以编写你自己的触发器函数。
+
+```sql
+tsvector_update_trigger(tsvector_column_name, config_name, text_column_name [, ... ])
+tsvector_update_trigger_column(tsvector_column_name, config_column_name, text_column_name
+[, ... ])
+```
+
+这些触发器函数在CREATE TRIGGER命令中指定的参数控制下，自动从一个或多个文本列计算一个tsvector列。它们使用的一个例子是：
+
+```sql
+CREATE TABLE messages (
+title text,
+body text,
+tsv tsvector
+);
+
+CREATE TRIGGER tsvectorupdate BEFORE INSERT OR UPDATE
+ON messages FOR EACH ROW EXECUTE PROCEDURE
+tsvector_update_trigger(tsv, 'pg_catalog.english', title, body);
+INSERT INTO messages VALUES('title here', 'the body text is here');
+SELECT * FROM messages;
+title | body | tsv
+------------+-----------------------+----------------------------
+title here | the body text is here | 'bodi':4 'text':5 'titl':1
+SELECT title, body FROM messages WHERE tsv @@ to_tsquery('title & body');
+title | body
+------------+-----------------------
+title here | the body text is here
+```
+
+​	在创建了这个触发器后，在title或body中的任何修改将自动地被反映到tsv中，不需要应用来操心同步的问题。
+
+​	这些内建触发器的一个限制是它们将所有输入列同样对待。要对列进行不同的处理 — 例
+如，使标题的权重和正文的不同 — 就需要编写一个自定义触发器。下面是用PL/pgSQL作为触发器语言的一个例子：
+
+略
+
+### 收集文档统计数据
+
+ts_stat被用于检查你的配置以及寻找候选的停用词。
+
+```sql
+ts_stat(sqlquery text, [ weights text, ]
+OUT word text, OUT ndoc integer,
+OUT nentry integer) returns setof record
+```
+
+## 解析器
+
+​	文本搜索解析器负责把未处理的文档文本划分成记号并且标识每一个记号的类型，而可能的类型集合由解析器本身定义。注意一个解析器完全不会修改文本 — 它简单地标识看似有理的词边界。因为这种有限的视野，对于应用相关的自定义解析器的需求就没有自定义字典那么强烈。目前PostgreSQL只提供了一种内建解析器，它已经被证实对很多种应用都适用。
+
+## 词典
+
+![](https://pic.imgdb.cn/item/6269358e239250f7c522bff3.jpg)
+
+### 停用词
+
+略
+
+### 简单词典
+
+​	simple词典模板的操作是将输入记号转换为小写形式并且根据一个停用词文件检查它。如果该记号在该文件中被找到，则返回一个空数组，导致该记号被丢弃。否则，该词的小写形式被返回作为正规化的词位。作为一种选择，该词典可以被配置为将非停用词报告为未识别，允许它们被传递给列表中的下一个词典。
+
+### 同义词词典
+
+​	这个词典模板被用来创建用于同义词替换的词典。不支持短语（使用分类词典模板
+（第 12.6.4 节）可以支持）。一个同义词词典可以被用来解决语言学问题，例如，阻止一
+个英语词干分析器词典把词“Paris”缩减成“pari”。在同义词词典中有一行Paris paris并把它放在english_stem词典之前就足够了。例如：
+
+### 分类词典
+
+​	一个分类词典（有时被简写成TZ）是一个词的集合，其中包括了词与短语之间的联系，即广义词（BT）、狭义词（NT）、首选词、非首选词、相关词等。
+
+### 分类词典配置
+
+要定义一个新的分类词典，可使用thesaurus模板。例如：
+```sql
+CREATE TEXT SEARCH DICTIONARY thesaurus_simple (
+TEMPLATE = thesaurus,
+DictFile = mythesaurus,
+Dictionary = pg_catalog.english_stem
+);
+```
+
+### Ispell 词典
+
+​	Ispell词典模板支持词法词典，它可以把一个词的很多不同语言学的形式正规化成相同的词位。例如，一个英语Ispell词典可以匹配搜索词bank的词尾变化和词形变化，例如banking、banked、banks、banks'和bank's。
+
+# 并发控制
+
+## 事务隔离
+
+**脏读**
+一个事务读取了另一个并行未提交事务写入的数据。
+**不可重复读**
+一个事务重新读取之前读取过的数据，发现该数据已经被另一个事务（在初始读之后提
+交）修改。
+
+**幻读**
+一个事务重新执行一个返回符合一个搜索条件的行集合的查询， 发现满足条件的行集合
+因为另一个最近提交的事务而发生了改变。
+
+**序列化异常**
+成功提交一组事务的结果与这些事务所有可能的串行执行结果都不一致。
+
+![](https://pic.imgdb.cn/item/626950ab239250f7c5639d55.jpg)
+
+### 读已提交隔离级别
+
+​	读已提交是PostgreSQL中的默认隔离级别。 当一个事务运行使用这个隔离级别时， 一个查询（没有FOR UPDATE/SHARE子句）只能看到查询开始之前已经被提交的数据， 而无法看到未提交的数据或在查询执行期间其它事务提交的数据。实际上，SELECT查询看到的是一个在查询开始运行的瞬间该数据库的一个快照。不过SELECT可以看见在它自身事务中之前执行的更新的效果，即使它们还没有被提交。还要注意的是，即使在同一个事务里两个相邻的SELECT命令可能看到不同的数据， 因为其它事务可能会在第一个SELECT开始和第二个SELECT开始之间提交。
+
+​	UPDATE、DELETE、SELECT FOR UPDATE和SELECT FOR SHARE命令在搜索目标行时的
+行为和SELECT一样： 它们将只找到在命令开始时已经被提交的行。 不过，在被找到时，这样的目标行可能已经被其它并发事务更新（或删除或锁住）。在这种情况下， 即将进行的更新将等待第一个更新事务提交或者回滚（如果它还在进行中）。 如果第一个更新事务回滚，那么它的作用将被忽略并且第二个事务可以继续更新最初发现的行。 如果第一个更新事务提交，若该行被第一个更新者删除，则第二个更新事务将忽略该行，否则第二个更新者将试图在该行的已被更新的版本上应用它的操作。该命令的搜索条件（WHERE子句）将被重新计算来看该行被更新的版本是否仍然符合搜索条件。如果符合，则第二个更新者使用该行已更新版本继续其操作。在SELECT FOR UPDATE和SELECT FOR SHARE的情况下，这意味着把该行的已更新版本锁住并返回给客户端。
+
+### 可重复读隔离级别
+
+​	可重复读隔离级别只看到在事务开始之前被提交的数据；它从来看不到未提交的数据或者并行事务在本事务执行期间提交的修改（不过，查询能够看见在它的事务中之前执行的更新，即使它们还没有被提交）。这是比SQL标准对此隔离级别所要求的更强的保证，并且阻止表 13.1中描述的除了序列化异常之外的所有现象。如上面所提到的，这是标准特别允许的，标准只描述了每种隔离级别必须提供的最小保护。
+
+### 可序列化隔离级别
+
+​	可序列化隔离级别提供了最严格的事务隔离。这个级别为所有已提交事务模拟序列事务执行；就好像事务被按照序列一个接着另一个被执行，而不是并行地被执行。但是，和可重复读级别相似，使用这个级别的应用必须准备好因为序列化失败而重试事务。事实上，这个给力级别完全像可重复读一样地工作，除了它会监视一些条件，这些条件可能导致一个可序列化事务的并发集合的执行产生的行为与这些事务所有可能的序列化（一次一个）执行不一致。这种监控不会引入超出可重复读之外的阻塞，但是监控会产生一些负荷，并且对那些可能导致序列化异常的条件的检测将触发一次序列化失败。
+
+​	要保证真正的可序列化，PostgreSQL使用了谓词锁，这意味着它会保持锁，这些锁让它能够判断在它先运行的情况下，什么时候一个写操作会对一个并发事务中之前读取的结果产生影响。在PostgreSQL中，这些锁并不导致任何阻塞，并且因此不会导致一个死锁。它们被用来标识和标志并发可序列化事务之间的依赖性，这些事务的组合可能导致序列化异常。相反，一个想要保证数据一致性的读已提交或可重复读事务可能需要拿走一个在整个表上的锁，这可能阻塞其他尝试使用该表的用户，或者它可能会使用不仅会阻塞其他事务还会导致磁盘访问的SELECT FOR UPDATE或SELECT FOR SHARE。
+
+当依赖可序列化事务进行并发控制时，为了最佳性能应该考虑一下问题：
+
+* 在可能时声明事务为READ ONLY。
+* 控制活动连接的数量，如果需要使用一个连接池。这总是一个重要的性能考虑，但是在一个使用可序列化事务的繁忙系统中这尤为重要。
+* 只在一个单一事务中放完整性目的所需要的东西。
+* 不要让连接不必要地“闲置在事务中”。配置参数idle_in_transaction_session_timeout可以被用来自动断开拖延会话的连接。
+* 在那些由于使用可序列化事务自动提供的保护的地方消除不再需要的显式锁、SELECT
+  FOR UPDATE和SELECT FOR SHARE。
+* 当系统因为谓词锁表内存短缺而被强制结合多个页面级谓词锁为一个单一的关系级谓词锁时，序列化失败的比例可能会上升。你可以通过增加max_pred_locks_per_transaction、max_pred_locks_per_relation和max_pred_locks_per_page来避免这种情况。
+* 一次顺序扫描将总是需要一个关系级谓词锁。这可能导致序列化失败的比例上升。通过缩减random_page_cost和/或增加cpu_tuple_cost来鼓励使用索引扫描将有助于此。一定要在事务回滚和重启数目的任何减少与查询执行时间的任何全面改变之间进行权衡。
+
+## 显式锁定
+
+### 表级锁
+
+下面的列表显示了可用的锁模式和PostgreSQL自动使用它们的场合。 你也可以用LOCK命令显式获得这些锁。请记住所有这些锁模式都是表级锁，即使它们的名字包含“row”单词（这些名称是历史遗产）。 在一定程度上，这些名字反应了每种锁模式的典型用法 — 但
+是语意却都是一样的。 两种锁模式之间真正的区别是它们有着不同的冲突锁模式集合（参
+考表 13.2）。 两个事务在同一时刻不能在同一个表上持有属于相互冲突模式的锁（但是，一个事务决不会和自身冲突。例如，它可以在同一个表上获得ACCESS EXCLUSIVE锁然后接
+着获取ACCESS SHARE锁）。非冲突锁模式可以由许多事务同时持有。 请特别注意有些锁
+模式是自冲突的（例如，在一个时刻ACCESS EXCLUSIVE锁不能被多于一个事务持有)而其
+他锁模式不是自冲突的（例如，ACCESS SHARE锁可以被多个事务持有)。
+
+**ACCESS SHARE**
+只与ACCESS EXCLUSIVE锁模式冲突。
+SELECT命令在被引用的表上获得一个这种模式的锁。通常，任何只读取表而不修改它的查询都将获得这种锁模式。
+
+**ROW SHARE**
+
+与EXCLUSIVE和ACCESS EXCLUSIVE锁模式冲突。
+SELECT FOR UPDATE和SELECT FOR SHARE命令在目标表上取得一个这种模式的锁 （加上在被引用但没有选择FOR UPDATE/FOR SHARE的任何其他表上的ACCESS SHARE锁）。
+
+**ROW EXCLUSIVE**
+
+​	与SHARE、SHARE ROW EXCLUSIVE、EXCLUSIVE和ACCESS EXCLUSIVE锁模式冲突。
+
+​	命令UPDATE、DELETE和INSERT在目标表上取得这种锁模式（加上在任何其他被引用表上的ACCESS SHARE锁）。通常，这种锁模式将被任何修改表中数据的命令取得。
+
+**SHARE UPDATE EXCLUSIVE**
+
+​	与SHARE UPDATE EXCLUSIVE、SHARE、SHARE ROW、EXCLUSIVE、EXCLUSIVE和ACCESS EXCLUSIVE锁模式冲突。这种模式保护一个表不受并发模式改变和VACUUM运行的影响。
+
+​	由VACUUM（不带FULL）、ANALYZE、CREATE INDEX CONCURRENTLY、CREATE STATISTICS和ALTER TABLE VALIDATE以及其他ALTER TABLE的变体获得。
+
+**SHARE**
+	与ROW EXCLUSIVE、SHARE UPDATE EXCLUSIVE、SHARE ROW EXCLUSIVE、EXCLUSIVE和ACCESS EXCLUSIVE锁模式冲突。这种模式保护一个表不受并发数据改变的影响。
+	由CREATE INDEX（不带CONCURRENTLY）取得。
+
+**SHARE ROW EXCLUSIVE**
+
+​	与ROW EXCLUSIVE、SHARE UPDATE EXCLUSIVE、SHARE、SHARE ROW EXCLUSIVE、EXCLUSIVE和ACCESS EXCLUSIVE锁模式冲突。这种模式保护一个表不受并发数据修改所影响，并且是自排他的，这样在一个时刻只能有一个会话持有它。
+​	由CREATE COLLATION、CREATE TRIGGER和很多 ALTER TABLE的很多形式所获得（见 ALTER TABLE）。
+
+**EXCLUSIVE**
+	与ROW SHARE、ROW EXCLUSIVE、SHARE UPDATE EXCLUSIVE、SHARE、SHARE ROW EXCLUSIVE、EXCLUSIVE和ACCESS EXCLUSIVE锁模式冲突。这种模式只允许并发的ACCESS SHARE锁，即只有来自于表的读操作可以与一个持有该锁模式的事务并行处理。
+	由REFRESH MATERIALIZED VIEW CONCURRENTLY获得。
+
+**ACCESS EXCLUSIVE**
+
+​	与所有模式的锁冲突（ACCESS SHARE、ROW SHARE、ROW EXCLUSIVE、SHARE UPDATE EXCLUSIVE、SHARE、SHARE ROW EXCLUSIVE、EXCLUSIVE和ACCESS EXCLUSIVE）。这种模式保证持有者是访问该表的唯一事务。
+
+​	由ALTER TABLE、DROP TABLE、TRUNCATE、REINDEX、CLUSTER、VACUUM FULL和REFRESH MATERIALIZED VIEW（不带CONCURRENTLY）命令获 取。ALTER TABLE的很多形式也在这个层面上获得锁（见ALTER TABLE）。这也是未显式指定模式的LOCK TABLE命令的默认锁模式。
+
+![](https://pic.imgdb.cn/item/626960e2239250f7c58f228a.jpg)
+
+### 行级锁
+
+**FOR UPDATE**
+
+​	FOR UPDATE会导致由SELECT语句检索到的行被锁定，就好像它们要被更新。这可以
+阻止它们被其他事务锁定、修改或者删除，一直到当前事务结束。也就是说其他尝试UPDATE、DELETE、SELECT FOR UPDATE、SELECT FOR NO KEY UPDATE、SELECT FOR SHARE或者SELECT FOR KEY SHARE这些行的事务将被阻塞，直到当前事务结束。反过来，SELECT FOR UPDATE将等待已经在相同行上运行以上这些命令的并发事务，并且接着锁定并且返回被更新的行（或者没有行，因为行可能已被删除）。不过，在一个REPEATABLE READ或SERIALIZABLE事务中，如果一个要被锁定的行在事务开始后被更改，将会抛出一个错误。进一步的讨论请见第 13.4 节。
+
+​	任何在一行上的DELETE命令也会获得FOR UPDATE锁模式，在某些列上修改值的UPDATE也会获得该锁模式。当前UPDATE情况中被考虑的列集合是那些具有能用于外键的唯一索引的列（所以部分索引和表达式索引不被考虑），但是这种要求未来有可能会改变。
+
+**FOR NO KEY UPDATE**
+
+​	行为与FOR UPDATE类似，不过获得的锁较弱：这种锁将不会阻塞尝试在相同行上获得锁的SELECT FOR KEY SHARE命令。任何不获取FOR UPDATE锁的UPDATE也会获得这种锁模式。
+
+**FOR SHARE**
+
+​	行为与FOR NO KEY UPDATE类似，不过它在每个检索到的行上获得一个共享锁而不是排他锁。一个共享锁会阻塞其他事务在这些行上执行UPDATE、DELETE、SELECT FORUPDATE或者SELECT FOR NO KEY UPDATE，但是它不会阻止它们执行SELECT FOR SHARE或者SELECT FOR KEY SHARE。
+
+**FOR KEY SHARE**
+
+​	行为与FOR SHARE类似，不过锁较弱：SELECT FOR UPDATE会被阻塞，但是SELECT
+FOR NO KEY UPDATE不会被阻塞。一个键共享锁会阻塞其他事务执行修改键值的DELETE或者UPDATE，但不会阻塞其他UPDATE，也不会阻止SELECT FOR NO KEY UPDATE、SELECT FOR SHARE或者SELECT FOR KEY SHARE。
+
+![](https://pic.imgdb.cn/item/62696165239250f7c5915fb2.jpg)
+
+### 页级锁
+
+​	除了表级别和行级别的锁以外，页面级别的共享/排他锁被用来控制对共享缓冲池中表页面的读/写。 这些锁在行被抓取或者更新后马上被释放。应用开发者通常不需要关心页级锁，我们在这里提到它们只是为了完整。
+
+### 死锁
+
+​	显式锁定的使用可能会增加死锁的可能性，死锁是指两个（或多个）事务相互持有对方想要的锁。例如，如果事务 1 在表 A 上获得一个排他锁，同时试图获取一个在表
+B 上的排他锁， 而事务 2 已经持有表 B 的排他锁，同时却正在请求表A 上的一个排他锁，那么两个事务就都不能进行下去。PostgreSQL能够自动检测到死锁情况并且会通过中断其中一个事务从而允许其它事务完成来解决这个问题（具体哪个事务会被中断是很难预测的，而且也不应该依靠这样的预测）。
+
+### 咨询锁
+
+​	PostgreSQL提供了一种方法创建由应用定义其含义的锁。这种锁被称为咨询锁，因为系统并不强迫其使用 — 而是由应用来保证其正确的使用。咨询锁可用于 MVCC 模型不适用的锁定策略。例如，咨询锁的一种常用用法是模拟所谓“平面文件”数据管理系统典型的悲观锁策略。虽然一个存储在表中的标志可以被用于相同目的，但咨询锁更快、可以避免表膨胀并且会由服务器在会话结束时自动清理。
+
+## 应用级别的数据完整性检查
+
+​	对于使用读已提交事务的数据完整性强制业务规则非常困难，因为对每一个语句数据视图都在变化，并且如果一个写冲突发生即使一个单一语句也不能把它自己限制到该语句的快照。
+
+### 用可序列化事务来强制一致性
+
+略
+
+### 使用显式锁定强制一致性
+
+​	当可以使用非可序列化写时，要保证一行的当前有效性并保护它不受并发更新的影响，我们必须使用SELECT FOR UPDATE、SELECT FOR SHARE或一个合适的LOCK TABLE 语句（SELECT FOR UPDATE和SELECT FOR SHARE锁只针对并发更新返回行，而LOCK TABLE会锁住整个表）。当从其他环境移植应用到PostgreSQL时需要考虑这些。
+
+## 提醒
+
+​	一些 DDL 命令（当前只有TRUNCATE和表重写形式的ALTER TABLE）对于MVCC 不是安全的。这意味着在截断或者重写提交之后，该表将对并发事务（如果它们使用的快照是在 DDL 命令提交前取得的）呈现出空表的形态
+
+## 锁定和索引
+
+​	尽管PostgreSQL提供对表数据访问的非阻塞读/写， 但并非PostgreSQL中实现的每一个索引访问方法当前都能够提供非阻塞读/写访问。 不同的索引类型按照下面方法操作：
+
+**B-tree、GiST和SP-GiST索引**
+
+​	短期的页面级共享/排他锁被用于读/写访问。每个锁银行被取得或被插入后立即释放锁。 这些索引类型提供了无死锁情况的最高并发性。
+
+**Hash索引**
+
+​	Hash 桶级别的共享/排他锁被用于读/写访问。锁在整个 Hash 桶处理完成后释放。Hash 桶级锁比索引级的锁提供了更好的并发性但是可能产生死锁，因为锁持有的时间比一次索引操作时间长。
+
+**GIN索引**
+
+​	短期的页面级共享/排他锁被用于读/写访问。 锁在索引行被插入/抓取后立即释放。但要注意的是一个 GIN 索引值的插入通常导致对每行产生几个索引键的插入，因此 GIN 可能为了插入一个单一值而做大量的工作。
+
+​	目前，B-tree 索引为并发应用提供了最好的性能。因为它还有比 Hash 索引更多的特性，在那些需要对标量数据进行索引的并发应用中，我们建议使用 B-tree 索引类型。在处理非标量类型数据的时候，B-tree 就没什么用了，应该使用 GiST、SP-GiST 或 GIN 索引替代。
+
+# 性能提示
+
+## 使用EXPLAIN
+
+### EXPLAIN基础
+
+​	查询计划的结构是一个计划结点的树。最底层的结点是扫描结点：它们从表中返回未经处理的行。 不同的表访问模式有不同的扫描结点类型：顺序扫描、索引扫描、位图索引扫描。也还有不是表的行来源，例如VALUES子句和FROM中返回集合的函数，它们有自己的结点类型。如果查询需要连接、聚集、排序、或者在未经处理的行上的其它操作，那么就会在扫描结点之上有其它额外的结点来执行这些操作。 并且，做这些操作通常都有多种方法，因此在这些位置也有可能出现不同的结点类型。 EXPLAIN给计划树中每个结点都输出一行，显示基本的结点类型和计划器为该计划结点的执行所做的开销估计。 第一行（最上层的结点）是对该计划的总执行开销的估计；计划器试图最小化的就是这个数字
+
+```sqk
+EXPLAIN SELECT * FROM tenk1;
+QUERY PLAN
+-------------------------------------------------------------
+Seq Scan on tenk1 (cost=0.00..458.00 rows=10000 width=244)
+```
+
+由于这个查询没有WHERE子句，它必须扫描表中的所有行，因此计划器只能选择使用一个简单的顺序扫描计划。被包含在圆括号中的数字是（从左至右）：
+
+* 估计的启动开销。在输出阶段可以开始之前消耗的时间，例如在一个排序结点里执行排序的时间。
+* 估计的总开销。这个估计值基于的假设是计划结点会被运行到完成，即所有可用的行都被检索。不过实际上一个结点的父结点可能很快停止读所有可用的行（见下面的LIMIT例子）。
+* 这个计划结点输出行数的估计值。同样，也假定该结点能运行到完成。
+* 预计这个计划结点输出的行平均宽度（以字节计算）。
+
+开销是用规划器的开销参数（参见第 19.7.2 节）所决定的捏造单位来衡量的。传统上以取磁盘页面为单位来度量开销； 也就是seq_page_cost将被按照习惯设为1.0，其它开销参数将相对于它来设置。 本节的例子都假定这些参数使用默认值。
+
+这些数字的产生非常直接。如果你执行：
+
+```sql
+SELECT relpages, reltuples FROM pg_class WHERE relname = 'tenk1';
+```
+
+你会发现tenk1有358个磁盘页面和10000行。 开销被计算为 
+
+`（页面读取数 * seq_page_cost）+（扫描的行数*cpu_tuple_cost）`。默认情况下，seq_page_cost是 1.0，cpu_tuple_cost是0.01， 因此估计的开销是 (358 * 1.0) + (10000 * 0.01) = 458。
+
+现在让我们修改查询并增加一个WHERE条件：
+```sql
+EXPLAIN SELECT * FROM tenk1 WHERE unique1 < 7000;
+
+QUERY PLAN
+------------------------------------------------------------
+
+Seq Scan on tenk1 (cost=0.00..483.00 rows=7001 width=244)
+Filter: (unique1 < 7000)
+```
+
+请注意EXPLAIN输出显示WHERE子句被当做一个“过滤器”条件附加到顺序扫描计划结
+点。 这意味着该计划结点为它扫描的每一行检查该条件，并且只输出通过该条件的行。因
+为WHERE子句的存在，估计的输出行数降低了。不过，扫描仍将必须访问所有 10000 行，因此开销没有被降低；实际上开销还有所上升（准确来说，上升了 10000 * cpu_operator_cost）以反映检查WHERE条件所花费的额外 CPU 时间。
+
+​	这条查询实际选择的行数是 7000，但是估计的行数只是个近似值。如果你尝试重复这个试验，那么你很可能得到略有不同的估计。 此外，这个估计会在每次ANALYZE命令之后改变， 因为ANALYZE生成的统计数据是从该表中随机采样计算的。
+
+```sql
+# 现在，让我们把条件变得更严格：
+EXPLAIN SELECT * FROM tenk1 WHERE unique1 < 100;
+QUERY PLAN
+------------------------------------------------------------------------------
+Bitmap Heap Scan on tenk1 (cost=5.07..229.20 rows=101 width=244)
+Recheck Cond: (unique1 < 100)
+-> Bitmap Index Scan on tenk1_unique1 (cost=0.00..5.04 rows=101 width=0)
+Index Cond: (unique1 < 100)
+```
+
+### EXPLAIN ANALYZE
+
+​	可以通过使用EXPLAIN的ANALYZE选项来检查规划器估计值的准确性。通过使用这个选
+项，EXPLAIN会实际执行该查询，然后显示真实的行计数和在每个计划结点中累计的真实运行时间，还会有一个普通EXPLAIN显示的估计值。例如，我们可能得到这样一个结果：
+
+```sql
+EXPLAIN ANALYZE SELECT *
+FROM tenk1 t1, tenk2 t2
+WHERE t1.unique1 < 10 AND t1.unique2 = t2.unique2;
+QUERY PLAN
+---------------------------------------------------------------------------------------------------------------------------------
+Nested Loop (cost=4.65..118.62 rows=10 width=488) (actual time=0.128..0.377 rows=10 loops=1)
+-> Bitmap Heap Scan on tenk1 t1 (cost=4.36..39.47 rows=10 width=244) (actual
+time=0.057..0.121 rows=10 loops=1)
+Recheck Cond: (unique1 < 10)
+-> Bitmap Index Scan on tenk1_unique1 (cost=0.00..4.36 rows=10 width=0) (actual
+time=0.024..0.024 rows=10 loops=1)
+Index Cond: (unique1 < 10)
+-> Index Scan using tenk2_unique2 on tenk2 t2 (cost=0.29..7.91 rows=1 width=244) (actual
+time=0.021..0.022 rows=1 loops=10)
+Index Cond: (unique2 = t1.unique2)
+Planning time: 0.181 ms
+Execution time: 0.501 ms
+```
+
+​	注意“actual time”值是以毫秒计的真实时间，而cost估计值被以捏造的单位表示，因此它们不大可能匹配上。在这里面要查看的最重要的一点是估计的行计数是否合理地接近实际值。在这个例子中，估计值都是完全正确的，但是在实际中非常少见。
+
+
+
+```sql
+EXPLAIN ANALYZE SELECT * FROM polygon_tbl WHERE f1 @> polygon '(0.5,2.0)';
+QUERY PLAN
+------------------------------------------------------------------------------------------------------
+Seq Scan on polygon_tbl (cost=0.00..1.05 rows=1 width=32) (actual time=0.044..0.044 rows=0
+loops=1)
+Filter: (f1 @> '((0.5,2))'::polygon)
+Rows Removed by Filter: 4
+Planning time: 0.040 ms
+Execution time: 0.083 ms
+```
+
+
+
+​	规划器认为（非常正确）这个采样表太小不值得劳烦一次索引扫描，因此我们得到了一个普通的顺序扫描，其中的所有行都被过滤器条件拒绝。但是如果我们强制使得一次索引扫描可以被使用，我们看到：
+
+```sql
+SET enable_seqscan TO off;
+EXPLAIN ANALYZE SELECT * FROM polygon_tbl WHERE f1 @> polygon '(0.5,2.0)';
+QUERY PLAN
+--------------------------------------------------------------------------------------------------------------------------
+Index Scan using gpolygonind on polygon_tbl (cost=0.13..8.15 rows=1 width=32) (actual
+time=0.062..0.062 rows=0 loops=1)
+Index Cond: (f1 @> '((0.5,2))'::polygon)
+Rows Removed by Index Recheck: 1
+Planning time: 0.034 ms
+Execution time: 0.144 ms
+```
+
+这里我们可以看到索引返回一个候选行，然后它会被索引条件的重新检查拒绝。这是因为一个 GiST 索引对于多边形包含测试是 “有损的”：它确实返回覆盖目标的多边形的行，然后我们必须在那些行上做精确的包含性测试。
+
+
+
+EXPLAIN有一个BUFFERS选项可以和ANALYZE一起使用来得到更多运行时统计信息：
+
+```sql
+EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM tenk1 WHERE unique1 < 100 AND
+unique2 > 9000;
+QUERY PLAN
+---------------------------------------------------------------------------------------------------------------------------------
+Bitmap Heap Scan on tenk1 (cost=25.08..60.21 rows=10 width=244) (actual time=0.323..0.342
+rows=10 loops=1)
+Recheck Cond: ((unique1 < 100) AND (unique2 > 9000))
+Buffers: shared hit=15
+-> BitmapAnd (cost=25.08..25.08 rows=10 width=0) (actual time=0.309..0.309 rows=0 loops=1)
+Buffers: shared hit=7
+-> Bitmap Index Scan on tenk1_unique1 (cost=0.00..5.04 rows=101 width=0) (actual
+time=0.043..0.043 rows=100 loops=1)
+Index Cond: (unique1 < 100)
+Buffers: shared hit=2
+-> Bitmap Index Scan on tenk1_unique2 (cost=0.00..19.78 rows=999 width=0) (actual
+time=0.227..0.227 rows=999 loops=1)
+Index Cond: (unique2 > 9000)
+Buffers: shared hit=5
+Planning time: 0.088 ms
+Execution time: 0.423 ms
+```
+
+​	BUFFERS提供的数字帮助我们标识查询的哪些部分是对 I/O 最敏感的。
+
+​	记住因为EXPLAIN ANALYZE实际运行查询，任何副作用都将照常发生，即使查询可能输出的任何结果被丢弃来支持打印EXPLAIN数据。如果你想要分析一个数据修改查询而不想改变你的表，你可以在分析完后回滚命令，例如：
+
+```sql
+BEGIN;
+EXPLAIN ANALYZE UPDATE tenk1 SET hundred = hundred + 1 WHERE unique1 < 100;
+QUERY PLAN
+--------------------------------------------------------------------------------------------------------------------------------
+Update on tenk1 (cost=5.07..229.46 rows=101 width=250) (actual time=14.628..14.628 rows=0
+loops=1)
+-> Bitmap Heap Scan on tenk1 (cost=5.07..229.46 rows=101 width=250) (actual
+time=0.101..0.439 rows=100 loops=1)
+Recheck Cond: (unique1 < 100)
+-> Bitmap Index Scan on tenk1_unique1 (cost=0.00..5.04 rows=101 width=0) (actual
+time=0.043..0.043 rows=100 loops=1)
+Index Cond: (unique1 < 100)
+Planning time: 0.079 ms
+Execution time: 14.727 ms
+ROLLBACK;
+```
+
+### 警告
+
+​	在两种有效的方法中EXPLAIN ANALYZE所度量的运行时间可能偏离同一个查询的正常执行。首先，由于不会有输出行被递交给客户端，网络传输开销和 I/O 转换开销没有被包括在内。其次，由EXPLAIN ANALYZE所增加的度量符合可能会很可观，特别是在那些gettimeofday()操作系统调用很慢的机器上。你可以使用pg_test_timing工具来度量在你的系统上的计时开销。
+
+​	EXPLAIN结果不应该被外推到与你实际测试的非常不同的情况。例如，一个很小的表上的结果不能被假定成适合大型表。规划器的开销估计不是线性的，并且因此它可能为一个更大或更小的表选择一个不同的计划。一个极端例子是，在一个只占据一个磁盘页面的表上，你将几乎总是得到一个顺序扫描计划，而不管索引是否可用。规划器认识到它在任何情况下都将采用一次磁盘页面读取来处理该表，因此用额外的页面读取去查看一个索引是没有价值的（我们已经在前面的polygon_tbl例子中见过）。
+
+​	在一些情况中，实际的值和估计的值不会匹配得很好，但是这并非错误。一种这样的情况发生在计划结点的执行被LIMIT或类似的效果很快停止。例如，在我们之前用过的LIMIT查询中：
+
+```sql
+EXPLAIN ANALYZE SELECT * FROM tenk1 WHERE unique1 < 100 AND unique2 > 9000
+LIMIT 2;
+QUERY PLAN
+-------------------------------------------------------------------------------------------------------------------------------
+Limit (cost=0.29..14.71 rows=2 width=244) (actual time=0.177..0.249 rows=2 loops=1)
+-> Index Scan using tenk1_unique2 on tenk1 (cost=0.29..72.42 rows=10 width=244) (actual
+time=0.174..0.244 rows=2 loops=1)
+Index Cond: (unique2 > 9000)
+Filter: (unique1 < 100)
+Rows Removed by Filter: 287
+Planning time: 0.096 ms
+Execution time: 0.336 ms
+```
+
+## 规划器使用的统计信息
+
+### 单列统计
+
+​	如我们在上一节所见，查询规划器需要估计一个查询要检索的行数，这样才能对查询计划做出好的选择。 本节对系统用于这些估计的统计信息进行一个快速的介绍。
+
+​	统计信息的一个部分就是每个表和索引中的项的总数，以及每个表和索引占用的磁盘块数。这些信息保存在pg_class表的reltuples和relpages列中。 我们可以用类似下面的查询查看这些信息：
+
+```sql
+SELECT relname, relkind, reltuples, relpages
+FROM pg_class
+WHERE relname LIKE 'tenk1%';
+relname | relkind | reltuples | relpages
+----------------------+---------+-----------+----------
+tenk1 | r | 10000 | 358
+tenk1_hundred | i | 10000 | 30
+tenk1_thous_tenthous | i | 10000 | 30
+tenk1_unique1 | i | 10000 | 30
+tenk1_unique2 | i | 10000 | 30
+(5 rows)
+```
+
+​	这里我们可以看到tenk1包含 10000 行， 它的索引也有这么多行，但是索引远比表小得多（不奇怪）。
+
+​	出于效率考虑，reltuples和relpages不是实时更新的 ，因此它们通常包含有些过时的值。它们被VACUUM、ANALYZE和几个 DDL 命令（例如CREATE INDEX）更新。一个不扫描全表的VACUUM或ANALYZE操作（常见情况）将以它扫描的部分为基础增量更新reltuples计数，这就导致了一个近似值。在任何情况中，规划器将缩放它在pg_class中找到的值来匹配当前的物理表尺寸，这样得到一个较紧的近似。
+
+​	大多数查询只是检索表中行的一部分，因为它们有限制要被检查的行的WHERE子句。 因此规划器需要估算WHERE子句的选择度，即符合WHERE子句中每个条件的行的比例。 用于这个任务的信息存储在pg_statistic系统目录中。 在pg_statistic中的项由ANALYZE和VACUUM ANALYZE命令更新， 并且总是近似值（即使刚刚更新完）。
+
+​	除了直接查看pg_statistic之外， 手工检查统计信息的时候最好查看它的视图pg_stats。pg_stats被设计为更容易阅读。 而且，pg_stats是所有人都可以读取的，而pg_statistic只能由超级用户读取（这样可以避免非授权用户从统计信息中获取一些其他人的表的内容的信息。pg_stats视图被限制为只显示当前用户可读的表）。例如，我们可以：
+
+```sql
+SELECT attname, inherited, n_distinct,
+array_to_string(most_common_vals, E'\n') as most_common_vals
+FROM pg_stats
+WHERE tablename = 'road';
+attname | inherited | n_distinct | most_common_vals
+---------+-----------+------------+------------------------------------
+name | f | -0.363388 | I- 580 Ramp+
+| | | I- 880 Ramp+
+| | | Sp Railroad +
+| | | I- 580 +
+| | | I- 680 Ramp
+name | t | -0.284859 | I- 880 Ramp+
+| | | I- 580 Ramp+
+| | | I- 680 Ramp+
+| | | I- 580 +
+| | | State Hwy 13 Ramp
+(2 rows)
+```
+
+​	注意，这两行显示的是相同的列，一个对应开始于road表（inherited=t）的完全继承层次，另一个只包括road表本身（inherited=f）。
+
+​	ANALYZE在pg_statistic中存储的信息量（特别是每个列的most_common_vals中的最大项数和histogram_bounds数组）可以用ALTER TABLE SET STATISTICS命令为每一列设置， 或者通过设置配置变量default_statistics_target进行全局设置。 目前的默认限制是 100 个项。提升该限制可能会让规划器做出更准确的估计（特别是对那些有不规则数据分布的列）， 其代价是在pg_statistic中消耗了更多空间，并且需要略微多一些的时间来计算估计数值。 相比之下，比较低的限制可能更适合那些数据分布比较简单的列。
+
+### 扩展统计
+
+​	通常会看到缓慢的查询运行错误的执行计划，因为查询子句中使用的多列是相关的。 规划器通常假定多个条件彼此独立，当列值相关时，这种假设不成立。 由于每个单独列的性质，定期统计无法捕捉有关跨列关联的任何知识。 但是，PostgreSQL能够计算多元统计信息， 它可以捕获这些信息。
+
+​	由于可能的列组合数量非常大，因此自动计算多元统计信息是不切实际的。 相反，可以创建扩展统计信息对象， 通常称为统计信息对象，以指示服务器通过有趣的列集获得统计信息。
+
+​	统计信息对象是使用CREATE STATISTICS创建的， 它可以查看更多详细信息。创建这样一个对象只是创建一个表示对统计信息感兴趣的目录条目。 实际的数据收集由ANALYZE执行（手动命令或后端自动分析）。 可以在pg_statistic_ext 目录中检查收集的值。
+
+#### 函数依赖
+
+最简单的扩展统计信息跟踪函数依赖，一个用于数据库标准表单的定义中的概念。 如果知
+道a的值足够确定b的值， 我们说列b函数依赖于列a， 即没有两行会有相同的a值但b值不同。在完全规范化的数据库中，函数依赖关系只应存在于主键和超级键上。 但是，实际上很多数据集由于各种原因未完全标准化； 出于性能原因的故意的非规范化是一个常见的例子。即使在完全标准化的数据库中， 某些列之间也可能存在部分相关性，可以将其表示为部分函数依赖性。
+
+**函数依赖的局限性**
+
+​	函数依赖性当前仅在考虑将列与常量值进行比较的简单相等条件时才适用。 它们不用于改进对比较两列或将列与表达式进行比较的相等条件的估计值， 也不用于范围子句、LIKE或任何其他类型的条件。
+
+#### N 个不同多变量的计数
+
+单列统计信息存储每列中不同值的数量。当规划器只有单列统计数据时， 如果组合多个列
+（例如，对于GROUP BY a, b）， 对不同值个数的估计常常是错误的，导致它选择不好的计划。
+
+## 用显式JOIN子句控制规划器
+
+​	我们可以在一定程度上用显式JOIN语法控制查询规划器。要明白为什么需要它，我们首先需要一些背景知识。
+
+```sql
+SELECT * FROM a, b, c WHERE a.id = b.id AND b.ref = c.id;
+```
+
+​	规划器可以自由地按照任何顺序连接给定的表。例如，它可以生成一个使用WHERE条件a.id= b.id连接 A 到 B 的查询计划，然后用另外一个WHERE条件把 C 连接到这个连接表。或者它可以先连接 B 和 C 然后再连接 A 得到同样的结果。 或者也可以连接 A 到 C 然后把结果与 B连接 — 不过这么做效率不好，因为必须生成完整的 A 和 C 的迪卡尔积，而在WHERE子句中没有可用条件来优化该连接（PostgreSQL执行器中的所有连接都发生在两个输入表之间， 所以它必须以这些形式之一建立结果）。 重要的一点是这些不同的连接可能性给出在语义等效的结果，但在执行开销上却可能有巨大的差别。 因此，规划器会对它们进行探索并尝试找出最高效的查询计划。
+
+​	当一个查询只涉及两个或三个表时，那么不需要考虑很多连接顺序。但是可能的连接顺序数随着表数目的增加成指数增长。 当超过十个左右的表以后，实际上根本不可能对所有可能性做一次穷举搜索，甚至对六七个表都需要相当长的时间进行规划。 当有太多的输入表时，PostgreSQL规划器将从穷举搜索切换为一种遗传概率搜索，它只需要考虑有限数量的可能性（切换的阈值用geqo_threshold运行时参数设置）。遗传搜索用时更少，但是并不一定会找到最好的计划。
+
+​	当查询涉及外连接时，规划器比处理普通（内）连接时拥有更小的自由度。例如，考虑：
+
+```sql
+SELECT * FROM a LEFT JOIN (b JOIN c ON (b.ref = c.id)) ON (a.id = b.id);
+```
+
+尽管这个查询的约束表面上和前一个非常相似，但它们的语义却不同， 因为如果 A 里
+有任何一行不能匹配 B 和 C的连接表中的行，它也必须被输出。因此这里规划器对连接顺序没有什么选择：它必须先连接 B 到 C，然后把 A 连接到该结果上。 相应地，这个查询比前面一个花在规划上的时间更少。在其它情况下，规划器就有可能确定多种连接顺序都是安全的。例如，给定：
+
+```sql
+SELECT * FROM a LEFT JOIN b ON (a.bid = b.id) LEFT JOIN c ON (a.cid = c.id);
+```
+
+​	将 A 首先连接到 B 或 C 都是有效的。当前，只有FULL JOIN完全约束连接顺序。大多数涉及LEFT JOIN或RIGHT JOIN的实际情况都在某种程度上可以被重新排列。
+
+​	显式连接语法（INNER JOIN、CROSS JOIN或无修饰的JOIN）在语义上和FROM中列出输入关系是一样的， 因此它不约束连接顺序。
+
+​	要强制规划器遵循显式JOIN的连接顺序， 我们可以把运行时参数join_collapse_limit设置为1（其它可能值在下文讨论)。
+
+​	按照这种方法约束规划器的搜索是一个有用的技巧，不管是对减少规划时间还是对引导规划器生成好的查询计划。 如果规划器按照默认选择了一个糟糕的连接顺序，你可以通过JOIN语法强迫它选择一个更好的顺序 — 假设你知道一个更好的顺序。我们推荐进行实验。
+
+## 填充一个数据库
+
+​	第一次填充数据库时可能需要插入大量的数据。本节包含一些如何让这个处理尽可能高效的建议。
+
+### 禁用自动提交
+
+略
+
+### 使用COPY
+
+​	使用COPY在一条命令中装载所有记录，而不是一系列INSERT命令。 COPY命令是为装载大量行而优化过的； 它没INSERT那么灵活，但是在大量数据装载时导致的负荷也更少。 因为COPY是单条命令，因此使用这种方法填充表时无须关闭自动提交。
+
+### 移除索引
+
+​	如果你正在载入一个新创建的表，最快的方法是创建该表，用COPY批量载入该表的数据，然后创建表需要的任何索引。在已存在数据的表上创建索引要比在每一行被载入时增量地更新它更快。
+
+### 移除外键约束
+
+​	和索引一样，“成批地”检查外键约束比一行行检查效率更高。 因此，先删除外键约束、载入数据然后重建约束会很有用。 同样，载入数据和约束缺失期间错误检查的丢失之间也存在平衡。
+
+### 增加maintenance_work_mem
+
+​	在载入大量数据时，临时增大maintenance_work_mem配置变量可以改进性能。这个参数也可以帮助加速CREATE INDEX命令和ALTER TABLE ADD FOREIGN KEY命令。 它不会对COPY本身起很大作用，所以这个建议只有在你使用上面的一个或两个技巧时才有用。
+
+### 增加max_wal_size
+
+临时增大max_wal_size配置变量也可以让大量数据载入更快。 这是因为向PostgreSQL中载入大量的数据将导致检查点的发生比平常（由checkpoint_timeout配置变量指定）更频繁。无论何时发生一个检查点时，所有脏页都必须被刷写到磁盘上。 通过在批量数据载入时临时增加max_wal_size，所需的检查点数目可以被缩减。
+
+### 禁用 WAL 归档和流复制
+
+​	当使用 WAL 归档或流复制向一个安装中载入大量数据时，在录入结束后执行一次新的基础备份比处理大量的增量 WAL 数据更快。为了防止载入时记录增量 WAL，通过将wal_level设置为minimal、将archive_mode设置为off以及将max_wal_senders设置为零来禁用归档和流复制。 但需要注意的是，修改这些设置需要重启服务。
+
+### 事后运行ANALYZE
+
+​	不管什么时候你显著地改变了表中的数据分布后，我们都强烈推荐运行ANALYZE。着包括向表中批量载入大量数据。运行ANALYZE（或者VACUUM ANALYZE）保证规划器有表的最新统计信息。 如果没有统计数据或者统计数据过时，那么规划器在查询规划时可能做出很差劲决定，导致在任意表上的性能低下。需要注意的是，如果启用了 autovacuum 守护进程，它可能会自动运行ANALYZE；参阅第 24.1.3 节和第 24.1.6 节。
+
+### 关于pg_dump的一些注记
+
+​	pg_dump生成的转储脚本自动应用上面的若干个（但不是全部）技巧。 要尽可能快地载入pg_dump转储，你需要手工做一些额外的事情（请注意，这些要点适用于恢复一个转储，而不是创建它的时候。同样的要点也适用于使用psql载入一个文本转储或用pg_restore从一个pg_dump归档文件载入）。
+
+​	默认情况下，pg_dump使用COPY，并且当它在生成一个完整的模式和数据转储时， 它会很小心地先装载数据，然后创建索引和外键。因此在这种情况下，一些指导方针是被自动处理的。你需要做的是：
+
+* 为maintenance_work_mem和max_wal_size设置适当的（即比正常值大的）值。
+* 如果使用 WAL 归档或流复制，在转储时考虑禁用它们。在载入转储之前，可通过
+  将archive_mode设置为off、将wal_level设置为minimal以及将max_wal_senders设置为零（在录入dump前）来实现禁用。 之后，将它们设回正确的值并执行一次新的基础备份。
+* 采用pg_dump和pg_restore的并行转储和恢复模式进行实验并且找出要使用的最佳并发任务数量。通过使用-j选项的并行转储和恢复应该能为你带来比串行模式高得多的性能。
+* 考虑是否应该在一个单一事务中恢复整个转储。要这样做，将-1或--single-transaction命令行选项传递给psql或pg_restore。 当使用这种模式时，即使是一个很小的错误也会回滚整个恢复，可能会丢弃已经处理了很多个小时的工作。根据数据间的相关性， 可能手动清理更好。如果你使用一个单一事务并且关闭了 WAL 归档，COPY命令将运行得最快。
+* 如果在数据库服务器上有多个 CPU 可用，可以考虑使用pg_restore的--jobs选项。这允许并行数据载入和索引创建。
+* 之后运行ANALYZE。
+
+
+
+​	一个只涉及数据的转储仍将使用COPY，但是它不会删除或重建索引，并且它通常不会触碰外键。 1 因此当载入一个只有数据的转储时，如果你希望使用那些技术，你需要负责删除并重建索引和外键。在载入数据时增加max_wal_size仍然有用，但是不要去增加maintenance_work_mem；不如说在以后手工重建索引和外键时你已经做了这些。并且不要忘记在完成后执行ANALYZE，详见第 24.1.3 节和第 24.1.6 节。
+
+## 非持久设置
+
+​	持久性是数据库的一个保证已提交事务的记录的特性（即使是发生服务器崩溃或断电）。 然而，持久性会明显增加数据库的负荷，因此如果你的站点不需要这个保证，PostgreSQL可以被配置成运行更快。在这种情况下，你可以调整下列配置来提高性能。除了下面列出的，在数据库软件崩溃的情况下也能保证持久性。当这些设置被使用时，只有突然的操作系统停止会产生数据丢失或损坏的风险。
+
+* 将数据库集簇的数据目录放在一个内存支持的文件系统上（即RAM磁盘）。这消除了所有的数据库磁盘 I/O，但将数据存储限制到可用的内存量（可能有交换区）。
+* 关闭fsync；不需要将数据刷入磁盘。
+* 关闭synchronous_commit；可能不需要在每次提交时 强制把WAL写入磁盘。这种设置可能会在 数据库崩溃时带来事务丢失的风险（但是没有数据破坏）。
+* 关闭full_page_writes；不许要警惕部分页面写入。
+* 增加max_wal_size和checkpoint_timeout； 这会降低检查点的频率，但会 增加/pg_wal的存储要求。
+* 创建不做日志的表 来避免WAL写入，不过这会让表在崩溃时不安全。
+
+# 并行查询
+
+​	PostgreSQL能设计出利用多 CPU 让查询更快的查询计划。这种特性被称为并行查询。由于现有实现的限制或者因为没有比连续查询计划更快的查询计划存在，很多查询并不能从并行查询获益。不过，对于那些可以从并行查询获益的查询来说，并行查询带来的速度提升是显著的。很多查询在使用并行查询时比之前快了超过两倍，有些查询是以前的四倍甚至更多的倍数。那些访问大量数据但只返回其中少数行给用户的查询最能从并行查询中获益。这一章介绍一些并行查询如何工作的细节以及哪些情况下可以使用并行查询，这样希望充分利用并行查询的用户可以理解他们能从并行查询得到什么。
+
+## 并行查询如何工作
+
+​	当优化器判断对于某一个特定的查询，并行查询是最快的执行策略时，优化器将创建一个查询计划。该计划包括一个Gather或Gather Merge节点。下面是一个简单的例子：
+
+```sql
+EXPLAIN SELECT * FROM pgbench_accounts WHERE filler LIKE '%x%';
+QUERY PLAN
+-------------------------------------------------------------------------------------
+Gather (cost=1000.00..217018.43 rows=1 width=97)
+Workers Planned: 2
+-> Parallel Seq Scan on pgbench_accounts (cost=0.00..216018.33 rows=1 width=97)
+Filter: (filler ~~ '%x%'::text)
+(4 rows)
+```
+
+​	在所有的情形下，Gather或Gather Merge 节点都只有一个子计划，它是将被并行执行的计划的一部分。如果 Gather 或Gather Merge节点位于计划树的最顶层，那么整个查询将并行执行。 如果它位于计划树的其他位置，那么只有在它下面的计划部分会并行执行。 在上面的例子中，查询只访问了一个表，因此除Gather 节点本身之外只有一个计划节点。因为该计划节点是 Gather 节点的孩子节点，所以它会并行执行。
+
+使用 EXPLAIN命令, 你能看到规划器选择的工作者数量。 当查询执行期间到达Gather节点
+时， 实现用户会话的进程将会请求和规划器选中的工作者数量一样多的 后台工作者进程 。
+
+规划器考虑使用的后台工作者的数量限制为最多 max_parallel_workers_per_gather。 任何时候能够存在的后台工作者进程的总数由max_worker_processes 和max_parallel_workers限制， 因此一个并行查询可能会使用比规划中少的工作者来运行， 甚至有可能根本不使用工作者。最优的计划可能取决于可用的工作者的数量， 因此这可能会导致不好的查询性能。如果这种情况经常发生， 那么就应当考虑一下提高max_worker_processes和max_parallel_workers 的值，这样更多的工作者可以同时运行；或者降低max_parallel_workers_per_gather， 这样规划器会要求少一些的工作者。
+
+## 何时会用到并行查询？
+
+有几种设置会导致查询规划器在任何情况下都不生成并行查询计划。为了让并行查询计划能够被生成，必须配置好下列设置。
+
+* max_parallel_workers_per_gather必须被设置为大于零的值。这是一种特殊情况，更加普遍的原则是所用的工作者数量不能超过max_parallel_workers_per_gather所配置的数量。
+* dynamic_shared_memory_type必须被设置为除none之外的值。并行查询要求动态共享内存以便在合作的进程之间传递数据。
+
+
+
+​	此外，系统一定不能运行在单用户模式下。因为在单用户模式下，整个数据库系统运行在单个进程中，没有后台工作者进程可用。
+
+​	如果下面的任一条件为真，即便对一个给定查询通常可以产生并行查询计划，规划器都不会为它产生并行查询计划：
+
+* 查询要写任何数据或者锁定任何数据库行。如果一个查询在顶层或者 CTE 中包含了数据修改操作，那么不会为该查询产生并行计划。这是当前实现的一个限制，未来的版本中可能会有所改进。
+* 查询可能在执行过程中被暂停。只要在系统认为可能发生部分或者增量式执行，就不会产生并行计划。例如：用DECLARE CURSOR创建的游标将永远不会使用并行计划。类似地，一个FOR x IN query LOOP .. END LOOP形式的 PL/pgSQL 循环也永远 不会使用并行计划，因为当并行查询进行时，并行查询系统无法验证循环中的代码执行起来是安全的。
+* 使用了任何被标记为PARALLEL UNSAFE的函数的查询。大多数系统定义的函数都被标记为PARALLEL SAFE，但是用户定义的函数默认被标记为PARALLEL UNSAFE。参
+  见第 15.4 节中的讨论。
+* 该查询运行在另一个已经存在的并行查询内部。例如，如果一个被并行查询调用的函数自己发出一个 SQL 查询，那么该查询将不会使用并行计划。这是当前实现的一个限制，但是或许不值得移除这个限制，因为它会导致单个查询使用大量的进程。
+* 事务隔离级别是可串行化。这是当前实现的一个限制。
+
+
+
+即使对于一个特定的查询已经产生了并行查询计划，在一些情况下执行时也不会并行执行该计划。如果发生这种情况，那么领导者将会自己执行该计划在Gather节点之下的部分，就好像Gather节点不存在一样。上述情况将在满足下面的任一条件时发生：
+
+* 因为后台工作者进程的总数不能超过max_worker_processes，导致不能得到后台工作者进程。
+* 由于为并行查询而启动的后台工作者总数不能超过 max_parallel_workers，因此无法获得后台工作者。
+* 客户端发送了一个执行消息，并且消息中要求取元组的数量不为零。执行消息可见扩展查询协议中的讨论。因为libpq当前没有提供方法来发送这种消息，所以这种情况只可能发生在不依赖 libpq 的客户端中。如果这种情况经常发生，那在它可能发生的会话中将max_parallel_workers_per_gather设置为0是一个很好的主意，这样可以避免产生连续运行时次优的查询计划。
+* 准备好的语句是使用CREATE TABLE .. AS EXECUTE ..语句执行的。 此构造将本来只是只读操作的内容转换为读写操作，使其不适合并行查询。
+* 事务隔离级别是可串行化。这种情况通常不会出现，因为当事务隔离级别是可串行化时不会产生并行查询计划。不过，如果在产生计划之后并且在执行计划之前把事务隔离级别改成可串行化，这种情况就有可能发生。
+
+## 并行计划
+
+​	因为每个工作者只执行完成计划的并行部分，所以不可能简单地产生一个普通查询计划并使用多个工作者运行它。每个工作者都会产生输出结果集的一个完全拷贝，因而查询并不会比普通查询运行得更快甚至还会产生不正确的结果。相反，计划的并行部分一定被查询优化器在内部当作一个部分计划。也就是说，一定要这样来创建计划，使得每个将执行该计划的进程只产生输出行的一个子集，这样可以保证每个需要被输出的行刚好会被合作进程产生一次。 通常，这意味着查询驱动表上的扫描必须是并行感知扫描。
+
+### 并行扫描
+
+目前支持以下类型的并行感知表扫描。
+
+* 在并行顺序扫描中，表格的块将在协作过程中分配。 块一次发放一个，所以访问表仍然是连续的。
+* 在一个并行位图堆扫描中，选择一个进程作为领导者。 该进程执行一个或多个索引的扫描并构建指示需要访问哪些表块的位图。 然后这些块在并行顺序扫描中在协作进程中分配。
+  换句话说， 堆扫描是并行执行的，但底层索引扫描不是。
+* 在并行索引扫描或并行仅索引的扫描中， 协作进程轮流从索引读取数据。目前， 并行索引扫描仅支持btree索引。每个进程将声明一个索引块， 并将扫描并返回该块引用的所有元组；其他进程可以同时从不同的索引块返回元组。 并行btree扫描的结果以每个工作进程内的排序顺序返回。
+  其他扫描类型（如非Btree索引的扫描）可能会在将来支持并行扫描。
+
+### 并行连接
+
+​	就像在非平行计划中一样，可以使用嵌套循环、 散列连接或合并连接将驱动表连接到一个或多个其他表。 连接的内侧可以是规划器支持的任何类型的非平行计划， 只要在并行工作者内运行是安全的。例如，如果选择了嵌套循环连接， 则内部计划可能是索引扫描，它会查找从连接外侧获取的值。
+
+### 并行聚合
+
+​	PostgreSQL通过两个阶段的聚合来支持并行聚合。第一次， 每个参与查询计划并行部分执行的进程执行一个聚合步骤， 为进程发现的每个分组产生一个部分结果。这在计划中反映为一个 PartialAggregate节点。第二次，部分结果被通过Gather 或Gather Merge节点传输给领导者。最后， 领导者对所有工作者的部分结果进行重聚合以得到最终的结果。 这在计划中反映为一个FinalizeAggregate节点。
+
+### 并行计划小贴士
+
+​	如果我们想要一个查询能产生并行计划但事实上又没有产生，可以尝试减小parallel_setup_cost或者parallel_tuple_cost。当然，这个计划可能比规划器优先产生的顺序计划还要慢，但也不总是如此。如果将这些设置为很小的值（例如把它们设置为零）也不能得到并行计划，那就可能是有某种原因导致查询规划器无法为你的查询产生并行计划。可能的原因可见第 15.2 节和第 15.4 节。
+
+## 并行安全性
+
+规划器把查询中涉及的操作分类成并行安全、并行受限 或者并行不安全。
+
+下面的操作总是并行受限的。
+• 公共表表达式（CTE）的扫描。
+• 临时表的扫描。
+• 外部表的扫描，除非外部数据包装器有一个IsForeignScanParallelSafe API。
+• 对InitPlan或者相关的SubPlan的访问。
+
+### 为函数和聚合加并行标签
+
+规划器无法自动判定一个用户定义的函数或者聚合是并行安全、并行受限还是并行不安全，因为这需要预测函数可能执行的每一个操作。一般而言，这就相当于一个停机问题，因此是不可能的。甚至对于可以做到判定的简单函数我们也不会尝试，因为那会非常昂贵而且容易出错。相反，除非是被标记出来，所有用户定义的函数都被认为是并行不安全的。在使用CREATE FUNCTION或者ALTER FUNCTION时，可以通过指定PARALLEL
+SAFE、PARALLEL RESTRICTED或者PARALLEL UNSAFE来设置标记 。在使用CREATE
+AGGREGATE时，PARALLEL选项可以被指定为SAFE、RESTRICTED或者 UNSAFE。
+
+
+
+​	如果函数和聚合会写数据库、访问序列、改变事务状态（即便是临时改变，例如建立一
+个EXCEPTION块来捕捉错误的 PL/pgSQL）或者对设置做持久化的更改，它们一定要被标记为PARALLEL UNSAFE。类似地，如果函数会访问临时表、客户端连接状态、游标、预备语句或者系统无法在工作者之间同步的后端本地状态，它们必须被标记为PARALLEL
+RESTRICTED。例如，setseed和 random由于后一种原因而是并行受限的。
