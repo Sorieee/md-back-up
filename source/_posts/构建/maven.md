@@ -2005,3 +2005,176 @@ app-ui-1.0-SNAPSHOT.jar
 
 # Maven构建自动化
 
+## 实例
+
+​	考虑一个团队正在开发一个项目总线核心API上的其他两个项目的应用程序：网页UI和应用程序的桌面UI的依赖。
+
+​	**app-web-ui** 项目使用**1.0-SNAPSHOT**总线核心API项目
+
+```xml
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+   <modelVersion>4.0.0</modelVersion>
+   <groupId>app_web_ui</groupId>
+   <artifactId>app_web_ui</artifactId>
+   <version>1.0</version>
+   <packaging>jar</packaging>
+   <name>app_web_ui</name>
+   <url>http://maven.apache.org</url>
+   <properties>
+      <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+   </properties>
+   <dependencies>
+      <dependency>
+         <groupId>junit</groupId>
+         <artifactId>junit</artifactId>
+         <version>3.8.1</version>
+         <scope>test</scope>
+      </dependency>
+	  <dependency>
+         <groupId>bus_core_api</groupId>
+         <artifactId>bus_core_api</artifactId>
+         <version>1.0-SNAPSHOT</version>
+		 <scope>system</scope>
+		 <systemPath>C:\MVN\bus_core_api\target\bus_core_api-1.0-SNAPSHOT.jar</systemPath>
+      </dependency>
+   </dependencies>
+</project>
+```
+
+​	
+
+​	app-desktop-ui 项目使用总线核心API项目 **1.0-SNAPSHOT**
+
+```xml
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+   http://maven.apache.org/xsd/maven-4.0.0.xsd"> 
+    <modelVersion>4.0.0</modelVersion> 
+    <groupId>app-desktop-ui</groupId> 
+    <artifactId>app-desktop-ui</artifactId> 
+    <version>1.0</version> 
+    <packaging>jar</packaging> 
+    <dependencies> 
+        <dependency> 
+            <groupId>bus-core-api</groupId> 
+            <artifactId>bus-core-api</artifactId> 
+            <version>1.0-SNAPSHOT</version> 
+        </dependency> 
+    </dependencies> 
+</project>
+```
+
+​	bus-core-api 项目
+
+```xml
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+   http://maven.apache.org/xsd/maven-4.0.0.xsd"> 
+   <modelVersion>4.0.0</modelVersion> 
+   <groupId>bus-core-api</groupId> 
+   <artifactId>bus-core-api</artifactId> 
+   <version>1.0-SNAPSHOT</version> 
+   <packaging>jar</packaging> 
+</project>
+```
+
+​	现在，每当bus-core-api项目的变化时，app-web-ui和app-desktop-ui项目团队需要自己编译过程。
+
+​	使用快照确保可以使用最新的 **bus-core-api** 项目，但要满足上面我们需要做一些额外的要求。
+
+* 添加一个生成后的目标 bus-core-api POM的应用程序是在 app-web-ui 和 app-desktop-ui 的基础之上。 	
+* 使用持续集成（CI）的服务器自动管理构建自动化。
+
+## 使用Maven
+
+​	更新总线核心API项目pom.xml
+
+```xml
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+   http://maven.apache.org/xsd/maven-4.0.0.xsd"> 
+    <modelVersion>4.0.0</modelVersion> 
+    <groupId>bus-core-api</groupId> 
+    <artifactId>bus-core-api</artifactId> 
+    <version>1.0-SNAPSHOT</version> 
+    <packaging>jar</packaging> 
+    <build> 
+        <plugins> 
+            <plugin> 
+                <artifactId>maven-invoker-plugin</artifactId> 
+                <version>1.6</version> 
+                <configuration> 
+                    <debug>true</debug> 
+                    <pomIncludes> 
+                        <pomInclude>app-web-ui/pom.xml</pomInclude> 
+                        <pomInclude>app-desktop-ui/pom.xml</pomInclude> 
+                    </pomIncludes> 
+                </configuration> 
+                <executions> 
+                    <execution> 
+                        <id>build</id> 
+                        <goals> 
+                            <goal>run</goal> 
+                        </goals> 
+                    </execution> 
+                </executions> 
+            </plugin> 
+        </plugins> 
+    </build>uild> 
+ </project>
+```
+
+​	让我们打开命令控制台，进入到C: /> MVN > bus-core-api目录，然后执行以下命令mvn命令。
+
+```
+C:/MVN/us-core-api>mvn clean package -U
+```
+
+​	Maven将开始构建项目bus-core-api。
+
+```
+[INFO] Scanning for projects...
+[INFO] ------------------------------------------------------------------
+[INFO] Building bus-core-api
+[INFO]    task-segment: [clean, package]
+[INFO] ------------------------------------------------------------------
+...
+[INFO] [jar:jar {execution: default-jar}]
+[INFO] Building jar: C:MVNus-core-ui	arget
+bus-core-ui-1.0-SNAPSHOT.jar
+[INFO] ------------------------------------------------------------------
+[INFO] BUILD SUCCESSFUL
+[INFO] ------------------------------------------------------------------
+```
+
+​	当 bus-core-api 构建成功，Maven将开始构建应用程序 app-web-ui
+
+```
+[INFO] ------------------------------------------------------------------
+[INFO] Building app-web-ui 
+[INFO]    task-segment: [package]
+[INFO] ------------------------------------------------------------------
+...
+[INFO] [jar:jar {execution: default-jar}]
+[INFO] Building jar: C:MVNapp-web-ui	arget
+app-web-ui-1.0-SNAPSHOT.jar
+[INFO] ------------------------------------------------------------------
+[INFO] BUILD SUCCESSFUL
+[INFO] ------------------------------------------------------------------
+```
+
+​	当 app-web-ui 构建成功，Maven将开始构建 app-desktop-ui 项目
+
+```
+[INFO] ------------------------------------------------------------------
+[INFO] Building app-desktop-ui 
+[INFO]    task-segment: [package]
+[INFO] ------------------------------------------------------------------
+...
+[INFO] [jar:jar {execution: default-jar}]
+[INFO] Building jar: C:/MVN/app-desktop-ui	arget
+app-desktop-ui-1.0-SNAPSHOT.jar
+[INFO] -------------------------------------------------------------------
+[INFO] BUILD SUCCESSFUL
+[INFO] -------------------------------------------------------------------
+```
+
