@@ -110,3 +110,221 @@ https://blog.csdn.net/weixin_38889300/article/details/122852715
 ## 2.2 使用kubeadm工具快速安装Kubernetes集群
 
 ​	Kubernetes从1.4版本开始引入了命令行工具kubeadm，致力于简化集群的安装过程，到Kubernetes 1.13版本时，kubeadm工具达到GA阶段。本节讲解基于kubeadm的安装过程，操作系统以CentOS 7为例。
+
+### 2.2.1 安装kubeadm 
+
+​	首先配置yum源，官方yum源配置文件`/etc/yum.repos.d/kubernetes.repo`的内容如下：
+
+```sh
+cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
+[kubernetes]
+name=Kubernetes Repo
+baseurl=https://mirrors.aliyun.com/kubernetes/yum/repos/kubernetes-el7-x86_64/
+gpgcheck=0
+gpgkey=https://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg
+enabled=1
+EOF
+
+yum install -y kubelet kubeadm kubectl
+
+systemctl start kubelet
+systemctl enable kubelet
+systemctl enable kubelet.service
+```
+
+​	kubeadm将使用kubelet服务以容器方式部署和启动Kubernetes的主要服务，所以需要先启动kubelet服务。运行systemctl start命令启动kubelet服务，并设置为开机自启动：
+
+**交换区**
+
+​	kubeadm还需要关闭Linux的swap系统交换区，这可以通过`swapoff -a` 命令实现：
+
+```sh
+swapoff -a ; sed -i '/swap/d' /etc/fstab
+```
+
+**允许路由转发，不对bridge的数据进行处理**
+
+```sh
+cat <<EOF > /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.ipv4.ip_forward = 1
+EOF
+```
+
+**修改host文件**
+
+```sh
+vim /etc/hosts
+192.168.0.200 node1
+192.168.0.201 node2
+192.168.0.202 node3
+```
+
+### 2.2.2 修改kubeadm的默认配置
+
+kubeadm config子命令提供了对这组功能的支持。
+
+* kubeadm config print init-defaults：输出kubeadm init命令默认参数的内容。
+* kubeadm config print join-defaults：输出kubeadm join命令默认参数的内容。
+* kubeadm config migrate：在新旧版本之间进行配置转换。
+* kubeadm config images list：列出所需的镜像列表。
+* kubeadm config images pull：拉取镜像到本地。
+
+例如，运行kubeadm config print init-defaults命令，可以获得默认的初始化参数文件：
+
+```sh
+kubeadm config print init-defaults > init.default.yaml
+```
+
+​	对生成的文件进行编辑，可以按需生成合适的配置。例如，若需要自定义镜像的仓库地址、需要安装的Kubernetes版本号及Pod的IP地址范围，则可以将默认配置修改如下：
+
+![](https://pic.imgdb.cn/item/629d20dc09475431298eba02.jpg)
+
+### 2.2.3 下载Kubernetes的相关镜像
+
+https://www.jianshu.com/p/a4001280e264
+
+```yaml
+apiVersion: kubeadm.k8s.io/v1beta3
+bootstrapTokens:
+- groups:
+  - system:bootstrappers:kubeadm:default-node-token
+  token: abcdef.0123456789abcdef
+  ttl: 24h0m0s
+  usages:
+  - signing
+  - authentication
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: 1.2.3.4
+  bindPort: 6443
+nodeRegistration:
+  criSocket: unix:///var/run/containerd/containerd.sock
+  imagePullPolicy: IfNotPresent
+  name: node
+  taints: null
+---
+apiServer:
+  timeoutForControlPlane: 4m0s
+apiVersion: kubeadm.k8s.io/v1beta3
+certificatesDir: /etc/kubernetes/pki
+clusterName: kubernetes
+controllerManager: {}
+dns: {}
+etcd:
+  local:
+    dataDir: /var/lib/etcd
+imageRepository: docker.io/dustise
+kind: ClusterConfiguration
+kubernetesVersion: 1.24.0
+networking:
+  dnsDomain: cluster.local
+  serviceSubnet: 10.96.0.0/12
+  podSubnet: 192.168.0.0/16
+scheduler: {}
+```
+
+将上面的内容保存为init-config.yaml备用
+
+### 2.2.3 下载Kubernetes的相关镜像
+
+​	为了加快kubeadm创建集群的过程，可以预先将所需镜像下载完成。可以通过kubeadm config images list命令查看镜像列表，例如：
+
+```sh
+k8s.gcr.io/kube-apiserver:v1.24.1
+k8s.gcr.io/kube-controller-manager:v1.24.1
+k8s.gcr.io/kube-scheduler:v1.24.1
+k8s.gcr.io/kube-proxy:v1.24.1
+k8s.gcr.io/pause:3.7
+k8s.gcr.io/etcd:3.5.3-0
+k8s.gcr.io/coredns/coredns:v1.8.6
+```
+
+如果无法访问k8s.gcr.io，则可以使用国内镜像托管站点进行下载，
+例如https://1nj0zren.mirror.aliyuncs.com，这可以通过修改Docker服务
+的配置文件（默认为/etc/docker/daemon.json）进行设置。
+
+然后，使用kubeadm config images pull命令或者docker pull命令下载上述镜像，例如：
+
+```sh
+kubeadm config images pull --config=init-config.yaml
+```
+
+unknown service runtime.v1alpha2.ImageService
+
+https://blog.csdn.net/weixin_40668374/article/details/124849090
+
+### 2.2.4 运行kubeadm init命令安装Master节点
+
+​	至此，准备工作已经就绪，运行kubeadm init命令即可一键安装Kubernetes的Master节点，也称之为Kubernetes控制平面（Control Plane）。
+
+​	在开始之前需要注意：kubeadm的安装过程不涉及网络插件（CNI）的初始化，因此kubeadm初步安装完成的集群不具备网络功能，任何Pod（包括自带的CoreDNS）都无法正常工作。而网络插件的安装往往对kubeadm init命令的参数有一定要求。例如，安装Calico插件时需要指定--pod-network-cidr=192.168.0.0/16。关于安装CNI网络插件的更多内容，可参考官方文档的说明。
+
+​	kubeadm init命令在执行具体的安装操作之前，会执行一系列被称为pre-flight checks的系统预检查，以确保主机环境符合安装要求，如果检查失败就直接终止，不再进行init操作。用户可以通过kubeadm init phase preflight命令执行预检查操作，确保系统就绪后再执行init操作。
+如果不希望执行预检查，则也可以为kubeadm init命令添加--ignorepreflight-errors参数进行关闭。如表2.3所示是kubeadm检查的系统配置，对不符合要求的检查项以warning或error级别的信息给出提示。
+
+![](https://pic.imgdb.cn/item/629d2558094754312990a491.jpg)
+
+![](https://pic.imgdb.cn/item/629d256b094754312990ab89.jpg)
+
+​	另外，Kubernetes默认设置cgroup驱动（cgroupdriver）为“systemd”，而Docker服务的cgroup驱动默认值为“cgroupfs”，建议将其修改为“systemd”，与Kubernetes保持一致。这可以通过修改Docker服务的配置文件（默认为/etc/docker/daemon.json）进行设置：
+
+```sh
+{
+  "registry-mirrors": ["https://mr63yffu.mirror.aliyuncs.com"],
+  "exec-opts": ["native.cgroupdriver=systemd"]
+}
+
+systemctl daemon-reload
+```
+
+​	准备工作就绪之后，就可以运行kubeadm init命令，使用之前创建的配置文件一键安装Master节点（控制平面）了：
+
+```sh
+dnf install -y iproute-tc
+kubeadm init --config=init-config.yaml
+```
+
+​	看到“Your Kubernetes control-plane has initialized successfully！”的提示，就说明Master节点（控制平面）已经安装成功了。
+
+​	接下来就可以通过kubectl命令行工具访问集群进行操作了。由于kubeadm默认使用CA证书，所以需要为kubectl配置证书才能访问Master。
+
+​	按照安装成功的提示，非root用户可以将admin.conf配置文件复制到HOME目录的.kube子目录下，命令如下：
+
+![](https://pic.imgdb.cn/item/629d27cc094754312991adbe.jpg)
+
+```sh
+export KUBECONFIG=/etc/kubernetes/admin.conf
+```
+
+​	然后就可以使用kubectl命令行工具对Kubernetes集群进行访问和操作了。
+
+​	例如查看命名空间kube-system中的ConfigMap列表：
+
+```sh
+kubectl -n kube-system get configmap
+```
+
+​	到此，Kubernetes的Master节点已经可以工作了，但在集群内还是没有可用的Worker Node，并缺乏容器网络的配置。
+
+​	接下来安装Worker Node，需要用到kubeadm init命令运行完成后的最后几行提示信息，其中包含将节点加入集群的命令（kubeadm join）和所需的Token。
+
+**"Error getting node" err="node \"node1\" not found**
+
+https://blog.csdn.net/huotongwangbs/article/details/121159429
+
+**The connection to the server localhost:8080 was refused**
+
+https://blog.csdn.net/CEVERY/article/details/108753379
+
+**kubectl get pod卡住的问题**
+
+https://blog.csdn.net/hawk2014bj/article/details/109807413
+
+journalctl -xefu kubelet
+
+
+
+https://blog.csdn.net/m0_37944592/article/details/122824531
+
