@@ -328,3 +328,267 @@ journalctl -xefu kubelet
 
 https://blog.csdn.net/m0_37944592/article/details/122824531
 
+## 2.3 以二进制文件方式安装Kubernetes安全高可用集群
+
+​	通过kubeadm能够快速部署一个Kubernetes集群，但是如果需要精细调整Kubernetes各组件服务的参数及安全设置、高可用模式等，管理员就可以使用Kubernetes二进制文件进行部署。
+
+### 2.3.1 Master高可用部署架构
+
+​	在Kubernetes系统中，Master节点扮演着总控中心的角色，通过不间断地与各个工作节点（Node）通信来维护整个集群的健康工作状态，集群中各资源对象的状态则被保存在etcd数据库中。如果Master不能正常工作，各Node就会处于不可管理状态，用户就无法管理在各Node上运行的Pod，其重要性不言而喻。同时，如果Master以不安全方式提供服务（例如通过HTTP的8080端口号），则任何能够访问Master的客户端都可以通过API操作集群中的数据，可能导致对数据的非法访问或篡改。
+
+在正式环境中应确保Master的高可用，并启用安全访问机制，至少包括以下几方面。
+
+* Master的kube-apiserver、kube-controller-mansger和kubescheduler服务至少以3个节点的多实例方式部署。
+* Master启用基于CA认证的HTTPS安全机制。
+* etcd至少以3个节点的集群模式部署。
+* etcd集群启用基于CA认证的HTTPS安全机制。
+* Master启用RBAC授权模式（详见6.2节的说明）。
+
+![](https://pic.imgdb.cn/item/62a1f9f10947543129fe7ff0.jpg)
+
+​	在Master的3个节点之前，应通过一个负载均衡器提供对客户端的唯一访问入口地址，负载均衡器可以选择硬件或者软件进行搭建。软件负载均衡器可以选择的方案较多，本文以HAProxy搭配Keepalived为例进行说明。主流硬件负载均衡器有F5、A10等，需要额外采购，其负载均衡配置规则与软件负载均衡器的配置类似，本文不再赘述。
+
+​	本例中3台主机的IP地址分别为192.168.18.3、192.168.18.4、192.168.18.5，负载均衡器使用的VIP为192.168.18.100。
+
+​	下面分别对etcd、负载均衡器、Master、Node等组件如何进行高可用部署、关键配置、CA证书配置等进行详细说明。
+
+### 2.3.2 创建CA根证书
+
+​	为etcd和Kubernetes服务启用基于CA认证的安全机制，需要CA证书进行配置。如果组织能够提供统一的CA认证中心，则直接使用组织颁发的CA证书即可。如果没有统一的CA认证中心，则可以通过颁发自签名的CA证书来完成安全配置。
+
+​	etcd和Kubernetes在制作CA证书时，均需要基于CA根证书，本文以为Kubernetes和etcd使用同一套CA根证书为例，对CA证书的制作进行说明。
+
+​	CA证书的制作可以使用openssl、easyrsa、cfssl等工具完成，本文以openssl为例进行说明。下面是创建CA根证书的命令，包括私钥文件ca.key和证书文件ca.crt：
+
+```sh
+openssl genrsa -out ca.key 2048
+openssl req -x509 -new -nodes -key ca.key -subj "/CN=192.168.0.200" -days 36500 -out ca.crt
+mkdir -p /etc/kubernetes/pki
+cp ca.key /etc/kubernetes/pk
+cp ca.crt /etc/kubernetes/pki
+```
+
+主要参数如下。
+
+* -subj：“/CN”的值为Master主机名或IP地址。
+* -days：设置证书的有效期。
+
+将生成的ca.key和ca.crt文件保存在/etc/kubernetes/pki目录下。
+
+### 2.3.3　部署安全的etcd高可用集群
+
+​	etcd作为Kubernetes集群的主数据库，在安装Kubernetes各服务之前需要首先安装和启动。
+
+**1.下载etcd二进制文件，配置systemd服务**
+
+​	从GitHub官网下载etcd二进制文件，例如etcd-v3.4.13-linuxamd64.tar.gz，如图2.2所示。
+
+![](https://pic.imgdb.cn/item/62a1fbcb0947543129013a6d.jpg)
+
+​	解压缩后得到etcd和etcdctl文件，将它们复制到/usr/bin目录下。
+
+​	然后将其部署为一个systemd的服务，创建systemd服务配置文件`/usr/lib/systemd/system/etcd.service`，内容示例如下：
+
+```sh
+[Unit]
+Description=etcd key-value store
+Documentation=https://github.com/etcd-io/etcd
+After=network.target
+
+[Service]
+EnviromentFile=/etc/etcd/etcd.conf
+ExecStart=/usr/bin/etcd
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+​	其中，EnvironmentFile指定配置文件的全路径，例如`/etc/etcd/etcd.conf`，其中的参数以环境变量的格式进行配置。
+
+​	接下来先对etcd需要的CA证书配置进行说明。对于配置文件`/etc/etcd/etcd.conf`中的完整配置参数，将在创建完CA证书后统一说明。
+
+**2.创建etcd的CA证书**
+
+​	先创建一个x509 v3配置文件etcd_ssl.cnf，其中subjectAltName参数（alt_names）包括所有etcd主机的IP地址，例如：
+
+```sh
+[req]
+req_extensions=v3_req
+distinguished_name=req_distinguished_name
+
+[req_distinguished_name]
+
+[v3_req]
+basicConstraints=CA:FALSE
+keyUsage=nonRepudiation,digitalSignature,keyEncipherment
+subjectAltName=@alt_names
+
+[alt_names]
+IP.1=192.168.0.200
+IP.2=192.168.0.201
+IP.3=192.168.0.203
+```
+
+然后使用openssl命令创建etcd的服务端CA证书，包括`etcd_server.key`和`etcd_server.crt`文件，将其保存到`/etc/etcd/pki`目录下：
+
+```sh
+openssl genrsa -out etcd_server.key 2048
+openssl req -new -key etcd_server.key -config etcd_ssl.cnf -subj "/CN=etcd-server" -out etcd_server.crt
+openssl x509 -req -in etcd_server.scr -CA /etc/kubernetes/pki/ca.crt -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial -days 36500 -extension v3_req -extfile etcd_ssl.conf -out etcd_server.crt
+```
+
+​	再创建客户端使用的CA证书，包括etcd_client.key和etcd_client.crt文
+件，也将其保存到`/etc/etcd/pki`目录下，后续供kube-apiserver连接etcd时使用：
+
+```sh
+openssl genrsa -out etcd_client.key 2048
+openssl req -new -key etcd_client.key -config etcd_ssl.cnf -subj "/CN=etcd-client" -out etcd_client.crt
+openssl x509 -req -in etcd_client.scr -CA /etc/kubernetes/pki/ca.crt -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial -days 36500 -extension v3_req -extfile etcd_ssl.conf -out etcd_client.crt
+```
+
+**3.etcd参数配置说明**
+
+​	接下来对3个etcd节点进行配置。etcd节点的配置方式包括启动参数、环境变量、配置文件等，本例使用环境变量方式将其配置到`/etc/etcd/etcd.conf`文件中，供systemd服务读取。
+
+​	3个etcd节点将被部署在192.168.0.200、192.168.0.201和192.168.0.203 3台主机上，配置文件`/etc/etcd/etcd.conf`的内容示例如下：
+
+```properties
+#节点1的配置
+ETCD_NAME=etcd1
+ETCD_DATA_DIR=/etc/etcd/data
+
+ETCD_CERT_FILE=/etc/etcd/pki/etcd_server.crt
+ETCD_KEY_FILE=/etc/etcd/pki/etcd_server.key
+ETCD_TRUSTED_CA_FILE=/etc/kubernetes/pki/ca.crt
+ETCD_CLIENT_CERT_AUTH=true
+ETCD_LISTEN_CLIENT_URLS=https://192.168.0.200:2379
+ETCD_ADVERTISE_CLIENT_URLS=https://192.168.0.200:2379
+
+ETCD_PEER_CERT_FILE=/etc/etcd/pki/etcd_server.crt
+ETCD_PEER_KEY_FILE=/etc/etcd/pki/etcd_server.key
+ETCD_PEER_TRUSTED_CA_FILE=/etc/kubernetes/pki/ca.crt
+ETCD_LISTEN_PEER_URLS=https://192.168.0.200:2380
+ETCD_INITIAL_ADVERTISE_PEER_URLs=https://192.168.0.200:2380
+
+ETCD_INITIAL_CLUSTER_TOKEN=etcd-cluster
+ETCD_INITIAL_CLUSTER="etcd1=https://192.168.0.200:2380,etcd2=https://192.168.0.201:2380,etcd3=https://192.168.0.203:2380"
+ETCD_INITIAL_CLUSTER_STATE=new
+```
+
+```properties
+#节点2的配置
+ETCD_NAME=etcd2
+ETCD_DATA_DIR=/etc/etcd/data
+
+ETCD_CERT_FILE=/etc/etcd/pki/etcd_server.crt
+ETCD_KEY_FILE=/etc/etcd/pki/etcd_server.key
+ETCD_TRUSTED_CA_FILE=/etc/kubernetes/pki/ca.crt
+ETCD_CLIENT_CERT_AUTH=true
+ETCD_LISTEN_CLIENT_URLS=https://192.168.0.201:2379
+ETCD_ADVERTISE_CLIENT_URLS=https://192.168.0.201:2379
+
+ETCD_PEER_CERT_FILE=/etc/etcd/pki/etcd_server.crt
+ETCD_PEER_KEY_FILE=/etc/etcd/pki/etcd_server.key
+ETCD_PEER_TRUSTED_CA_FILE=/etc/kubernetes/pki/ca.crt
+ETCD_LISTEN_PEER_URLS=https://192.168.0.201:2380
+ETCD_INITIAL_ADVERTISE_PEER_URLs=https://192.168.0.201:2380
+
+ETCD_INITIAL_CLUSTER_TOKEN=etcd-cluster
+ETCD_INITIAL_CLUSTER="etcd1=https://192.168.0.200:2380,etcd2=https://192.168.0.201:2380,etcd3=https://192.168.0.203:2380"
+ETCD_INITIAL_CLUSTER_STATE=new
+```
+
+```sh
+# 节点3的配置
+ETCD_NAME=etcd3
+ETCD_DATA_DIR=/etc/etcd/data
+
+ETCD_CERT_FILE=/etc/etcd/pki/etcd_server.crt
+ETCD_KEY_FILE=/etc/etcd/pki/etcd_server.key
+ETCD_TRUSTED_CA_FILE=/etc/kubernetes/pki/ca.crt
+ETCD_CLIENT_CERT_AUTH=true
+ETCD_LISTEN_CLIENT_URLS=https://192.168.0.203:2379
+ETCD_ADVERTISE_CLIENT_URLS=https://192.168.0.203:2379
+
+ETCD_PEER_CERT_FILE=/etc/etcd/pki/etcd_server.crt
+ETCD_PEER_KEY_FILE=/etc/etcd/pki/etcd_server.key
+ETCD_PEER_TRUSTED_CA_FILE=/etc/kubernetes/pki/ca.crt
+ETCD_LISTEN_PEER_URLS=https://192.168.0.203:2380
+ETCD_INITIAL_ADVERTISE_PEER_URLs=https://192.168.0.203:2380
+
+ETCD_INITIAL_CLUSTER_TOKEN=etcd-cluster
+ETCD_INITIAL_CLUSTER="etcd1=https://192.168.0.200:2380,etcd2=https://192.168.0.201:2380,etcd3=https://192.168.0.203:2380"
+ETCD_INITIAL_CLUSTER_STATE=new
+```
+
+主要配置参数包括为客户端和集群其他节点配置的各监听URL地址
+（均为HTTPS URL地址），并配置相应的CA证书参数。
+
+​	etcd服务相关的参数如下。
+
+* ETCD_NAME：etcd节点名称，每个节点都应不同，例如etcd1、etcd2、etcd3。
+* ETCD_DATA_DIR：etcd数据存储目录，例如`/etc/etcd/data/etcd1`。
+
+* ETCD_LISTEN_CLIENT_URLS和
+  ETCD_ADVERTISE_CLIENT_URLS：为客户端提供的服务监听URL地址，例如``https//192.168.18.32379`。
+
+* ETCD_LISTEN_PEER_URLS和
+  ETCD_INITIAL_ADVERTISE_PEER_URLS：为本集群其他节点提供的
+  服务监听URL地址，例如`https://192.168.18.3:2380`。
+
+* ETCD_INITIAL_CLUSTER_TOKEN：集群名称，例如etcdcluster
+* ETCD_INITIAL_CLUSTER：集群各节点的endpoint列表，例
+  如`"etcd1=https://192.168.18.3:2380,etcd2=https://192.168.18.4:2380,etcd3=https://192.168.18.5:2380"`
+
+* ETCD_INITIAL_CLUSTER_STATE：初始集群状态，新建集群时设置为“new”，集群已存在时设置为“existing”。
+* CA证书相关的配置参数如下。
+
+* ETCD_CERT_FILE：etcd服务端CA证书-crt文件全路径，例如/etc/etcd/pki/etcd_server.crt。
+* ETCD_KEY_FILE：etcd服务端CA证书-key文件全路径，例如/etc/etcd/pki/etcd_server.key。
+* ETCD_TRUSTED_CA_FILE：CA根证书文件全路径，例如/etc/kubernetes/pki/ca.crt。
+* ETCD_CLIENT_CERT_AUTH：是否启用客户端证书认证。
+* ETCD_PEER_CERT_FILE：集群各节点相互认证使用的CA证书-crt文件全路径，例如/etc/etcd/pki/etcd_server.crt。
+* ETCD_PEER_KEY_FILE：集群各节点相互认证使用的CA证书-key文件全路径，例如/etc/etcd/pki/etcd_server.key。
+* ETCD_PEER_TRUSTED_CA_FILE：CA根证书文件全路径，例如/etc/kubernetes/pki/ca.crt。
+
+**4.启动etcd集群**
+
+基于systemd的配置，在3台主机上分别启动etcd服务，并设置为开机自启动：
+
+```sh
+systemctl restart etcd & systemctl enable etcd
+```
+
+​	然后用etcdctl客户端命令行工具携带客户端CA证书，运行`etcdctl endpoint health`命令访问etcd集群，验证集群状态是否正常，命令如下：
+
+```sh
+etcdctl --cacert=/etc/kubernetes/pki/ca.crt --cert=/etc/etcd/pki/etcd_client.crt --key=/etc/etcd/pki/etcd_client.key --endpoints=https://192.168.0.200:2379,https://192.168.0.201:2379,https://192.168.0.203:2379 endpoint health
+```
+
+结果显示各节点状态均为“healthy”，说明集群正常运行。
+
+至此，一个启用了HTTPS的3节点etcd集群就部署完成了，更多的配置参数请参考etcd官方文档的说明。
+
+### 2.3.4 部署安全的Kubernetes Master高可用集群
+
+**1.下载Kubernetes服务的二进制文件**
+
+​	首先，从Kubernetes的官方GitHub代码库页面下载各组件的二进制文件，在Releases页面找到需要下载的版本号，单击CHANGELOG链接，跳转到已编译好的Server端二进制（Server Binaries）文件的下载页面进行下载，如图2.3和图2.4所示。
+
+![](https://pic.imgdb.cn/item/62a2035309475431290c38d4.jpg)
+
+​	在压缩包kubernetes.tar.gz内包含了Kubernetes的全部服务二进制文件和容器镜像文件，也可以分别下载Server Binaries和Node Binaries二进制文件。在Server Binaries中包含不同系统架构的服务端可执行文件，例如kubernetes-server-linux-amd64.tar.gz文件包含了x86架构下Kubernetes需
+要运行的全部服务程序文件；Node Binaries则包含了不同系统架构、不同操作系统的Node需要运行的服务程序文件，包括Linux版和Windows版等。
+
+![](https://pic.imgdb.cn/item/62a2039909475431290ca05e.jpg)
+
+​	在Kubernetes的Master节点上需要部署的服务包括etcd、kubeapiserver、kube-controller-manager和kube-scheduler。
+
+​	在工作节点（Worker Node）上需要部署的服务包括docker、kubelet和kube-proxy。
+
+​	将Kubernetes的二进制可执行文件复制到/usr/bin目录下，然后在/usr/lib/systemd/system目录下为各服务创建systemd服务配置文件（完整的systemd系统知识请参考Linux的相关手册），这样就完成了软件的安装。
+
+**2.部署kube-apiserver服务**
+
+（1）设置kube-apiserver服务需要的CA相关证书。准备master_ssl.cnf文件用于生成x509 v3版本的证书，示例如下：
