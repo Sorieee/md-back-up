@@ -1530,3 +1530,387 @@ spec:
 ​	另一种场景是，当frontend和redis两个容器应用为紧耦合的关系，并组合成一个整体对外提供服务时，应将这两个容器打包为一个Pod，如图3.1所示
 
 ![](https://pic.imgdb.cn/item/62a443f4094754312985d4a7.jpg)
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: redis-php
+  labels:
+    name: redis-php
+spec:
+  containers:
+  - name: frontend
+    image: kubeguide/guestbook-php-frontend:localredis
+    ports:
+    - containerPort: 80
+  - name: redis
+    image: kubeguide/redis-master
+    ports:
+    - containerPort: 6379
+```
+
+​	属于同一个Pod的多个容器应用之间相互访问时仅需通过localhost就可以通信，使得这一组容器被“绑定”在一个环境中。
+
+​	在Docker容器kubeguide/guestbook-php-frontend：localredis的PHP网页中，直接通过URL地址“localhost：6379”对同属于一个Pod的redismaster进行访问。guestbook.php的内容如下：
+
+略
+
+​	运行kubectl create命令创建该Pod：
+
+```sh
+kubectl create -f front-localredis-pod.yml
+```
+
+​	查看已经创建的Pod：
+
+![](https://pic.imgdb.cn/item/62a557fe0947543129b1805e.jpg)
+
+查看这个Pod的详细信息，可以看到两个容器的定义及创建的过程（Event事件信息）：
+
+![](https://pic.imgdb.cn/item/62a558d00947543129b26cca.jpg)
+
+![](https://pic.imgdb.cn/item/62a558e10947543129b28052.jpg)
+
+## 3.3 静态Pod
+
+​	静态Pod是由kubelet进行管理的仅存在于特定Node上的Pod。它们不能通过API Server进行管理，无法与ReplicationController、Deployment或者DaemonSet进行关联，并且kubelet无法对它们进行健康检查。静态Pod总是由kubelet创建的，并且总在kubelet所在的Node上运行。
+
+**1.配置文件方式**
+
+​	首先，需要设置kubelet的启动参数“--pod-manifest-path”（或者在kubelet配置文件中设置staticPodPath，这也是新版本推荐的设置方式，--pod-manifest-path参数将被逐渐弃用），指定kubelet需要监控的配置文件所在的目录，kubelet会定期扫描该目录，并根据该目录下的.yaml或.json文件进行创建操作。
+
+​	假设配置目录为/etc/kubelet.d/，配置启动参数为--pod-manifestpath=/etc/kubelet.d/，然后重启kubelet服务。
+
+​	在/etc/kubelet.d目录下放入static-web.yaml文件，内容如下：
+
+```sh
+apiVersion: v1
+kind: Pod
+metadata:
+  name: static-web
+  labels:
+    name: static-web
+spec:
+  containers:
+  - name: static-web
+    image: nginx
+    ports:
+    - name: web
+      containerPort: 80
+```
+
+等待一会儿，查看本机中已经启动的容器：
+
+![](https://pic.imgdb.cn/item/62a559970947543129b347e2.jpg)
+
+![](https://pic.imgdb.cn/item/62a559af0947543129b36125.jpg)
+
+**2.HTTP方式**
+
+通过设置kubelet的启动参数“--manifest-url”，kubelet将会定期从该URL地址下载Pod的定义文件，并以.yaml或.json文件的格式进行解析，然后创建Pod。其实现方式与配置文件方式是一致的。
+
+## 3.4　Pod容器共享Volume
+
+​	同一个Pod中的多个容器能够共享Pod级别的存储卷Volume。Volume可以被定义为各种类型，多个容器各自进行挂载操作，将一个Volume挂载为容器内部需要的目录，如图3.2所示。
+
+![](https://pic.imgdb.cn/item/62a55a590947543129b4225b.jpg)
+
+​	在下面的例子中，在Pod内包含两个容器：tomcat和busybox，在Pod级别设置Volume“app-logs”，用于tomcat容器向其中写日志文件，busybox容器从中读日志文件。
+
+​	配置文件pod-volume-applogs.yaml的内容如下：
+
+```sh
+apiVersion: v1
+kind: Pod
+metadata:
+  name: volume-pod
+spec:
+  containers:
+  - name: tomcat
+    image: tomcat
+    ports:
+    - containerPort: 8080
+    volumeMounts:
+    - name: app-logs
+      mountPath: /usr/local/tomcat/logs
+  - name: busybox
+    image: busybox
+    command: ["sh", "-c", "tail -f /logs/catalina*.log"]
+    volumeMounts:
+    - name: app-logs
+      mountPath: /logs
+  volumes:
+  - name: app-logs
+    emptyDir: {}
+```
+
+​	这里设置的Volume名称为app-logs，类型为emptyDir（也可以设置为其他类型，详见第1章对Volume概念的说明），挂载到tomcat容器内的/usr/local/tomcat/logs目录下，同时挂载到logreader容器内的/logs目录下。tomcat容器在启动后会向/usr/local/tomcat/logs目录写文件，logreader容器就可以读取其中的文件了。
+
+​	logreader容器的启动命令为tail-f/logs/catalina*.log，我们可以通过kubectl logs命令查看logreader容器的输出内容：
+
+![](https://pic.imgdb.cn/item/62a55c270947543129b61138.jpg)
+
+这个文件为tomcat生成的日志文件`/usr/local/tomcat/logs/catalina.<date>.log`的内容。登录tomcat容器进行查看：
+
+![](https://pic.imgdb.cn/item/62a55c500947543129b63e1f.jpg)
+
+## 3.5 Pod的配置管理
+
+​	应用部署的一个最佳实践是将应用所需的配置信息与程序分离，这样可以使应用程序被更好地复用，通过不同的配置也能实现更灵活的功能。将应用打包为容器镜像后，可以通过环境变量或者外挂文件的方式在创建容器时进行配置注入，但在大规模容器集群的环境中，对多个容器进行不同的配置将变得非常复杂。Kubernetes从1.2版本开始提供了一种统一的应用配置管理方案—ConfigMap。本节对ConfigMap的概念和用法进行详细讲解。
+
+### 3.5.1　ConfigMap概述
+
+ConfigMap供容器使用的典型用法如下。
+（1）生成容器内的环境变量。
+（2）设置容器启动命令的启动参数（需设置为环境变量）。
+（3）以Volume的形式挂载为容器内部的文件或目录。
+
+​	ConfigMap以一个或多个key：value的形式保存在Kubernetes系统中供应用使用，既可以用于表示一个变量的值（例如apploglevel=info），也可以用于表示一个完整配置文件的内容（例如server.xml=<？xml...>...）。
+
+​	我们可以通过YAML文件或者直接使用kubectl create configmap命令行的方式来创建ConfigMap。
+
+### 3.5.2　创建ConfigMap资源对象
+
+**1.通过YAML文件方式创建**
+
+​	在下面的例子cm-appvars.yaml中展示了将几个应用所需的变量定义为ConfigMap的用法：
+
+```sh
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cm-appvars
+data:
+  apploglevel: info
+  appdatadir: /var/data
+```
+
+```sh
+kubectl create -f cm-appvars.yaml
+```
+
+
+
+查看创建好的ConfigMap：
+
+```
+kubect; get configmap
+```
+
+​	在下面的例子中展示了将两个配置文件server.xml和logging.properties定义为ConfigMap的用法，设置key为配置文件的别名，value则是配置文件的全部文本内容：
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cm-appconfigfiles
+data:
+  key-serverxml: |
+    <?xml version='1.0' encoding='utf-8'?>
+    <Server port="8005" shutdown="SHUTDOWN">
+      <Listener className="org.apache.catalina.startup.VersionLoggerListener" />
+      <Listener className="org.apache.catalina.core.AprLifecycleListener" SSLEngine="on" />
+      <Listener className="org.apache.catalina.core.JreMemoryLeakPreventionListener" />
+      <Listener className="org.apache.catalina.mbeans.GlobalResourcesLifecycleListener" />
+      <Listener className="org.apache.catalina.core.ThreadLocalLeakPreventionListener" />
+      <GlobalNamingResources>
+        <Resource name="UserDatabase" auth="Container"
+                  type="org.apache.catalina.UserDatabase"
+                  description="User database that can be updated and saved"
+                  factory="org.apache.catalina.users.MemoryUserDatabaseFactory"
+                  pathname="conf/tomcat-users.xml" />
+      </GlobalNamingResources>
+      <Service name="Catalina">
+        <Connector port="8080" protocol="HTTP/1.1"
+                   connectionTimeout="20000"
+                   redirectPort="8443" />
+        <Connector port="8009" protocol="AJP/1.3" redirectPort="8443" />
+        <Engine name="Catalina" defaultHost="localhost">
+          <Realm className="org.apache.catalina.realm.LockOutRealm">
+            <Realm className="org.apache.catalina.realm.UserDatabaseRealm"
+                   resourceName="UserDatabase"/>
+          </Realm>
+          <Host name="localhost"  appBase="webapps"
+                unpackWARs="true" autoDeploy="true">
+            <Valve className="org.apache.catalina.valves.AccessLogValve" directory="logs"
+                   prefix="localhost_access_log" suffix=".txt"
+                   pattern="%h %l %u %t &quot;%r&quot; %s %b" />
+          </Host>
+        </Engine>
+      </Service>
+    </Server>
+  key-loggingproperties: "handlers
+    = 1catalina.org.apache.juli.FileHandler, 2localhost.org.apache.juli.FileHandler,
+    3manager.org.apache.juli.FileHandler, 4host-manager.org.apache.juli.FileHandler,
+    java.util.logging.ConsoleHandler\r\n\r\n.handlers = 1catalina.org.apache.juli.FileHandler,
+    java.util.logging.ConsoleHandler\r\n\r\n1catalina.org.apache.juli.FileHandler.level
+    = FINE\r\n1catalina.org.apache.juli.FileHandler.directory = ${catalina.base}/logs\r\n1catalina.org.apache.juli.FileHandler.prefix
+    = catalina.\r\n\r\n2localhost.org.apache.juli.FileHandler.level = FINE\r\n2localhost.org.apache.juli.FileHandler.directory
+    = ${catalina.base}/logs\r\n2localhost.org.apache.juli.FileHandler.prefix = localhost.\r\n\r\n3manager.org.apache.juli.FileHandler.level
+    = FINE\r\n3manager.org.apache.juli.FileHandler.directory = ${catalina.base}/logs\r\n3manager.org.apache.juli.FileHandler.prefix
+    = manager.\r\n\r\n4host-manager.org.apache.juli.FileHandler.level = FINE\r\n4host-manager.org.apache.juli.FileHandler.directory
+    = ${catalina.base}/logs\r\n4host-manager.org.apache.juli.FileHandler.prefix =
+    host-manager.\r\n\r\njava.util.logging.ConsoleHandler.level = FINE\r\njava.util.logging.ConsoleHandler.formatter
+    = java.util.logging.SimpleFormatter\r\n\r\n\r\norg.apache.catalina.core.ContainerBase.[Catalina].[localhost].level
+    = INFO\r\norg.apache.catalina.core.ContainerBase.[Catalina].[localhost].handlers
+    = 2localhost.org.apache.juli.FileHandler\r\n\r\norg.apache.catalina.core.ContainerBase.[Catalina].[localhost].[/manager].level
+    = INFO\r\norg.apache.catalina.core.ContainerBase.[Catalina].[localhost].[/manager].handlers
+    = 3manager.org.apache.juli.FileHandler\r\n\r\norg.apache.catalina.core.ContainerBase.[Catalina].[localhost].[/host-manager].level
+    = INFO\r\norg.apache.catalina.core.ContainerBase.[Catalina].[localhost].[/host-manager].handlers
+    = 4host-manager.org.apache.juli.FileHandler\r\n\r\n"
+```
+
+​	运行kubectl create命令创建该ConfigMap：
+
+​	查看已创建的ConfigMap的详细内容，可以看到两个配置文件的全文：
+
+```sh
+kubectl get configmap cm-appconfigfiles -0 yaml
+```
+
+**2.通过kubectl命令行方式创建**
+
+​	不使用YAML文件，直接通过kubectl create configmap也可以创建ConfigMap，可以使用参数--from-file或--from-literal指定内容，并且可以在一行命令中指定多个参数。
+
+（1）通过--from-file参数从文件中进行创建，可以指定key的名称，也可以在一个命令行中创建包含多个key的ConfigMap，语法如下：
+
+![](https://pic.imgdb.cn/item/62a55ed30947543129b90f29.jpg)
+
+（2）通过--from-file参数在目录下进行创建，该目录下的每个配置文件名都被设置为key，文件的内容被设置为value，语法如下：
+
+![](https://pic.imgdb.cn/item/62a55ef10947543129b930de.jpg)
+
+​	假设在configfiles目录下包含两个配置文件server.xml和logging.properties，创建一个包含这两个文件内容的ConfigMap：
+
+![](https://pic.imgdb.cn/item/62a55f400947543129b97f68.jpg)
+
+容器应用对ConfigMap的使用有以下两种方法。
+（1）通过环境变量获取ConfigMap中的内容。
+（2）通过Volume挂载的方式将ConfigMap中的内容挂载为容器内部的文件或目录。
+
+### 3.5.3　在Pod中使用ConfigMap
+
+**1.通过环境变量方式使用ConfigMap**
+
+以前面创建的ConfigMap“cm-appvars”为例：
+
+在Pod“cm-test-pod”的定义中，将ConfigMap“cm-appvars”中的内容以环境变量（APPLOGLEVEL和APPDATADIR）方式设置为容器内部的环境变量，容器的启动命令将显示这两个环境变量的值（"env|grep APP"）：
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cm-test-pod
+spec:
+  containers:
+  - name: cm-test
+    image: busybox
+    command: [ "/bin/sh", "-c", "env | grep APP" ]
+    env:
+    - name: APPLOGLEVEL
+      valueFrom:
+        configMapKeyRef:
+          name: cm-appvars
+          key: apploglevel
+    - name: APPDATADIR
+      valueFrom:
+        configMapKeyRef:
+          name: cm-appvars
+          key: appdatadir
+  restartPolicy: Never
+```
+
+​	Kubernetes从1.6版本开始引入了一个新的字段envFrom，实现了在Pod环境中将ConfigMap（也可用于Secret资源对象）中所有定义的key=value自动生成为环境变量：
+
+```sh
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cm-test-pod
+spec:
+  containers:
+  - name: cm-test
+    image: busybox
+    command: [ "/bin/sh", "-c", "env" ]
+    envFrom:z
+    - configMapRef:
+       name: cm-appvars
+  restartPolicy: Never
+```
+
+通过这个定义，在容器内部将会生成如下环境变量：
+
+![](https://pic.imgdb.cn/item/62a561a90947543129bc03bd.jpg)
+
+​	需要说明的是，环境变量的名称受POSIX命名规范（[a-zA-Z_][azA- Z0-9_]*）约束，不能以数字开头。如果包含非法字符，则系统将跳过该条环境变量的创建，并记录一个Event来提示环境变量无法生成，但并不阻止Pod的启动。
+
+**2.通过volumeMount使用ConfigMap**
+
+​	在如下所示的cm-appconfigfiles.yaml例子中包含两个配置文件的定义：server.xml和logging.properties。
+
+在Pod“cm-test-app”的定义中，将ConfigMap“cm-appconfigfiles”中的内容以文件的形式挂载到容器内部的/configfiles目录下。Pod配置文件cm-test-app.yaml的内容如下：
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cm-test-app
+spec:
+  containers:
+  - name: cm-test-app
+    image: kubeguide/tomcat-app:v1
+    ports:
+    - containerPort: 8080
+    volumeMounts:
+    - name: serverxml
+      mountPath: /configfiles
+  volumes:
+  - name: serverxml
+    configMap:
+      name: cm-appconfigfiles
+      items:
+      - key: key-serverxml
+        path: server.xml
+      - key: key-loggingproperties
+        path: logging.properties
+```
+
+![](https://pic.imgdb.cn/item/62a563c00947543129be68df.jpg)
+
+![](https://pic.imgdb.cn/item/62a5671b0947543129c256cf.jpg)
+
+​	如果在引用ConfigMap时不指定items，则使用volumeMount方式在容器内的目录下为每个item都生成一个文件名为key的文件。
+
+​	Pod配置文件cm-test-app.yaml的内容如下：
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cm-test-app
+spec:
+  containers:
+  - name: cm-test-app
+    image: kubeguide/tomcat-app:v1
+    imagePullPolicy: Never
+    ports:
+    - containerPort: 8080
+    volumeMounts:
+    - name: serverxml
+      mountPath: /configfiles
+  volumes:
+  - name: serverxml
+    configMap:
+      name: cm-appconfigfiles
+```
+
+### 3.5.4　使用ConfigMap的限制条件
+
+使用ConfigMap的限制条件如下。
+
+* ConfigMap必须在Pod之前创建，Pod才能引用它。
+* 如果Pod使用envFrom基于ConfigMap定义环境变量，则无效的环境变量名称（例如名称以数字开头）将被忽略，并在事件中被记录为InvalidVariableNames。
+* ConfigMap受命名空间限制，只有处于相同命名空间中的Pod才
+  可以引用它。
+* ConfigMap无法用于静态Pod。
