@@ -9,13 +9,14 @@ where a.constraint_name='SYS_C0044117'
 # oracle修改序列当前值
 
 ```sql
-SELECT CM_COURSE_FORMAT_S.NEXTVAL FROM DUAL;
-SELECT MAX(TO_NUMBER(UNIQUEID)) FROM CM_COURSE_FORMAT;
+SELECT CM_COURSE_CONFIG_MODULE_S.NEXTVAL FROM DUAL;
 
-39250
-alter sequence CM_COURSE_FORMAT_S increment by 10,869;
-SELECT CM_COURSE_FORMAT_S.NEXTVAL FROM DUAL;
-alter sequence CM_COURSE_FORMAT_S increment by 1;
+SELECT MAX(TO_NUMBER(UNIQUEID))  FROM KRIM_ROLE_PERM_T WHERE CM_COURSE_CONFIG_MODULE;
+111111772 - 111111791
+
+alter sequence KRIM_ROLE_PERM_ID_S increment by 112,491;
+SELECT KRIM_ROLE_PERM_ID_S.NEXTVAL FROM DUAL;
+alter sequence KRIM_ROLE_PERM_ID_S increment by 1;
 
 ```
 
@@ -66,8 +67,31 @@ START WITH 1000
     maxvalue 10000000000;
 ```
 
-DELETE FROM UNITIME_INSTRUCTOR;
-DELETE FROM  KRIM_ENTITY_T;
-DELETE FROM  KRIM_ENTITY_ENT_TYP_T;
-DELETE FROM KRIM_PRNCPL_T;
-DELETE FROM KRIM_ROLE_MBR_T;
+## 创建表空间
+
+select file#,status,name from v$datafile;
+
+```
+create tablespace tab_name
+datafile 'ccibe'
+size n
+[autoextend on next n1 maxsize m /of]
+
+create tablespace CCIBE datafile 'C:\SOFT\DB\ORACLE\ORADATA\ORCL\CCIBE.DBF' size 5G autoextend on next 1G maxsize unlimited;
+
+create user CCIBE  identified by cquisse default tablespace CCIBE
+grant connect,resource,dba to CCIBE;
+```
+
+# 查询序列创建
+
+```sql
+select 'create sequence '||sequence_name||  
+       ' minvalue '||min_value||  
+       ' maxvalue '||max_value||  
+       ' start with '||last_number||  
+       ' increment by '||increment_by||  
+       (case when cache_size=0 then ' nocache' else ' cache '||cache_size end) ||';'  --这个是实时的Sequence
+from user_sequences 
+```
+
