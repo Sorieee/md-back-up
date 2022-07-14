@@ -1914,3 +1914,377 @@ spec:
 * ConfigMap受命名空间限制，只有处于相同命名空间中的Pod才
   可以引用它。
 * ConfigMap无法用于静态Pod。
+
+## 3.6　在容器内获取Pod信息（Downward API）
+
+Downward API可以通过以下两种方式将Pod和容器的元数据信息注入容器内部。
+（1）环境变量：将Pod或Container信息设置为容器内的环境变量。
+（2）Volume挂载：将Pod或Container信息以文件的形式挂载到容器内部。
+
+### 3.6.1　环境变量方式
+
+1）将Pod信息设置为容器内的环境变量
+	下面的例子通过Downward API将Pod的IP、名称和所在命名空间注入容器的环境变量中，Pod的YAML文件内容如下：
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dapi-envars-fieldref
+spec:
+  containers:
+    - name: test-container
+      image: busybox
+      command: [ "sh", "-c"]
+      args:
+      - while true; do
+          echo -en '\n';
+          printenv MY_NODE_NAME MY_POD_NAME MY_POD_NAMESPACE;
+          printenv MY_POD_IP MY_POD_SERVICE_ACCOUNT;
+          sleep 10;
+        done;
+      env:
+        - name: MY_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: MY_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: MY_POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: MY_POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: MY_POD_SERVICE_ACCOUNT
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.serviceAccountName
+  restartPolicy: Never
+```
+
+​	注意，环境变量不直接设置value，而是设置valueFrom对Pod的元数据进行引用。
+​	在本例中通过对Downward API的设置使用了以下Pod的元数据信息设置环境变量。
+◎　spec.nodeName：Pod所在Node的名称。
+◎　metadata.name：Pod名称。
+◎　metadata.namespace：Pod所在命名空间的名称。
+◎　status.podIP：Pod的IP地址。
+◎　spec.serviceAccountName：Pod使用的ServiceAccount名称。
+​	运行kubectl create命令创建这个Pod：
+
+```sh
+kubectl create -f dapi.envars-pod.yaml
+```
+
+在本例中通过Downward API将以下Container的资源限制信息设置
+为环境变量。
+◎　requests.cpu：容器的CPU请求值。
+◎　limits.cpu：容器的CPU限制值。
+◎　requests.memory：容器的内存请求值。
+◎　limits.memory：容器的内存限制值。
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dapi-envars-resourcefieldref
+spec:
+  containers:
+    - name: test-container
+      image: busybox
+      imagePullPolicy: Never
+      command: [ "sh", "-c"]
+      args:
+      - while true; do
+          echo -en '\n';
+          printenv MY_CPU_REQUEST MY_CPU_LIMIT;
+          printenv MY_MEM_REQUEST MY_MEM_LIMIT;
+          sleep 10;
+        done;
+      args:
+      - while true; do
+          echo -en '\n';
+          printenv MY_CPU_REQUEST MY_CPU_LIMIT;
+          printenv MY_MEM_REQUEST MY_MEM_LIMIT;
+          sleep 3600;
+        done;
+      resources:
+        requests:
+          memory: "32Mi"
+          cpu: "125m"
+        limits:
+          memory: "64Mi"
+          cpu: "250m"
+      env:
+        - name: MY_CPU_REQUEST
+          valueFrom:
+            resourceFieldRef:
+              containerName: test-container
+              resource: requests.cpu
+        - name: MY_CPU_LIMIT
+          valueFrom:
+            resourceFieldRef:
+              containerName: test-container
+              resource: limits.cpu
+        - name: MY_MEM_REQUEST
+          valueFrom:
+            resourceFieldRef:
+              containerName: test-container
+              resource: requests.memory
+        - name: MY_MEM_LIMIT
+          valueFrom:
+            resourceFieldRef:
+              containerName: test-container
+              resource: limits.memory
+  restartPolicy: Never
+```
+
+### 3.6.2　Volume挂载方式
+
+通过Volume挂载方式可以将Pod信息或Container信息挂载为容器内的文件，下面通过两个例子进行说明。
+1）将Pod信息挂载为容器内的文件
+	下面的例子通过Downward API将Pod的Label、Annotation信息通过Volume挂载为容器中的文件：
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kubernetes-downwardapi-volume-example
+  labels:
+    zone: us-est-coast
+    cluster: test-cluster1
+    rack: rack-22
+  annotations:
+    build: two
+    builder: john-doe
+spec:
+  containers:
+    - name: client-container
+      image: busybox
+      command: ["sh", "-c"]
+      args:
+      - while true; do
+          if [[ -e /etc/podinfo/labels ]]; then
+            echo -en '\n\n'; cat /etc/podinfo/labels; fi;
+          if [[ -e /etc/podinfo/annotations ]]; then
+            echo -en '\n\n'; cat /etc/podinfo/annotations; fi;
+          sleep 5;
+        done;
+      volumeMounts:
+        - name: podinfo
+          mountPath: /etc/podinfo
+  volumes:
+    - name: podinfo
+      downwardAPI:
+        items:
+          - path: "labels"
+            fieldRef:
+              fieldPath: metadata.labels
+          - path: "annotations"
+            fieldRef:
+              fieldPath: metadata.annotations
+```
+
+​	在Pod的volumes字段中使用Downward API的方法：通过fieldRef字段设置需要引用Pod的元数据信息，将其设置到volume的items中。在本例中使用了以下Pod元数据信息。
+◎　metadata.labels：Pod的Label列表。
+◎　metadata.namannotations：Pod的Annotation列表。
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kubernetes-downwardapi-volume-example-2
+spec:
+  containers:
+    - name: client-container
+      image: busybox
+      command: ["sh", "-c"]
+      args:
+      - while true; do
+          echo -en '\n';
+          if [[ -e /etc/podinfo/cpu_limit ]]; then
+            echo -en '\n'; cat /etc/podinfo/cpu_limit; fi;
+          if [[ -e /etc/podinfo/cpu_request ]]; then
+            echo -en '\n'; cat /etc/podinfo/cpu_request; fi;
+          if [[ -e /etc/podinfo/mem_limit ]]; then
+            echo -en '\n'; cat /etc/podinfo/mem_limit; fi;
+          if [[ -e /etc/podinfo/mem_request ]]; then
+            echo -en '\n'; cat /etc/podinfo/mem_request; fi;
+          sleep 5;
+        done;
+      resources:
+        requests:
+          memory: "32Mi"
+          cpu: "125m"
+        limits:
+          memory: "64Mi"
+          cpu: "250m"
+      volumeMounts:
+        - name: podinfo
+          mountPath: /etc/podinfo
+  volumes:
+    - name: podinfo
+      downwardAPI:
+        items:
+          - path: "cpu_limit"
+            resourceFieldRef:
+              containerName: client-container
+              resource: limits.cpu
+              divisor: 1m
+          - path: "cpu_request"
+            resourceFieldRef:
+              containerName: client-container
+              resource: requests.cpu
+              divisor: 1m
+          - path: "mem_limit"
+            resourceFieldRef:
+              containerName: client-container
+              resource: limits.memory
+              divisor: 1Mi
+          - path: "mem_request"
+            resourceFieldRef:
+              containerName: client-container
+              resource: requests.memory
+              divisor: 1Mi
+```
+
+### 3.6.3　Downward API支持设置的Pod和Container信息
+
+Downward API支持设置的Pod和Container信息如下。
+1）可以通过fieldRef设置的元数据如下。
+◎　metadata.name：Pod名称。
+◎　metadata.namespace：Pod所在的命名空间名称。
+◎　metadata.uid：Pod的UID，从Kubernetes 1.8.0-alpha.2版本开始
+支持。
+◎　metadata.labels[`<KEY>`]：Pod某个Label的值，通过`<KEY>`进
+行引用，从Kubernetes 1.9版本开始支持。
+◎　metadata.annotations[`<KEY>`]：Pod某个Annotation的值，通过
+`<KEY>`进行引用，从Kubernetes 1.9版本开始支持。
+2）可以通过resourceFieldRef设置的数据如下。
+◎　Container级别的CPU Limit。
+◎　Container级别的CPU Request。
+◎　Container级别的Memory Limit。
+◎　Container级别的Memory Request。
+◎　Container级别的临时存储空间（ephemeral-storage）Limit，从
+Kubernetes 1.8.0-beta.0版本开始支持。
+◎　Container级别的临时存储空间（ephemeral-storage）Request，从Kubernetes 1.8.0-beta.0版本开始支持。
+
+3）对以下信息通过fieldRef字段进行设置。
+
+◎　metadata.labels：Pod的Label列表，每个Label都以key为文件
+名，value为文件内容，每个Label各占一行。
+◎　metadata.namannotations：Pod的Annotation列表，每个Annotation都以key为文件名，value为文件内容，每个Annotation各占一行。
+4）以下Pod的元数据信息可以被设置为容器内的环境变量。
+◎　status.podIP：Pod的IP地址。
+◎　spec.serviceAccountName：Pod使用的ServiceAccount名称。
+◎　spec.nodeName：Pod所在Node的名称，从Kubernetes 1.4.0-alpha.3版本开始支持。
+
+## 3.7　Pod生命周期和重启策略
+
+![](https://pic.imgdb.cn/item/62b66b2a0947543129c9a97d.jpg)
+
+Pod的重启策略包括Always、OnFailure和Never，默认值为Always。
+◎　Always：当容器失效时，由kubelet自动重启该容器。
+◎　OnFailure：当容器终止运行且退出码不为0时，由kubelet自动
+重启该容器。
+◎　Never：不论容器运行状态如何，kubelet都不会重启该容器。
+
+​	kubelet重启失效容器的时间间隔以sync-frequency乘以2n来计算，例如1、2、4、8倍等，最长延时5min，并且在成功重启后的10min后重置该时间。
+
+​	Pod的重启策略与控制方式息息相关，当前可用于管理Pod的控制器包括ReplicationController、Job、DaemonSet，还可以通过kubelet管理（静态Pod）。每种控制器对Pod的重启策略要求如下。
+
+◎　RC和DaemonSet：必须设置为Always，需要保证该容器持续运行。
+
+◎　Job：OnFailure或Never，确保容器执行完成后不再重启。
+◎　kubelet：在Pod失效时自动重启它，不论将RestartPolicy设置为什么值，也不会对Pod进行健康检查。
+
+![](https://pic.imgdb.cn/item/62b66c8b0947543129cb0944.jpg)
+
+## 3.8　Pod健康检查和服务可用性检查
+
+（1）LivenessProbe探针：用于判断容器是否存活（Running状态），如果LivenessProbe探针探测到容器不健康，则kubelet将“杀掉”该容器，并根据容器的重启策略做相应的处理。如果一个容器不包含LivenessProbe探针，那么kubelet认为该容器的LivenessProbe探针返回的值永远是Success。
+
+（2）ReadinessProbe探针：用于判断容器服务是否可用（Ready状态），达到Ready状态的Pod才可以接收请求。对于被Service管理的Pod，Service与Pod Endpoint的关联关系也将基于Pod是否Ready进行设置。如果在运行过程中Ready状态变为False，则系统自动将其从Service的后端Endpoint列表中隔离出去，后续再把恢复到Ready状态的Pod加回后端Endpoint列表。这样就能保证客户端在访问Service时不会被转发到服务不可用的Pod实例上。需要注意的是，ReadinessProbe也是定期触发执行的，存在于Pod的整个生命周期中。
+
+（3）StartupProbe探针：某些应用会遇到启动比较慢的情况，例如应用程序启动时需要与远程服务器建立网络连接，或者遇到网络访问较慢等情况时，会造成容器启动缓慢，此时ReadinessProbe就不适用了，因为这属于“有且仅有一次”的超长延时，可以通过StartupProbe探针解决该问题。
+
+以上探针均可配置以下三种实现方式。
+（1）ExecAction：在容器内部运行一个命令，如果该命令的返回码为0，则表明容器健康。在下面的例子中，通过运行cat/tmp/health命令来判断一个容器运行是否正常。在该Pod运行后，将在创建/tmp/health文件10s后删除该文件，而LivenessProbe健康检查的初始探测时间（initialDelaySeconds）为15s，探测结果是Fail，将导致kubelet“杀掉”该容器并重启它：
+
+```yaml
+# exec
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    test: liveness
+  name: liveness-exec
+spec:
+  containers:
+  - name: liveness
+    image: gcr.io/google_containers/busybox
+    args:
+    - /bin/sh
+    - -c
+    - echo ok > /tmp/health; sleep 10; rm -rf /tmp/health; sleep 600
+    livenessProbe:
+      exec:
+        command:
+        - cat
+        - /tmp/health
+      initialDelaySeconds: 15
+      timeoutSeconds: 1
+```
+
+（2）TCPSocketAction：通过容器的IP地址和端口号执行TCP检
+查，如果能够建立TCP连接，则表明容器健康。在下面的例子中，通过与容器内的localhost：80建立TCP连接进行健康检查：
+
+```yaml
+# tcpsocket
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-with-healthcheck
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+    ports:
+    - containerPort: 80
+    livenessProbe:
+      tcpSocket:
+        port: 80
+      initialDelaySeconds: 30
+      timeoutSeconds: 1
+```
+
+（3）HTTPGetAction：通过容器的IP地址、端口号及路径调用HTTP Get方法，如果响应的状态码大于等于200且小于400，则认为容器健康。
+
+```yaml
+# http
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-with-healthcheck
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+    ports:
+    - containerPort: 80
+    livenessProbe:
+      httpGet:
+        path: /_status/healthz
+        port: 80
+      initialDelaySeconds: 30
+      timeoutSeconds: 1
+
+```
+
