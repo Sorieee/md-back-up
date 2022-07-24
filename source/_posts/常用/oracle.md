@@ -36,6 +36,19 @@ create index idx_address on
 employee(address);
 ```
 
+# 创建序列
+
+```sql
+CREATE SEQUENCE TEST_TAB 
+INCREMENT BY 1 
+START WITH 1
+MINVALUE 0  
+NOCYCLE 
+CACHE 20
+```
+
+
+
 # 建表
 
 ```sql
@@ -66,6 +79,10 @@ create sequence TT_TIMETABLE_RELEASE_S
 START WITH 1000
     maxvalue 10000000000;
 ```
+
+## 创建序列
+
+
 
 ## 创建表空间
 
