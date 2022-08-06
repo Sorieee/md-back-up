@@ -1,8 +1,8 @@
 # Windows
 
 ```sh
-netstat -aon|findstr "10070"
+netstat -aon|findstr "10089"
 tasklist|findstr "28944"
-taskkill -pid 28944 -f 
+taskkill -pid 23852 -f 
 ```
 
