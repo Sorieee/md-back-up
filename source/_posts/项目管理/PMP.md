@@ -319,3 +319,209 @@ data、information、knowledge、wisdom
 ![](https://pic.imgdb.cn/item/62ee0a348c61dc3b8e1960f9.jpg)
 
 ![](https://pic.imgdb.cn/item/62ee0a758c61dc3b8e1a79b2.jpg)
+
+### 组织级项目管理(OPM)和战略
+
+![](https://pic.imgdb.cn/item/62f70b0216f2c2beb16c4b43.jpg)
+
+项目和公司战略要契合。
+
+### 使命、愿景、价值观
+
+![](https://pic.imgdb.cn/item/62f70c2916f2c2beb16f6a59.jpg)
+
+### 项目、组织与战略规划
+
+![](https://pic.imgdb.cn/item/62f70d2516f2c2beb1722b45.jpg)
+
+SWOT矩阵
+
+![](https://pic.imgdb.cn/item/62f70de616f2c2beb1744b75.jpg)
+
+### 项目管理与组织
+
+![](https://pic.imgdb.cn/item/62f711c016f2c2beb17f64bc.jpg)	
+
+**示例**
+
+![](https://pic.imgdb.cn/item/62f711f216f2c2beb17ff0e8.jpg)
+
+### 相关方/干系人
+
+![](https://pic.imgdb.cn/item/62f7125416f2c2beb1810939.jpg)
+
+#### 管理的五项基本职能
+
+组织、计划、协调、控制、领导
+
+### PM能力模型
+
+![](https://pic.imgdb.cn/item/62f7152e16f2c2beb18a3318.jpg)
+
+#### 领导思维
+
+![](https://pic.imgdb.cn/item/62f716d416f2c2beb18f66cd.jpg)
+
+**Think Bigger**
+
+![](https://pic.imgdb.cn/item/62f7171816f2c2beb1903d71.jpg)
+
+#### 领导力风格
+
+![](https://pic.imgdb.cn/item/62f7178416f2c2beb191b1c2.jpg)
+
+### 组织变革的障碍
+
+![](https://pic.imgdb.cn/item/62f7235b16f2c2beb1b5d89f.jpg)
+
+### 应对组织变革
+
+![](https://pic.imgdb.cn/item/62f723a916f2c2beb1b6c6e5.jpg)
+
+### 管理和领导力
+
+![](https://pic.imgdb.cn/item/62f7245f16f2c2beb1b9160d.jpg)
+
+### 项目职权的种类
+
+![](https://pic.imgdb.cn/item/62f724ea16f2c2beb1baba67.jpg)
+
+### 项目经理的人际关系影响
+
+![](https://pic.imgdb.cn/item/62f725a416f2c2beb1bd15c4.jpg)
+
+### 项目合规管理定义
+
+![](https://pic.imgdb.cn/item/62f7260e16f2c2beb1be6a61.jpg)
+
+![](https://pic.imgdb.cn/item/62f7262e16f2c2beb1bed7db.jpg)
+
+# 项目管理体系
+
+![](https://pic.imgdb.cn/item/62f7272416f2c2beb1c1ebd8.jpg)
+
+![](https://pic.imgdb.cn/item/62f7273d16f2c2beb1c2413c.jpg)
+
+![](https://pic.imgdb.cn/item/62f727b316f2c2beb1c3ce17.jpg)
+
+## 项目管理的五大过程组
+
+![](https://pic.imgdb.cn/item/62f727df16f2c2beb1c45d4b.jpg)
+
+![](https://pic.imgdb.cn/item/62f732a016f2c2beb1e9f851.jpg)
+
+## 过程组的相互作用
+
+![](https://pic.imgdb.cn/item/62f7330c16f2c2beb1eb8f76.jpg)
+
+## 项目边界
+
+![](https://pic.imgdb.cn/item/62f7336216f2c2beb1ecc8c5.jpg)
+
+## 启动过程组定义
+
+![](https://pic.imgdb.cn/item/62f733dc16f2c2beb1ee8261.jpg)
+
+## 启动过程组任务
+
+![](https://pic.imgdb.cn/item/62f7347416f2c2beb1f0b7dd.jpg)
+
+## 49个过程
+
+### 制定项目章程
+
+![](https://pic.imgdb.cn/item/62f734e016f2c2beb1f24ffd.jpg)
+
+![](https://pic.imgdb.cn/item/62f7352916f2c2beb1f36dba.jpg)
+
+![](https://pic.imgdb.cn/item/62f7358616f2c2beb1f4cdcf.jpg)
+
+![](https://pic.imgdb.cn/item/62f735a616f2c2beb1f540c4.jpg)
+
+![](https://pic.imgdb.cn/item/62f735cf16f2c2beb1f5d748.jpg)
+
+![](https://pic.imgdb.cn/item/62f735f016f2c2beb1f65720.jpg)
+
+![](https://pic.imgdb.cn/item/62f7361116f2c2beb1f6cab9.jpg)
+
+![](https://pic.imgdb.cn/item/62f7362316f2c2beb1f70f1e.jpg)
+
+![](https://pic.imgdb.cn/item/62f7363d16f2c2beb1f7713d.jpg)
+
+#### 项目选择指标
+
+![](https://pic.imgdb.cn/item/62f736fd16f2c2beb1fa2a5f.jpg)
+
+#### 成本消息分析法	
+
+![](https://pic.imgdb.cn/item/62f737a116f2c2beb1fc6249.jpg)
+
+##### 净现值-NPV
+
+![](https://pic.imgdb.cn/item/62f737cc16f2c2beb1fcfc50.jpg)
+
+![](https://pic.imgdb.cn/item/62f7382e16f2c2beb1fe6277.jpg)
+
+![](https://pic.imgdb.cn/item/62f7386516f2c2beb1ff30be.jpg)
+
+##### 内部报酬率
+
+![](https://pic.imgdb.cn/item/62f7395716f2c2beb1029352.jpg)
+
+##### 投资回报率-ROI
+
+![](https://pic.imgdb.cn/item/62f739cd16f2c2beb104174b.jpg)
+
+![](https://pic.imgdb.cn/item/62f73a6216f2c2beb106185e.jpg)
+
+##### 效益成本比- BCR
+
+![](https://pic.imgdb.cn/item/62f73a8a16f2c2beb106a127.jpg)
+
+![](https://pic.imgdb.cn/item/62f73a9816f2c2beb106cf04.jpg)
+
+##### 回收期-PBP
+
+![](https://pic.imgdb.cn/item/62f73aba16f2c2beb10743ee.jpg)
+
+![](https://pic.imgdb.cn/item/62f73afb16f2c2beb10825e8.jpg)
+
+##### 输入:项目协议
+
+![](https://pic.imgdb.cn/item/62f73b6516f2c2beb109a745.jpg)
+
+##### 工具与技术:会议管理
+
+![](https://pic.imgdb.cn/item/62f73bac16f2c2beb10aa024.jpg)
+
+### 识别相关方
+
+![](https://pic.imgdb.cn/item/62f73cd616f2c2beb10edcbd.jpg)
+
+#### 输出：相关方/干系人登记册
+
+![](https://pic.imgdb.cn/item/62f73cee16f2c2beb10f2ac4.jpg)
+
+#### 工具与技术: 相关方分析
+
+![](https://pic.imgdb.cn/item/62f73d6516f2c2beb110d329.jpg)
+
+#### 工具与技术: 相关方映射分析/表现
+
+![](https://pic.imgdb.cn/item/62f73dc216f2c2beb1121a0f.jpg)
+
+![](https://pic.imgdb.cn/item/62f73dd016f2c2beb1124c9e.jpg)
+
+![](https://pic.imgdb.cn/item/62f73f4e16f2c2beb118019a.jpg)
+
+#### 合同类型
+
+![](https://pic.imgdb.cn/item/62f73f7d16f2c2beb118af0b.jpg)
+
+![](https://pic.imgdb.cn/item/62f73fa616f2c2beb1194bea.jpg)
+
+![](https://pic.imgdb.cn/item/62f76b0016f2c2beb1b820c4.jpg)
+
+![](https://pic.imgdb.cn/item/62f76c2e16f2c2beb1bc5e21.jpg)
+
+![](https://pic.imgdb.cn/item/62f76c4b16f2c2beb1bcb8f3.jpg)
