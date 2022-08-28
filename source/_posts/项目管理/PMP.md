@@ -525,3 +525,117 @@ SWOT矩阵
 ![](https://pic.imgdb.cn/item/62f76c2e16f2c2beb1bc5e21.jpg)
 
 ![](https://pic.imgdb.cn/item/62f76c4b16f2c2beb1bcb8f3.jpg)
+
+### 规划过程组
+
+![](https://pic.imgdb.cn/item/630b736916f2c2beb18c270b.jpg)
+
+#### 规划过程组任务
+
+![](https://pic.imgdb.cn/item/630b73c116f2c2beb18c72e3.jpg)
+
+#### 项目不确定性和复杂性
+
+![](https://pic.imgdb.cn/item/630b741616f2c2beb18cad22.jpg)
+
+#### 数据流向图-4.2制定项目管理计划
+
+![](https://pic.imgdb.cn/item/630b745d16f2c2beb18cddd6.jpg)
+
+![](https://pic.imgdb.cn/item/630b747f16f2c2beb18cfb0f.jpg)
+
+#### 项目管理计划组成
+
+![](https://pic.imgdb.cn/item/630b74bc16f2c2beb18d2c0f.jpg)
+
+#### 项目管理计划和项目文件
+
+![](https://pic.imgdb.cn/item/630b755c16f2c2beb18dca5b.jpg)
+
+![](https://pic.imgdb.cn/item/630b757c16f2c2beb18e47b2.jpg)
+
+![](https://pic.imgdb.cn/item/630b75a416f2c2beb18e81d5.jpg)
+
+![](https://pic.imgdb.cn/item/630b75f916f2c2beb18ec17c.jpg)
+
+![](https://pic.imgdb.cn/item/630b765816f2c2beb18f0643.jpg)
+
+![](https://pic.imgdb.cn/item/630b768f16f2c2beb18f336e.jpg)
+
+![](https://pic.imgdb.cn/item/630b76c216f2c2beb18f6041.jpg)
+
+![](https://pic.imgdb.cn/item/630b770e16f2c2beb18fa7aa.jpg)
+
+![](https://pic.imgdb.cn/item/630b771d16f2c2beb18fb987.jpg)
+
+#### 需求分类
+
+![](https://pic.imgdb.cn/item/630b776216f2c2beb18ff422.jpg)
+
+![](https://pic.imgdb.cn/item/630b779216f2c2beb190198b.jpg)
+
+![](https://pic.imgdb.cn/item/630b77bb16f2c2beb1904dbe.jpg)
+
+![](https://pic.imgdb.cn/item/630b77d216f2c2beb1906b61.jpg)
+
+![](https://pic.imgdb.cn/item/630b77ed16f2c2beb1908c54.jpg)![](https://pic.imgdb.cn/item/630b77fa16f2c2beb190984a.jpg)
+
+![](https://pic.imgdb.cn/item/630b784516f2c2beb190d0b5.jpg)
+
+![](https://pic.imgdb.cn/item/630b785916f2c2beb190db82.jpg)
+
+![](https://pic.imgdb.cn/item/630b786616f2c2beb190e157.jpg)
+
+![](https://pic.imgdb.cn/item/630b787416f2c2beb190ea56.jpg)
+
+![](https://pic.imgdb.cn/item/630b788016f2c2beb190f604.jpg)
+
+![](https://pic.imgdb.cn/item/630b788b16f2c2beb190fd70.jpg)
+
+![](https://pic.imgdb.cn/item/630b78cf16f2c2beb19130cd.jpg)
+
+![](https://pic.imgdb.cn/item/630b78e116f2c2beb1913fb6.jpg)
+
+![](https://pic.imgdb.cn/item/630b78ee16f2c2beb1914abc.jpg)
+
+![](https://pic.imgdb.cn/item/630b78fc16f2c2beb1915b71.jpg)
+
+![](https://pic.imgdb.cn/item/630b794d16f2c2beb191b6b8.jpg)![](https://pic.imgdb.cn/item/630b795d16f2c2beb191c44f.jpg)
+
+![](https://pic.imgdb.cn/item/630b796d16f2c2beb191d063.jpg)
+
+![](https://pic.imgdb.cn/item/630b798116f2c2beb191e2e1.jpg)
+
+![](https://pic.imgdb.cn/item/630b798b16f2c2beb191ee01.jpg)
+
+![](https://pic.imgdb.cn/item/630b79a016f2c2beb191ff6c.jpg)
+
+![](https://pic.imgdb.cn/item/630b79af16f2c2beb1920ef2.jpg)
+
+![](https://pic.imgdb.cn/item/630b79c416f2c2beb192271a.jpg)
+
+![](https://pic.imgdb.cn/item/630b79d116f2c2beb1923390.jpg)
+
+![](https://pic.imgdb.cn/item/630b79e016f2c2beb1924477.jpg)
+
+#### 质量功能展开图QFD
+
+![](https://pic.imgdb.cn/item/630b79f016f2c2beb1925738.jpg)
+
+#### 创建WBS
+
+![](https://pic.imgdb.cn/item/630b7a2d16f2c2beb1928ce0.jpg)
+
+![](https://pic.imgdb.cn/item/630b7a3a16f2c2beb19293c0.jpg)
+
+![](https://pic.imgdb.cn/item/630b7a5a16f2c2beb192af89.jpg)
+
+![](https://pic.imgdb.cn/item/630b7a7d16f2c2beb192cfe3.jpg)
+
+![](https://pic.imgdb.cn/item/630b7a7116f2c2beb192c506.jpg)
+
+![](https://pic.imgdb.cn/item/630b7a9416f2c2beb192e3bf.jpg)
+
+![](https://pic.imgdb.cn/item/630b7aa316f2c2beb192f026.jpg)
+
+![](https://pic.imgdb.cn/item/630b7ab316f2c2beb1930025.jpg)
