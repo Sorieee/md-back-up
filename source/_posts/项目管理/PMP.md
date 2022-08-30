@@ -639,3 +639,71 @@ SWOT矩阵
 ![](https://pic.imgdb.cn/item/630b7aa316f2c2beb192f026.jpg)
 
 ![](https://pic.imgdb.cn/item/630b7ab316f2c2beb1930025.jpg)
+
+#### 规划进度管理
+
+![](https://pic.imgdb.cn/item/630e1bb816f2c2beb12e5056.jpg)
+
+![](https://pic.imgdb.cn/item/630e1be416f2c2beb12e67c4.jpg)
+
+#### 定义活动
+
+![](https://pic.imgdb.cn/item/630e1c4816f2c2beb12e9d38.jpg)
+
+![](https://pic.imgdb.cn/item/630e1c7c16f2c2beb12ebaa5.jpg)
+
+![](https://pic.imgdb.cn/item/630e1cea16f2c2beb12f02f2.jpg)
+
+![](https://pic.imgdb.cn/item/630e1d1d16f2c2beb12f1d7b.jpg)
+
+#### 排序活动顺序
+
+![](https://pic.imgdb.cn/item/630e1d9016f2c2beb12f5d5c.jpg)
+
+![](https://pic.imgdb.cn/item/630e1d9916f2c2beb12f62c5.jpg)
+
+![](https://pic.imgdb.cn/item/630e1dda16f2c2beb12f86e5.jpg)
+
+![](https://pic.imgdb.cn/item/630e1e0816f2c2beb12fa084.jpg)
+
+![](https://pic.imgdb.cn/item/630e1e2616f2c2beb12fb088.jpg)
+
+![](https://pic.imgdb.cn/item/630e1e6816f2c2beb12fd6f8.jpg)
+
+![](https://pic.imgdb.cn/item/630e1f4316f2c2beb1305328.jpg)
+
+
+
+
+
+![](https://pic.imgdb.cn/item/630e1f5116f2c2beb1305d42.jpg)
+
+
+
+#### 估算活动资源
+
+![](https://pic.imgdb.cn/item/630e1f2916f2c2beb1304584.jpg)
+
+![](https://pic.imgdb.cn/item/630e1f7d16f2c2beb1307cec.jpg)
+
+![](https://pic.imgdb.cn/item/630e1f8a16f2c2beb130853e.jpg)
+
+#### 估算活动持续时间
+
+![](https://pic.imgdb.cn/item/630e1f9a16f2c2beb13090b0.jpg)
+
+![](https://pic.imgdb.cn/item/630e1faf16f2c2beb130a401.jpg)
+
+![](https://pic.imgdb.cn/item/630e1fc616f2c2beb130c270.jpg)
+
+![](https://pic.imgdb.cn/item/630e1fe616f2c2beb130e61c.jpg)
+
+![](https://pic.imgdb.cn/item/630e1ffc16f2c2beb130f934.jpg)
+
+![](https://pic.imgdb.cn/item/630e204216f2c2beb13126bb.jpg)
+
+![](https://pic.imgdb.cn/item/630e206f16f2c2beb13141e7.jpg)
+
+![](https://pic.imgdb.cn/item/630e209216f2c2beb13153cb.jpg)
+
+![](https://pic.imgdb.cn/item/630e20f916f2c2beb1318ee0.jpg)
