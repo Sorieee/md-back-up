@@ -835,3 +835,41 @@ SWOT矩阵
 ![](https://pic.imgdb.cn/item/6314c1cb16f2c2beb1993dcd.jpg)
 
 ![](https://pic.imgdb.cn/item/6314c1d416f2c2beb1994858.jpg)
+
+## 规划沟通管理
+
+![](https://pic.imgdb.cn/item/6315ff5b16f2c2beb1b6de0f.jpg)
+
+![](https://pic.imgdb.cn/item/6315ff7816f2c2beb1b6f942.jpg)
+
+![](https://pic.imgdb.cn/item/6315ff8a16f2c2beb1b70db1.jpg)
+
+![](https://pic.imgdb.cn/item/6315ff9f16f2c2beb1b722a8.jpg)
+
+![](https://pic.imgdb.cn/item/6315ffae16f2c2beb1b73337.jpg)
+
+![](https://pic.imgdb.cn/item/6315ffbe16f2c2beb1b74399.jpg)
+
+## 规划风险管理
+
+![](https://pic.imgdb.cn/item/6315ffd516f2c2beb1b75d8e.jpg)
+
+![](https://pic.imgdb.cn/item/6315ffe616f2c2beb1b76db5.jpg)
+
+![](https://pic.imgdb.cn/item/6315fff416f2c2beb1b77c97.jpg)
+
+![](https://pic.imgdb.cn/item/6316000316f2c2beb1b78c52.jpg)
+
+![](https://pic.imgdb.cn/item/6316002316f2c2beb1b7afb9.jpg)
+
+概率和影响
+
+![](https://pic.imgdb.cn/item/631601af16f2c2beb1ba11a0.jpg)
+
+![](https://pic.imgdb.cn/item/631601d016f2c2beb1ba337b.jpg)
+
+![](https://pic.imgdb.cn/item/631601df16f2c2beb1ba43eb.jpg)
+
+![](https://pic.imgdb.cn/item/631601ea16f2c2beb1ba51cc.jpg)
+
+![](https://pic.imgdb.cn/item/631601f916f2c2beb1ba6208.jpg)
