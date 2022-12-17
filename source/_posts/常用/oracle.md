@@ -3,20 +3,20 @@
 ```sql
 select a.constraint_name,a.constraint_type,b.column_name,b.table_name
 from user_constraints a inner join user_cons_columns b on a.table_name=b.table_name
-where a.constraint_name='SYS_C0044117'
+where a.constraint_name='SYS_C0028653'
 ```
 
 # oracle修改序列当前值
 
 ```sql
 SELECT TT_CLASS_TIMETABLE_INSTR_S.NEXTVAL FROM DUAL;
-191658
-SELECT MAX(TO_NUMBER(TT_CLASS_TIMETABLE_INSTR))  FROM UNITIME_CLASS_INSTRUCTOR;
-191774 - 54147
 
-alter sequence TT_CLASS_TIMETABLE_INSTR_S increment by 137627;
-SELECT TT_CLASS_TIMETABLE_INSTR_S.NEXTVAL FROM DUAL;
-alter sequence TT_CLASS_TIMETABLE_INSTR_S increment by 1;
+SELECT MAX(TO_NUMBER(TT_CLASS_TIMETABLE_INSTR))  FROM UNITIME_CLASS_INSTRUCTOR;
+
+
+alter sequence CM_PREREQUISITE_COURSE_S increment by 6400;
+SELECT CM_PREREQUISITE_COURSE_S.NEXTVAL FROM DUAL;
+alter sequence CM_PREREQUISITE_COURSE_S increment by 1;
 
 ```
 
@@ -52,30 +52,31 @@ CACHE 20
 # 建表
 
 ```sql
-create table TT_TIMETABLE_RELEASE
-(
-  UNIQUEID      varchar2(30) not null, 
-  RELEASED    varchar2(1) not null,
-	SESSION_ID VARCHAR2(30) NOT NULL,
-	DEGREE_TYPE VARCHAR2(20) not null,
-	UPDATE_TIME DATE DEFAULT SYSDATE not null
+CREATE TABLE UT_OFFERING_EXAM_FORM(
+    UNIQUEID VARCHAR2(30) NOT NULL,
+    OBJ_ID VARCHAR2(36) NOT NULL,
+    COURSE_OFFERING_ID VARCHAR2(30) NOT NULL,
+    EXAM_FORM VARCHAR2(255) NOT NULL,
+    EXAM_TYPE VARCHAR2(255) NOT NULL,
+    CREATE_BY VARCHAR2(32),
+    CREATE_TIME DATE NOT NULL,
+    UPDATE_BY VARCHAR2(32),
+    UPDATE_TIME DATE NOT NULL,
+    PRIMARY KEY (UNIQUEID)
 );
 
-comment on table TT_TIMETABLE_RELEASE 
-  is '课表发布表';
-comment on column TT_TIMETABLE_RELEASE.RELEASED
-  is '已发布(Y)/未发布(N)';
-comment on column TT_TIMETABLE_RELEASE.SESSION_ID
-  is '学期id';
-comment on column TT_TIMETABLE_RELEASE.DEGREE_TYPE
-  is '本科/研究生';
-comment on column TT_TIMETABLE_RELEASE.UPDATE_TIME
-  is '保存时间';
+COMMENT ON TABLE UT_OFFERING_EXAM_FORM IS '考试组织形式';
+COMMENT ON COLUMN UT_OFFERING_EXAM_FORM.UNIQUEID IS 'ID';
+COMMENT ON COLUMN UT_OFFERING_EXAM_FORM.COURSE_OFFERING_ID IS '开课课程id';
+COMMENT ON COLUMN UT_OFFERING_EXAM_FORM.EXAM_FORM IS '考试形式;1 线下，2 线上，3 线上加线下';
+COMMENT ON COLUMN UT_OFFERING_EXAM_FORM.EXAM_TYPE IS '考试类型;正考、补考、缓考';
+COMMENT ON COLUMN UT_OFFERING_EXAM_FORM.CREATE_BY IS '创建人';
+COMMENT ON COLUMN UT_OFFERING_EXAM_FORM.CREATE_TIME IS '创建时间';
+COMMENT ON COLUMN UT_OFFERING_EXAM_FORM.UPDATE_BY IS '更新人';
+COMMENT ON COLUMN UT_OFFERING_EXAM_FORM.UPDATE_TIME IS '更新时间';
+
 	
- alter table TT_TIMETABLE_RELEASE
-  add constraint pk_TT_TIMETABLE_RELEASE_id primary key (UNIQUEID);
-	
-create sequence TT_TIMETABLE_RELEASE_S
+create UT_OFFERING_EXAM_FORM_S
 START WITH 1000
     maxvalue 10000000000;
 ```
@@ -112,3 +113,18 @@ select 'create sequence '||sequence_name||
 from user_sequences 
 ```
 
+# 视图
+
+
+
+# 回滚数据
+
+```sql
+alter table CLIENT_DETAILS enable row movement;
+
+FLASHBACK TABLE CLIENT_DETAILS TO timestamp to_timestamp('2020-8-28 09:30:00' , 'yyyy-mm-dd hh24:mi:ss');
+
+ALTER TABLE CLIENT_DETAILS DISABLE ROW MOVEMENT;
+
+select uniqueid, NVL(RELEASE_FLAG, 'N') RELEASE_FLAG from EXAM_ITEM_TASK as of timestamp to_Date('2022-10-20 13:30:00', 'yyyy-mm-dd hh24:mi:ss')
+```
