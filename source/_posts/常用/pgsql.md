@@ -56,4 +56,3 @@ cn.uni.common.util.exception.UniException
 ```sql
 COMMENT ON TABLE uni_message_config IS '消息配置';
 ```
-
