@@ -426,9 +426,9 @@ SWOT矩阵
 
 ![](https://pic.imgdb.cn/item/62f7347416f2c2beb1f0b7dd.jpg)
 
-## 49个过程
 
-### 制定项目章程
+
+## 制定项目章程
 
 ![](https://pic.imgdb.cn/item/62f734e016f2c2beb1f24ffd.jpg)
 
@@ -494,7 +494,7 @@ SWOT矩阵
 
 ![](https://pic.imgdb.cn/item/62f73bac16f2c2beb10aa024.jpg)
 
-### 识别相关方
+## 识别相关方
 
 ![](https://pic.imgdb.cn/item/62f73cd616f2c2beb10edcbd.jpg)
 
@@ -526,7 +526,7 @@ SWOT矩阵
 
 ![](https://pic.imgdb.cn/item/62f76c4b16f2c2beb1bcb8f3.jpg)
 
-### 规划过程组
+## 规划过程组
 
 ![](https://pic.imgdb.cn/item/630b736916f2c2beb18c270b.jpg)
 
@@ -639,3 +639,237 @@ SWOT矩阵
 ![](https://pic.imgdb.cn/item/630b7aa316f2c2beb192f026.jpg)
 
 ![](https://pic.imgdb.cn/item/630b7ab316f2c2beb1930025.jpg)
+
+#### 规划进度管理
+
+![](https://pic.imgdb.cn/item/630e1bb816f2c2beb12e5056.jpg)
+
+![](https://pic.imgdb.cn/item/630e1be416f2c2beb12e67c4.jpg)
+
+#### 定义活动
+
+![](https://pic.imgdb.cn/item/630e1c4816f2c2beb12e9d38.jpg)
+
+![](https://pic.imgdb.cn/item/630e1c7c16f2c2beb12ebaa5.jpg)
+
+![](https://pic.imgdb.cn/item/630e1cea16f2c2beb12f02f2.jpg)
+
+![](https://pic.imgdb.cn/item/630e1d1d16f2c2beb12f1d7b.jpg)
+
+#### 排序活动顺序
+
+![](https://pic.imgdb.cn/item/630e1d9016f2c2beb12f5d5c.jpg)
+
+![](https://pic.imgdb.cn/item/630e1d9916f2c2beb12f62c5.jpg)
+
+![](https://pic.imgdb.cn/item/630e1dda16f2c2beb12f86e5.jpg)
+
+![](https://pic.imgdb.cn/item/630e1e0816f2c2beb12fa084.jpg)
+
+![](https://pic.imgdb.cn/item/630e1e2616f2c2beb12fb088.jpg)
+
+![](https://pic.imgdb.cn/item/630e1e6816f2c2beb12fd6f8.jpg)
+
+![](https://pic.imgdb.cn/item/630e1f4316f2c2beb1305328.jpg)
+
+
+
+
+
+![](https://pic.imgdb.cn/item/630e1f5116f2c2beb1305d42.jpg)
+
+
+
+#### 估算活动资源
+
+![](https://pic.imgdb.cn/item/630e1f2916f2c2beb1304584.jpg)
+
+![](https://pic.imgdb.cn/item/630e1f7d16f2c2beb1307cec.jpg)
+
+![](https://pic.imgdb.cn/item/630e1f8a16f2c2beb130853e.jpg)
+
+#### 估算活动持续时间
+
+![](https://pic.imgdb.cn/item/630e1f9a16f2c2beb13090b0.jpg)
+
+![](https://pic.imgdb.cn/item/630e1faf16f2c2beb130a401.jpg)
+
+![](https://pic.imgdb.cn/item/630e1fc616f2c2beb130c270.jpg)
+
+![](https://pic.imgdb.cn/item/630e1fe616f2c2beb130e61c.jpg)
+
+![](https://pic.imgdb.cn/item/630e1ffc16f2c2beb130f934.jpg)
+
+![](https://pic.imgdb.cn/item/630e204216f2c2beb13126bb.jpg)
+
+![](https://pic.imgdb.cn/item/630e206f16f2c2beb13141e7.jpg)
+
+![](https://pic.imgdb.cn/item/630e209216f2c2beb13153cb.jpg)
+
+![](https://pic.imgdb.cn/item/630e20f916f2c2beb1318ee0.jpg)
+
+#### 制定进度计划
+
+![](https://pic.imgdb.cn/item/6314ba5e16f2c2beb18fe17f.jpg)
+
+![](https://pic.imgdb.cn/item/6314baaa16f2c2beb1903b51.jpg)
+
+![](https://pic.imgdb.cn/item/6314bab716f2c2beb1904a8e.jpg)
+
+![](https://pic.imgdb.cn/item/6314bac216f2c2beb1905708.jpg)
+
+![](https://pic.imgdb.cn/item/6314bae316f2c2beb1907b82.jpg)
+
+![](https://pic.imgdb.cn/item/6314baf616f2c2beb1908f0f.jpg)
+
+![](https://pic.imgdb.cn/item/6314bb5516f2c2beb190f57b.jpg)
+
+![](https://pic.imgdb.cn/item/6314bb8b16f2c2beb1912ea4.jpg)
+
+![](https://pic.imgdb.cn/item/6314bbbc16f2c2beb1916218.jpg)
+
+![](https://pic.imgdb.cn/item/6314bbe516f2c2beb19194f0.jpg)
+
+![](https://pic.imgdb.cn/item/6314bc2416f2c2beb191dd31.jpg)
+
+![](https://pic.imgdb.cn/item/6314bc7016f2c2beb1923161.jpg)
+
+![](https://pic.imgdb.cn/item/6314bc7a16f2c2beb1923bd8.jpg)
+
+![](https://pic.imgdb.cn/item/6314bc8816f2c2beb1924b29.jpg)
+
+![](https://pic.imgdb.cn/item/6314bcf416f2c2beb192c19c.jpg)
+
+![](https://pic.imgdb.cn/item/6314bd2716f2c2beb192fba5.jpg)
+
+![](https://pic.imgdb.cn/item/6314bd2f16f2c2beb193065f.jpg)
+
+![](https://pic.imgdb.cn/item/6314bd4216f2c2beb1931dbd.jpg)
+
+![](https://pic.imgdb.cn/item/6314bd9116f2c2beb1939619.jpg)
+
+![](https://pic.imgdb.cn/item/6314bdb416f2c2beb193c93d.jpg)
+
+#### 成本类型
+
+![](https://pic.imgdb.cn/item/6314bdb416f2c2beb193c93d.jpg)
+
+![](https://pic.imgdb.cn/item/6314be4716f2c2beb1952852.jpg)
+
+![](https://pic.imgdb.cn/item/6314be5716f2c2beb1953adc.jpg)
+
+![](https://pic.imgdb.cn/item/6314be6716f2c2beb1954cdc.jpg)
+
+![](https://pic.imgdb.cn/item/6314be7916f2c2beb1956192.jpg)
+
+![](https://pic.imgdb.cn/item/6314be8916f2c2beb19574cf.jpg)
+
+![](https://pic.imgdb.cn/item/6314bea516f2c2beb195965d.jpg)
+
+![](https://pic.imgdb.cn/item/6314beb316f2c2beb195a792.jpg)
+
+![](https://pic.imgdb.cn/item/6314bec016f2c2beb195b758.jpg)
+
+![](https://pic.imgdb.cn/item/6314becf16f2c2beb195c9b7.jpg)
+
+![](https://pic.imgdb.cn/item/6314bef116f2c2beb195f3c6.jpg)
+
+## 质量管理
+
+![](https://pic.imgdb.cn/item/6314bf2816f2c2beb1962f95.jpg)
+
+![](https://pic.imgdb.cn/item/6314bf4716f2c2beb1965586.jpg)
+
+![](https://pic.imgdb.cn/item/6314bf5516f2c2beb1966617.jpg)
+
+![](https://pic.imgdb.cn/item/6314bf5e16f2c2beb19670bf.jpg)
+
+![](https://pic.imgdb.cn/item/6314bf6c16f2c2beb1968267.jpg)
+
+### 规划质量管理
+
+![](https://pic.imgdb.cn/item/6314bf9616f2c2beb196b53d.jpg)
+
+![](https://pic.imgdb.cn/item/6314bfa416f2c2beb196c619.jpg)
+
+![](https://pic.imgdb.cn/item/6314bfae16f2c2beb196d216.jpg)
+
+![](https://pic.imgdb.cn/item/6314bfcf16f2c2beb196facb.jpg)
+
+![](https://pic.imgdb.cn/item/6314bfe116f2c2beb1971134.jpg)
+
+![](https://pic.imgdb.cn/item/6314bfe916f2c2beb1971b70.jpg)
+
+![](https://pic.imgdb.cn/item/6314bff216f2c2beb197268e.jpg)
+
+![](https://pic.imgdb.cn/item/6314c00316f2c2beb197396b.jpg)
+
+![](https://pic.imgdb.cn/item/6314c00f16f2c2beb197476c.jpg)
+
+![](https://pic.imgdb.cn/item/6314c02616f2c2beb1976541.jpg)
+
+![](https://pic.imgdb.cn/item/6314c03416f2c2beb197750a.jpg)
+
+![](https://pic.imgdb.cn/item/6314c04a16f2c2beb1978cdf.jpg)
+
+![](https://pic.imgdb.cn/item/6314c07116f2c2beb197b58c.jpg)
+
+![](https://pic.imgdb.cn/item/6314c11116f2c2beb1986710.jpg)
+
+![](https://pic.imgdb.cn/item/6314c13116f2c2beb1988be6.jpg)
+
+![](https://pic.imgdb.cn/item/6314c15816f2c2beb198b815.jpg)
+
+![](https://pic.imgdb.cn/item/6314c16616f2c2beb198c8f6.jpg)
+
+## 规划资源管理
+
+![](https://pic.imgdb.cn/item/6314c17016f2c2beb198d602.jpg)
+
+![](https://pic.imgdb.cn/item/6314c1aa16f2c2beb1991883.jpg)
+
+![](https://pic.imgdb.cn/item/6314c1b216f2c2beb199216e.jpg)
+
+![](https://pic.imgdb.cn/item/6314c1bf16f2c2beb1993076.jpg)
+
+![](https://pic.imgdb.cn/item/6314c1cb16f2c2beb1993dcd.jpg)
+
+![](https://pic.imgdb.cn/item/6314c1d416f2c2beb1994858.jpg)
+
+## 规划沟通管理
+
+![](https://pic.imgdb.cn/item/6315ff5b16f2c2beb1b6de0f.jpg)
+
+![](https://pic.imgdb.cn/item/6315ff7816f2c2beb1b6f942.jpg)
+
+![](https://pic.imgdb.cn/item/6315ff8a16f2c2beb1b70db1.jpg)
+
+![](https://pic.imgdb.cn/item/6315ff9f16f2c2beb1b722a8.jpg)
+
+![](https://pic.imgdb.cn/item/6315ffae16f2c2beb1b73337.jpg)
+
+![](https://pic.imgdb.cn/item/6315ffbe16f2c2beb1b74399.jpg)
+
+## 规划风险管理
+
+![](https://pic.imgdb.cn/item/6315ffd516f2c2beb1b75d8e.jpg)
+
+![](https://pic.imgdb.cn/item/6315ffe616f2c2beb1b76db5.jpg)
+
+![](https://pic.imgdb.cn/item/6315fff416f2c2beb1b77c97.jpg)
+
+![](https://pic.imgdb.cn/item/6316000316f2c2beb1b78c52.jpg)
+
+![](https://pic.imgdb.cn/item/6316002316f2c2beb1b7afb9.jpg)
+
+概率和影响
+
+![](https://pic.imgdb.cn/item/631601af16f2c2beb1ba11a0.jpg)
+
+![](https://pic.imgdb.cn/item/631601d016f2c2beb1ba337b.jpg)
+
+![](https://pic.imgdb.cn/item/631601df16f2c2beb1ba43eb.jpg)
+
+![](https://pic.imgdb.cn/item/631601ea16f2c2beb1ba51cc.jpg)
+
+![](https://pic.imgdb.cn/item/631601f916f2c2beb1ba6208.jpg)
